@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Database, 
   CheckCircle2, 
@@ -14,7 +14,14 @@ import {
   FileCode, 
   Activity, 
   ArrowRight,
-  Server
+  Server,
+  CloudUpload,
+  CloudDownload,
+  FileJson,
+  Upload,
+  Download,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { 
   supabaseUrl, 
@@ -32,7 +39,7 @@ export const SupabaseAdminPage: React.FC = () => {
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedRlsPatch, setCopiedRlsPatch] = useState(false);
-  const [activeTab, setActiveTab] = useState<'verification' | 'endToEnd' | 'schemaSql' | 'rlsPatch'>('verification');
+  const [activeTab, setActiveTab] = useState<'verification' | 'syncBackup' | 'endToEnd' | 'schemaSql' | 'rlsPatch'>('verification');
   
   // End-to-end test state
   const [isTestingFlow, setIsTestingFlow] = useState(false);
@@ -41,6 +48,21 @@ export const SupabaseAdminPage: React.FC = () => {
   // Full SQL state
   const [combinedSql, setCombinedSql] = useState<string>('');
   const [loadingSql, setLoadingSql] = useState(false);
+
+  // Cloud Sync & Backup state
+  const [isPushingCloud, setIsPushingCloud] = useState(false);
+  const [pushProgress, setPushProgress] = useState<{ text: string; percent: number }>({ text: '', percent: 0 });
+  const [pushMessage, setPushMessage] = useState<{ success: boolean; text: string } | null>(null);
+
+  const [isPullingCloud, setIsPullingCloud] = useState(false);
+  const [pullMessage, setPullMessage] = useState<{ success: boolean; text: string } | null>(null);
+
+  const [backupMessage, setBackupMessage] = useState<{ success: boolean; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const reportsCount = store.getReports().length;
+  const statsCount = store.getAllStats().length;
+  const sourcesCount = store.getAllSources().length;
 
   // Run verifications on mount
   useEffect(() => {
@@ -265,6 +287,85 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
     setTimeout(() => setCopiedRlsPatch(false), 3000);
   };
 
+  const handlePushAllToCloud = async () => {
+    setIsPushingCloud(true);
+    setPushMessage(null);
+    setPushProgress({ text: 'Bắt đầu chuẩn bị dữ liệu...', percent: 5 });
+    try {
+      const res = await store.pushAllDataToSupabase((msg, pct) => {
+        setPushProgress({ text: msg, percent: pct });
+      });
+      setPushMessage({ success: res.success, text: res.message });
+      if (res.success) {
+        await handleRunVerifications();
+      }
+    } catch (err: any) {
+      setPushMessage({ success: false, text: `Lỗi kết nối: ${err.message}` });
+    } finally {
+      setIsPushingCloud(false);
+    }
+  };
+
+  const handlePullFromCloud = async () => {
+    setIsPullingCloud(true);
+    setPullMessage(null);
+    try {
+      const success = await store.syncWithSupabase();
+      if (success) {
+        setPullMessage({
+          success: true,
+          text: `Đã cập nhật dữ liệu mới nhất từ Supabase Cloud về trình duyệt này! (${store.getReports().length} báo cáo, ${store.getAllStats().length} số liệu thống kê)`,
+        });
+      } else {
+        setPullMessage({
+          success: false,
+          text: 'Không thể tải dữ liệu từ Supabase Cloud. Vui lòng kiểm tra lại kết nối.',
+        });
+      }
+    } catch (err: any) {
+      setPullMessage({ success: false, text: `Lỗi: ${err.message}` });
+    } finally {
+      setIsPullingCloud(false);
+    }
+  };
+
+  const handleExportBackupJson = () => {
+    try {
+      const jsonStr = store.exportFullDatabaseBackup();
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sao_luu_csdl_tthc_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackupMessage({
+        success: true,
+        text: 'Đã xuất file sao lưu CSDL (.json) thành công! Bạn có thể lưu giữ hoặc chuyển file này sang bất kỳ máy/trang web nào để nạp lại dữ liệu.',
+      });
+    } catch (e: any) {
+      setBackupMessage({ success: false, text: `Lỗi xuất file: ${e.message}` });
+    }
+  };
+
+  const handleImportBackupJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const res = store.importFullDatabaseBackup(content);
+        setBackupMessage({ success: res.success, text: res.message });
+        if (res.success) {
+          handlePushAllToCloud();
+        }
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const isRlsFailing = report && (!report.steps[4]?.passed || !report.steps[5]?.passed || !report.steps[6]?.passed);
 
   return (
@@ -374,6 +475,22 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
 
         <button
           type="button"
+          onClick={() => setActiveTab('syncBackup')}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'syncBackup'
+              ? 'border-emerald-600 text-emerald-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <CloudUpload className="w-4 h-4 text-emerald-600" />
+          <span className="flex items-center gap-1.5">
+            Đồng bộ Cloud & Sao lưu
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Quan trọng</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('endToEnd')}
           className={`pb-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'endToEnd'
@@ -426,6 +543,204 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
             <p className="text-xs text-amber-700 mt-1">
               Một số tiêu chí RLS hoặc Kiểm thử khép kín (E2E) đang báo thất bại. Điều này là do cấu hình chính sách bảo mật trên Supabase của bạn chưa đồng bộ. Hãy chuyển sang tab <button type="button" onClick={() => setActiveTab('rlsPatch')} className="underline font-bold text-amber-950 hover:text-amber-800">"Bản vá RLS Policies nhanh"</button> để lấy mã SQL vá lỗi chỉ với 1-click!
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Cloud Sync & Data Backup */}
+      {activeTab === 'syncBackup' && (
+        <div className="space-y-6">
+          {/* Summary Banner */}
+          <div className="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-xl p-6 text-white shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-800/80 text-blue-200 text-xs font-semibold mb-2">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  Trung tâm đồng bộ dữ liệu đa nền tảng
+                </div>
+                <h2 className="text-xl font-bold">Đồng bộ Supabase Cloud & Sao lưu dữ liệu</h2>
+                <p className="text-sm text-blue-200 mt-1 max-w-2xl">
+                  Giúp đưa toàn bộ dữ liệu số liệu báo cáo từ phiên làm việc này lên Cơ sở dữ liệu Supabase Cloud, để ứng dụng khi mở trên <strong>Netlify</strong> hoặc bất kỳ máy tính/thiết bị nào khác đều hiển thị đầy đủ số liệu.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 bg-white/10 backdrop-blur-xs p-3 rounded-xl border border-white/10 shrink-0">
+                <div className="text-center px-3 border-r border-white/20">
+                  <div className="text-xs text-blue-200 font-medium">Báo cáo</div>
+                  <div className="text-lg font-bold text-white">{reportsCount}</div>
+                </div>
+                <div className="text-center px-3 border-r border-white/20">
+                  <div className="text-xs text-blue-200 font-medium">Nguồn dữ liệu</div>
+                  <div className="text-lg font-bold text-white">{sourcesCount}</div>
+                </div>
+                <div className="text-center px-3">
+                  <div className="text-xs text-blue-200 font-medium">Dòng số liệu</div>
+                  <div className="text-lg font-bold text-emerald-300">{statsCount.toLocaleString('vi-VN')}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sync Actions Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Action Card 1: Push to Supabase Cloud */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                  <CloudUpload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    1. Đẩy toàn bộ dữ liệu lên Supabase Cloud
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Tải toàn bộ các kỳ báo cáo, nguồn dữ liệu và <strong>{statsCount.toLocaleString('vi-VN')} dòng số liệu thống kê</strong> đang có trong trình duyệt này lưu trực tiếp vào CSDL Supabase Cloud.
+                  </p>
+                </div>
+
+                {pushProgress.percent > 0 && isPushingCloud && (
+                  <div className="space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div className="flex justify-between text-xs text-slate-600 font-medium">
+                      <span>{pushProgress.text}</span>
+                      <span>{pushProgress.percent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${pushProgress.percent}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                {pushMessage && (
+                  <div className={`p-3 rounded-lg text-xs font-medium flex items-start gap-2 ${
+                    pushMessage.success
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border border-rose-200 text-rose-800'
+                  }`}>
+                    {pushMessage.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{pushMessage.text}</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePushAllToCloud}
+                disabled={isPushingCloud}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-xs disabled:opacity-50"
+              >
+                <CloudUpload className={`w-4 h-4 ${isPushingCloud ? 'animate-bounce' : ''}`} />
+                <span>{isPushingCloud ? 'Đang đẩy dữ liệu lên Cloud...' : 'Đẩy toàn bộ dữ liệu lên Supabase Cloud'}</span>
+              </button>
+            </div>
+
+            {/* Action Card 2: Pull from Supabase Cloud */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <CloudDownload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    2. Tải dữ liệu mới nhất từ Supabase Cloud về
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Đồng bộ và tải các số liệu báo cáo mới nhất đang được lưu trữ trên Supabase Cloud về trình duyệt hiện tại.
+                  </p>
+                </div>
+
+                {pullMessage && (
+                  <div className={`p-3 rounded-lg text-xs font-medium flex items-start gap-2 ${
+                    pullMessage.success
+                      ? 'bg-blue-50 border border-blue-200 text-blue-800'
+                      : 'bg-rose-50 border border-rose-200 text-rose-800'
+                  }`}>
+                    {pullMessage.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{pullMessage.text}</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePullFromCloud}
+                disabled={isPullingCloud}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-xs disabled:opacity-50"
+              >
+                <CloudDownload className={`w-4 h-4 ${isPullingCloud ? 'animate-spin' : ''}`} />
+                <span>{isPullingCloud ? 'Đang tải về...' : 'Tải dữ liệu từ Supabase về máy này'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Action Card 3: File Backup & Restore (Direct JSON transfer) */}
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
+                <FileJson className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Sao lưu & Phục hồi file dữ liệu (.JSON) trực tiếp
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tải file sao lưu toàn bộ số liệu về máy tính của bạn hoặc nạp nhanh file sao lưu vào trang Netlify mà không cần cấu hình mạng.
+                </p>
+              </div>
+            </div>
+
+            {backupMessage && (
+              <div className={`p-3 rounded-lg text-xs font-medium flex items-start gap-2 ${
+                backupMessage.success
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border border-rose-200 text-rose-800'
+              }`}>
+                {backupMessage.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <span>{backupMessage.text}</span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleExportBackupJson}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-xs"
+              >
+                <Download className="w-4 h-4" />
+                <span>Tải file Sao lưu (.JSON) về máy</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-semibold transition-colors shadow-xs"
+              >
+                <Upload className="w-4 h-4 text-slate-600" />
+                <span>Nạp file Sao lưu (.JSON) từ máy vào</span>
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportBackupJson}
+                className="hidden"
+              />
+            </div>
           </div>
         </div>
       )}

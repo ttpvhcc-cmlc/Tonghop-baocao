@@ -31,6 +31,18 @@ export const SEED_FIELDS: Array<Omit<Field, 'created_at' | 'updated_at' | 'unit'
 
 export const SEED_PERIODS: Array<Omit<ReportingPeriod, 'created_at' | 'updated_at'>> = [
   {
+    id: 'd0000000-0000-0000-0000-000000000000',
+    report_code: 'BC190926',
+    report_name: 'BC190926 - Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC',
+    report_type: 'monthly',
+    period_start: '2026-01-01',
+    period_end: '2026-02-28',
+    data_as_of: '2026-02-28T17:00:00Z',
+    status: 'validated',
+    created_by: 'Hệ thống',
+    notes: 'Kỳ báo cáo tổng hợp chuẩn hóa số liệu tiếp nhận, giải quyết TTHC toàn thành phố',
+  },
+  {
     id: 'd0000000-0000-0000-0000-000000000001',
     report_code: 'BC-2026-01',
     report_name: 'Báo cáo TTHC Tháng 01/2026',
