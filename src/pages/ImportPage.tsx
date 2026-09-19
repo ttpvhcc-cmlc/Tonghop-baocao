@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { store } from '../services/store';
 import {
   readWorkbook,
@@ -9,6 +9,8 @@ import {
   generateSampleExcelBuffer
 } from '../features/import/excelParser';
 import { formatNumber, getStatusBadge } from '../utils/format';
+import { Report, ReportType } from '../types/database';
+import { resolveLinhVuc } from '../utils/fieldResolver';
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -20,16 +22,26 @@ import {
   ArrowRight,
   RefreshCw,
   Layers,
-  Sparkles
+  Sparkles,
+  Plus,
+  BarChart3,
+  Eye,
+  Building2,
+  FolderKanban,
+  X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export const ImportPage: React.FC = () => {
-  const reports = useMemo(() => store.getReports(), []);
-  const units = useMemo(() => store.getUnits(), []);
-  const fields = useMemo(() => store.getFields(), []);
+  const [reports, setReports] = useState<Report[]>(store.getReports());
+  const [units, setUnits] = useState(store.getUnits());
+  const [fields, setFields] = useState(store.getFields());
 
-  const [selectedReportId, setSelectedReportId] = useState<string>(reports[0]?.id || '');
+  const [selectedReportId, setSelectedReportId] = useState<string>(() => {
+    const list = store.getReports();
+    return list[0]?.id || '';
+  });
+
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
@@ -37,10 +49,64 @@ export const ImportPage: React.FC = () => {
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1); // 1: Upload, 2: Mapping & Preview, 3: Success
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [importSuccessMessage, setImportSuccessMessage] = useState<string>('');
+  const [importSummary, setImportSummary] = useState<{
+    totalSaved: number;
+    reportCode: string;
+    reportName: string;
+    totalReceived: number;
+    totalOnline: number;
+    totalCompleted: number;
+    totalPending: number;
+  } | null>(null);
 
-  const selectedReport = useMemo(() => reports.find((r) => r.id === selectedReportId), [reports, selectedReportId]);
+  // Quick create report modal
+  const [showCreateReportModal, setShowCreateReportModal] = useState(false);
+  const [newReportCode, setNewReportCode] = useState('');
+  const [newReportName, setNewReportName] = useState('');
+  const [newReportType, setNewReportType] = useState<ReportType>('monthly');
+  const [newPeriodStart, setNewPeriodStart] = useState('2026-03-01');
+  const [newPeriodEnd, setNewPeriodEnd] = useState('2026-03-31');
+
+  useEffect(() => {
+    const refreshData = () => {
+      const currentReports = store.getReports();
+      setReports(currentReports);
+      setUnits(store.getUnits());
+      setFields(store.getFields());
+      if (!selectedReportId && currentReports.length > 0) {
+        setSelectedReportId(currentReports[0].id);
+      }
+    };
+    refreshData();
+    const unsub = store.subscribe(refreshData);
+    return () => unsub();
+  }, [selectedReportId]);
+
+  const selectedReport = useMemo(() => reports.find((r) => r.id === selectedReportId) || reports[0], [reports, selectedReportId]);
   const isLocked = selectedReport?.status === 'locked';
+
+  const handleCreateQuickReport = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReportCode.trim() || !newReportName.trim()) return;
+
+    try {
+      const created = store.createReport({
+        report_code: newReportCode.trim().toUpperCase(),
+        report_name: newReportName.trim(),
+        report_type: newReportType,
+        period_start: newPeriodStart,
+        period_end: newPeriodEnd,
+        data_as_of: new Date().toISOString(),
+        notes: `Tạo từ màn hình Import (${new Date().toLocaleDateString('vi-VN')})`,
+      });
+      setSelectedReportId(created.id);
+      setShowCreateReportModal(false);
+      setNewReportCode('');
+      setNewReportName('');
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi tạo kỳ báo cáo');
+    }
+  };
 
   // Handle File Upload
   const handleFileUpload = (file: File) => {
@@ -119,16 +185,83 @@ export const ImportPage: React.FC = () => {
     }
 
     try {
+      // Ensure all rows are mapped to a field (or auto-create the field if missing)
+      const allFields = store.getFields();
+      const preparedRows = parseResult.draftRows.map((row) => {
+        let fieldId = row.matchedFieldId;
+        let fieldName = resolveLinhVuc(row.matchedFieldName || row.rawFieldName, fieldId, allFields);
+        let unitId = row.unitId || '';
+        let unitName = row.unitName || 'Chưa gán đơn vị';
+
+        if (!fieldId) {
+          // Look if a field with the same name already exists in the store to avoid duplicates
+          const existing = allFields.find(
+            (f) =>
+              f.name.toLowerCase() === row.rawFieldName.toLowerCase() ||
+              f.linh_vuc?.toLowerCase() === row.rawFieldName.toLowerCase() ||
+              f.linh_vuc?.toLowerCase() === fieldName.toLowerCase()
+          );
+          if (existing) {
+            fieldId = existing.id;
+            fieldName = existing.linh_vuc || existing.name;
+            unitId = existing.unit_id || '';
+            const matchedUnit = store.getUnits().find((u) => u.id === unitId);
+            unitName = matchedUnit ? matchedUnit.name : 'Chưa gán đơn vị';
+          } else {
+            // Auto-create field
+            try {
+              // Generate a clean transliterated unique code
+              const cleanCode = row.rawFieldName
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-zA-Z0-9\s]/g, '')
+                .toUpperCase()
+                .split(/\s+/)
+                .map((w) => w.substring(0, 3))
+                .join('_');
+              const randSuffix = Math.floor(1000 + Math.random() * 9000);
+              const generatedCode = `${cleanCode.substring(0, 10)}_${randSuffix}`;
+
+              const newField = store.saveField({
+                code: generatedCode,
+                name: row.rawFieldName,
+                linh_vuc: fieldName,
+                unit_id: '',
+                display_order: store.getFields().length + 1,
+                active: true,
+              });
+              fieldId = newField.id;
+              fieldName = newField.linh_vuc || newField.name;
+              unitId = '';
+              unitName = 'Chưa gán đơn vị';
+            } catch (err) {
+              console.error('Error auto-creating field:', err);
+            }
+          }
+        }
+
+        return {
+          ...row,
+          matchedFieldId: fieldId,
+          matchedFieldName: fieldName,
+          unitId,
+          unitName,
+        };
+      });
+
       // Group rows by sourceName
-      const sourcesMap = new Map<string, ParsedStatisticDraft[]>();
-      parseResult.draftRows.forEach((row) => {
-        if (!row.matchedFieldId || !row.unitId) return; // Skip unmapped
+      const sourcesMap = new Map<string, typeof preparedRows>();
+      preparedRows.forEach((row) => {
         const group = sourcesMap.get(row.sourceName) || [];
         group.push(row);
         sourcesMap.set(row.sourceName, group);
       });
 
       let totalSaved = 0;
+      let totalReceived = 0;
+      let totalOnline = 0;
+      let totalCompleted = 0;
+      let totalPending = 0;
 
       sourcesMap.forEach((rows, sourceName) => {
         // Create or get source in store
@@ -138,34 +271,47 @@ export const ImportPage: React.FC = () => {
           src = store.addReportSource(selectedReportId, sourceName, fileName);
         }
 
-        const statRows = rows.map((r) => ({
-          field_id: r.matchedFieldId!,
-          field_name_snapshot: r.matchedFieldName!,
-          unit_id: r.unitId!,
-          unit_name_snapshot: r.unitName!,
-          received_total: r.received_total,
-          received_online: r.received_online,
-          received_offline: r.received_offline,
-          carried_forward: r.carried_forward,
-          completed_total: r.completed_total,
-          completed_early: r.completed_early,
-          completed_on_time: r.completed_on_time,
-          completed_late: r.completed_late,
-          pending_total: r.pending_total,
-          pending_on_time: r.pending_on_time,
-          pending_late: r.pending_late,
-          notes: r.hasDifference ? 'Tự động phát hiện chênh lệch nguồn khi import' : '',
-          validation_status: r.validationStatus,
-          validation_errors: r.validationErrors,
-        }));
+        const statRows = rows.map((r) => {
+          totalReceived += r.received_total || 0;
+          totalOnline += r.received_online || 0;
+          totalCompleted += r.completed_total || 0;
+          totalPending += r.pending_total || 0;
+
+          return {
+            field_id: r.matchedFieldId!,
+            field_name_snapshot: r.matchedFieldName!,
+            unit_id: r.unitId || '',
+            unit_name_snapshot: r.unitName || 'Chưa gán đơn vị',
+            received_total: r.received_total,
+            received_online: r.received_online,
+            received_offline: r.received_offline,
+            carried_forward: r.carried_forward,
+            completed_total: r.completed_total,
+            completed_early: r.completed_early,
+            completed_on_time: r.completed_on_time,
+            completed_late: r.completed_late,
+            pending_total: r.pending_total,
+            pending_on_time: r.pending_on_time,
+            pending_late: r.pending_late,
+            notes: r.hasDifference ? 'Tự động phát hiện chênh lệch nguồn khi import' : '',
+            validation_status: r.validationStatus,
+            validation_errors: r.validationErrors,
+          };
+        });
 
         store.saveReportStats(selectedReportId, src.id, statRows);
         totalSaved += statRows.length;
       });
 
-      setImportSuccessMessage(
-        `Nhập dữ liệu thành công! Đã lưu ${totalSaved} bản ghi thống kê vào kỳ "${selectedReport?.report_code}".`
-      );
+      setImportSummary({
+        totalSaved,
+        reportCode: selectedReport?.report_code || '',
+        reportName: selectedReport?.report_name || '',
+        totalReceived,
+        totalOnline,
+        totalCompleted,
+        totalPending,
+      });
       setActiveStep(3);
     } catch (err: any) {
       alert(err.message || 'Lỗi khi nhập dữ liệu');
@@ -211,30 +357,127 @@ export const ImportPage: React.FC = () => {
         </div>
 
         {/* Period Selector */}
-        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3">
-          <label className="text-xs font-semibold text-slate-700 whitespace-nowrap">
-            Chọn kỳ báo cáo đích:
-          </label>
-          <select
-            value={selectedReportId}
-            onChange={(e) => setSelectedReportId(e.target.value)}
-            disabled={activeStep === 2}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {reports.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.report_code} - {r.report_name} ({r.status.toUpperCase()})
-              </option>
-            ))}
-          </select>
+        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 flex-wrap">
+            <label className="text-xs font-semibold text-slate-700 whitespace-nowrap">
+              Chọn kỳ báo cáo đích:
+            </label>
+            <select
+              value={selectedReportId}
+              onChange={(e) => setSelectedReportId(e.target.value)}
+              disabled={activeStep === 2}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-md"
+            >
+              {reports.map((r) => {
+                const count = store.getStatsByReport(r.id).length;
+                return (
+                  <option key={r.id} value={r.id}>
+                    {r.report_code} - {r.report_name} ({count > 0 ? `${count} dòng số liệu` : 'Chưa có số liệu'})
+                  </option>
+                );
+              })}
+            </select>
 
-          {isLocked && (
-            <span className="text-xs text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md font-medium">
-              Báo cáo đã khóa — Không thể import
-            </span>
-          )}
+            <button
+              type="button"
+              onClick={() => setShowCreateReportModal(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tạo kỳ mới</span>
+            </button>
+
+            {isLocked && (
+              <span className="text-xs text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md font-medium">
+                Báo cáo đã khóa — Không thể import
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Quick Create Report Modal */}
+      {showCreateReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">Tạo kỳ báo cáo mới</h3>
+              <button
+                type="button"
+                onClick={() => setShowCreateReportModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateQuickReport} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mã báo cáo <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: BC-2026-03"
+                  value={newReportCode}
+                  onChange={(e) => setNewReportCode(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tên kỳ báo cáo <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Báo cáo TTHC Tháng 03/2026"
+                  value={newReportName}
+                  onChange={(e) => setNewReportName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Từ ngày</label>
+                  <input
+                    type="date"
+                    required
+                    value={newPeriodStart}
+                    onChange={(e) => setNewPeriodStart(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Đến ngày</label>
+                  <input
+                    type="date"
+                    required
+                    value={newPeriodEnd}
+                    onChange={(e) => setNewPeriodEnd(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateReportModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+                >
+                  Tạo & Chọn kỳ này
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* STEP 1: UPLOAD AREA */}
       {activeStep === 1 && (
@@ -349,8 +592,8 @@ export const ImportPage: React.FC = () => {
                 </span>
               )}
               {parseResult.unmappedFieldsCount > 0 && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 font-semibold border border-rose-200">
-                  {parseResult.unmappedFieldsCount} Chưa gán lĩnh vực
+                <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold border border-amber-200">
+                  {parseResult.unmappedFieldsCount} Chưa gán
                 </span>
               )}
 
@@ -368,9 +611,9 @@ export const ImportPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleConfirmImport}
-                disabled={isLocked || parseResult.unmappedFieldsCount > 0}
+                disabled={isLocked}
                 className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-sm transition-all ${
-                  isLocked || parseResult.unmappedFieldsCount > 0
+                  isLocked
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                     : 'bg-emerald-600 text-white hover:bg-emerald-700'
                 }`}
@@ -399,7 +642,6 @@ export const ImportPage: React.FC = () => {
                     <th className="p-2.5 font-semibold text-center w-10">Dòng</th>
                     <th className="p-2.5 font-semibold">Nguồn dữ liệu</th>
                     <th className="p-2.5 font-semibold min-w-[160px]">Lĩnh vực gốc (File)</th>
-                    <th className="p-2.5 font-semibold min-w-[200px]">Mapping Lĩnh vực chuẩn</th>
                     <th className="p-2.5 font-semibold">Đơn vị suy ra</th>
                     <th className="p-2.5 font-semibold text-right">Tổng TN</th>
                     <th className="p-2.5 font-semibold text-right">Trực tuyến</th>
@@ -415,8 +657,8 @@ export const ImportPage: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {parseResult.draftRows.map((row) => {
-                    const isWarning = row.validationStatus === 'warning';
-                    const isError = row.validationStatus === 'error' || !row.matchedFieldId;
+                    const isError = row.validationStatus === 'error';
+                    const isWarning = row.validationStatus === 'warning' || !row.matchedFieldId || !row.unitId;
 
                     return (
                       <tr
@@ -435,26 +677,6 @@ export const ImportPage: React.FC = () => {
                         </td>
                         <td className="p-2.5 text-slate-800 font-medium">
                           {row.rawFieldName}
-                        </td>
-
-                        {/* Mapping selector */}
-                        <td className="p-2.5">
-                          <select
-                            value={row.matchedFieldId || ''}
-                            onChange={(e) => handleFieldMapChange(row.rowNumber, e.target.value)}
-                            className={`w-full text-xs rounded border px-2 py-1 focus:outline-none ${
-                              row.matchedFieldId
-                                ? 'bg-white border-slate-300 text-slate-800'
-                                : 'bg-rose-100 border-rose-300 text-rose-800 font-bold'
-                            }`}
-                          >
-                            <option value="">-- Chưa ánh xạ --</option>
-                            {fields.map((f) => (
-                              <option key={f.id} value={f.id}>
-                                {f.name} ({f.unit?.name || 'Chưa gán'})
-                              </option>
-                            ))}
-                          </select>
                         </td>
 
                         {/* Inferred Unit */}
@@ -487,12 +709,12 @@ export const ImportPage: React.FC = () => {
                         {/* Validation Status Indicator */}
                         <td className="p-2.5 text-center">
                           {isError ? (
-                            <span className="inline-flex items-center gap-1 text-rose-600 font-bold text-[10px] bg-rose-100 px-2 py-0.5 rounded" title={row.validationErrors.map((e) => e.message).join('\n')}>
+                            <span className="inline-flex items-center gap-1 text-rose-600 font-bold text-[10px] bg-rose-100 px-2 py-0.5 rounded" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
                               <XCircle className="w-3.5 h-3.5" /> Lỗi
                             </span>
                           ) : isWarning ? (
-                            <span className="inline-flex items-center gap-1 text-amber-700 font-bold text-[10px] bg-amber-100 px-2 py-0.5 rounded" title={row.validationErrors.map((e) => e.message).join('\n')}>
-                              <AlertTriangle className="w-3.5 h-3.5" /> Lệch
+                            <span className="inline-flex items-center gap-1 text-amber-700 font-bold text-[10px] bg-amber-100 px-2 py-0.5 rounded" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
+                              <AlertTriangle className="w-3.5 h-3.5" /> {!row.matchedFieldId || !row.unitId ? 'Chưa gán' : 'Lệch'}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-[10px] bg-emerald-100 px-2 py-0.5 rounded">
@@ -512,34 +734,104 @@ export const ImportPage: React.FC = () => {
 
       {/* STEP 3: SUCCESS */}
       {activeStep === 3 && (
-        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center shadow-xs">
-          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="w-10 h-10" />
+        <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-xs">
+          <div className="text-center max-w-2xl mx-auto">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4 ring-8 ring-emerald-50">
+              <CheckCircle2 className="w-9 h-9" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900">
+              Nhập dữ liệu thành công!
+            </h3>
+            <p className="text-xs text-slate-600 mt-1">
+              Đã lưu <span className="font-bold text-slate-900">{importSummary?.totalSaved || 0}</span> dòng số liệu vào kỳ báo cáo <span className="font-bold text-blue-700">{importSummary?.reportCode} - {importSummary?.reportName}</span>.
+            </p>
           </div>
-          <h3 className="text-lg font-bold text-slate-900">
-            {importSuccessMessage}
-          </h3>
-          <p className="text-xs text-slate-500 mt-2 max-w-lg mx-auto">
-            Số liệu đã được tính toán công thức lại, lưu vết lịch sử trong Nhật ký (Audit Logs) và sẵn sàng hiển thị trên Tổng quan Dashboard và Báo cáo.
-          </p>
 
-          <div className="flex items-center justify-center gap-3 mt-6">
+          {/* Quick KPI Overview Cards */}
+          {importSummary && (
+            <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-4xl mx-auto">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Tổng tiếp nhận</span>
+                <span className="text-2xl font-bold font-mono text-slate-900 mt-1 block">
+                  {formatNumber(importSummary.totalReceived)}
+                </span>
+                <span className="text-[10px] text-blue-600 font-medium">
+                  {importSummary.totalReceived > 0 ? `${Math.round((importSummary.totalOnline / importSummary.totalReceived) * 100)}% trực tuyến` : '0%'}
+                </span>
+              </div>
+
+              <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 text-center">
+                <span className="text-[11px] font-semibold text-blue-700 uppercase tracking-wider block">Trực tuyến</span>
+                <span className="text-2xl font-bold font-mono text-blue-700 mt-1 block">
+                  {formatNumber(importSummary.totalOnline)}
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium">Hồ sơ online</span>
+              </div>
+
+              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 text-center">
+                <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider block">Đã giải quyết</span>
+                <span className="text-2xl font-bold font-mono text-emerald-700 mt-1 block">
+                  {formatNumber(importSummary.totalCompleted)}
+                </span>
+                <span className="text-[10px] text-emerald-600 font-medium">Đã xử lý xong</span>
+              </div>
+
+              <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4 text-center">
+                <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider block">Đang giải quyết</span>
+                <span className="text-2xl font-bold font-mono text-amber-700 mt-1 block">
+                  {formatNumber(importSummary.totalPending)}
+                </span>
+                <span className="text-[10px] text-amber-600 font-medium">Đang trong hạn</span>
+              </div>
+            </div>
+          )}
+
+          {/* Action Navigation Buttons */}
+          <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={() => {
                 setActiveStep(1);
                 setParseResult(null);
+                setImportSummary(null);
               }}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
             >
-              Nhập tiếp file khác
+              <RefreshCw className="w-4 h-4" />
+              <span>Nhập tiếp file khác</span>
             </button>
-            <a
-              href={`/reports/${selectedReportId}`}
-              className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs"
+
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-xs"
             >
-              Xem chi tiết báo cáo kỳ này
-            </a>
+              <BarChart3 className="w-4 h-4" />
+              <span>Xem Bảng điều khiển (Dashboard)</span>
+            </Link>
+
+            <Link
+              to={`/reports/${selectedReportId}`}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs"
+            >
+              <Eye className="w-4 h-4 text-slate-500" />
+              <span>Chi tiết Báo cáo & Thẩm định</span>
+            </Link>
+
+            <Link
+              to="/analysis/fields"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs"
+            >
+              <FolderKanban className="w-4 h-4 text-slate-500" />
+              <span>Phân tích Lĩnh vực</span>
+            </Link>
+
+            <Link
+              to="/analysis/units"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs"
+            >
+              <Building2 className="w-4 h-4 text-slate-500" />
+              <span>Phân tích Đơn vị</span>
+            </Link>
           </div>
         </div>
       )}

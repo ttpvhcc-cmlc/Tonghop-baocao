@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { store } from '../services/store';
 import { formatNumber, formatDate, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
+import { Report } from '../types/database';
 import {
   FileText,
   Plus,
@@ -14,16 +15,24 @@ import {
   Eye,
   Trash2,
   ShieldAlert,
-  Edit3
+  Edit3,
+  AlertTriangle,
+  X,
+  Loader2
 } from 'lucide-react';
 
 export const ReportsListPage: React.FC = () => {
-  const [reports, setReports] = useState(store.getReports());
+  const [reports, setReports] = useState<Report[]>(store.getReports());
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const currentUser = store.getCurrentUser();
   const [editingReport, setEditingReport] = useState<any>(null);
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [reportToLock, setReportToLock] = useState<Report | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [editFormData, setEditFormData] = useState<any>({
     report_code: '',
     report_name: '',
@@ -33,6 +42,14 @@ export const ReportsListPage: React.FC = () => {
     data_as_of: '',
     notes: '',
   });
+
+  useEffect(() => {
+    setReports(store.getReports());
+    const unsub = store.subscribe(() => {
+      setReports(store.getReports());
+    });
+    return () => unsub();
+  }, []);
 
   const toDatetimeLocal = (isoString?: string) => {
     if (!isoString) return '';
@@ -65,23 +82,57 @@ export const ReportsListPage: React.FC = () => {
       });
       setEditingReport(null);
       setReports(store.getReports());
+      setToast({
+        type: 'success',
+        text: `Đã cập nhật thông tin kỳ báo cáo "${editFormData.report_code}".`,
+      });
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi cập nhật báo cáo');
+      setToast({
+        type: 'error',
+        text: err.message || 'Lỗi khi cập nhật báo cáo',
+      });
     }
   };
 
-  const handleDeleteReport = (reportId: string, reportCode: string) => {
-    if (
-      window.confirm(
-        `XÁC NHẬN XÓA HOÀN TOÀN kỳ báo cáo "${reportCode}"?\n\nHành động này sẽ xóa vĩnh viễn kỳ báo cáo này cùng toàn bộ nguồn dữ liệu và số liệu thống kê đi kèm trên cả hệ thống và CSDL Supabase.\nHành động này không thể hoàn tác!`
-      )
-    ) {
-      try {
-        store.deleteReport(reportId);
-        setReports(store.getReports());
-      } catch (err: any) {
-        alert(err.message || 'Lỗi khi xóa báo cáo');
-      }
+  const handleConfirmDelete = async () => {
+    if (!reportToDelete) return;
+    setIsActionLoading(true);
+    try {
+      await store.deleteReport(reportToDelete.id);
+      setReports(store.getReports());
+      setToast({
+        type: 'success',
+        text: `Đã xóa hoàn toàn kỳ báo cáo "${reportToDelete.report_code}".`,
+      });
+      setReportToDelete(null);
+    } catch (err: any) {
+      setToast({
+        type: 'error',
+        text: err?.message || 'Có lỗi xảy ra khi xóa kỳ báo cáo.',
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleConfirmLock = async () => {
+    if (!reportToLock) return;
+    setIsActionLoading(true);
+    try {
+      store.updateReportStatus(reportToLock.id, 'locked', 'Khóa snapshot chính thức.');
+      setReports(store.getReports());
+      setToast({
+        type: 'success',
+        text: `Đã khóa thành công kỳ báo cáo "${reportToLock.report_code}". Snapshot bất biến đã được lưu.`,
+      });
+      setReportToLock(null);
+    } catch (err: any) {
+      setToast({
+        type: 'error',
+        text: err?.message || 'Có lỗi xảy ra khi khóa báo cáo.',
+      });
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
@@ -112,21 +163,35 @@ export const ReportsListPage: React.FC = () => {
     }
   };
 
-  const handleLockReport = (reportId: string) => {
-    const rep = reports.find((r) => r.id === reportId);
-    if (!rep) return;
-    if (
-      window.confirm(
-        `Bạn có chắc chắn muốn KHÓA (LOCKED) kỳ báo cáo "${rep.report_code}"?\n\nSau khi khóa, hệ thống sẽ lưu SNAPSHOT bất biến. Không ai có thể chỉnh sửa hoặc nhập đè số liệu!`
-      )
-    ) {
-      const updated = store.updateReportStatus(reportId, 'locked', 'Khóa snapshot chính thức.');
-      setReports(store.getReports());
-    }
-  };
-
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center justify-between shadow-xs animate-in fade-in slide-in-from-top-2 duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2 text-xs font-medium">
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{toast.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -288,8 +353,8 @@ export const ReportsListPage: React.FC = () => {
                           {!isLocked && (
                             <button
                               type="button"
-                              onClick={() => handleDeleteReport(rep.id, rep.report_code)}
-                              className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                              onClick={() => setReportToDelete(rep)}
+                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors"
                               title="Xóa kỳ báo cáo"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -308,8 +373,8 @@ export const ReportsListPage: React.FC = () => {
                           {!isLocked && currentUser.role === 'admin' && (
                             <button
                               type="button"
-                              onClick={() => handleLockReport(rep.id)}
-                              className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                              onClick={() => setReportToLock(rep)}
+                              className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors"
                               title="Khóa báo cáo (Tạo snapshot bất biến)"
                             >
                               <Lock className="w-4 h-4" />
@@ -366,7 +431,7 @@ export const ReportsListPage: React.FC = () => {
                   >
                     <option value="monthly">Báo cáo Tháng</option>
                     <option value="quarterly">Báo cáo Quý</option>
-                    <option value="yearly">Báo cáo Năm</option>
+                    <option value="annual">Báo cáo Năm</option>
                     <option value="ad_hoc">Chuyên đề / Đột xuất</option>
                   </select>
                 </div>
@@ -445,6 +510,148 @@ export const ReportsListPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {reportToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-rose-100 bg-rose-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-sm">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <span>Xác nhận xóa kỳ báo cáo</span>
+              </div>
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={() => setReportToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-slate-600">
+              <p>
+                Bạn có chắc chắn muốn xóa kỳ báo cáo <strong className="text-slate-900 font-bold">{reportToDelete.report_code}</strong> không?
+              </p>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700">
+                <div className="font-bold text-slate-900 text-sm">{reportToDelete.report_name}</div>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>
+                    {formatDate(reportToDelete.period_start)} → {formatDate(reportToDelete.period_end)}
+                  </span>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  Toàn bộ số liệu thống kê, biểu mẫu và nguồn dữ liệu đính kèm của kỳ này sẽ bị xóa hoàn toàn. Hành động này không thể hoàn tác!
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={() => setReportToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={handleConfirmDelete}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs transition-colors disabled:opacity-50"
+              >
+                {isActionLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Xác nhận xóa vĩnh viễn</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lock Confirmation Modal */}
+      {reportToLock && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <span>Khóa kỳ báo cáo (Tạo Snapshot)</span>
+              </div>
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={() => setReportToLock(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-slate-600">
+              <p>
+                Bạn có chắc chắn muốn khóa kỳ báo cáo <strong className="text-slate-900 font-bold">{reportToLock.report_code}</strong>?
+              </p>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700">
+                <div className="font-bold text-slate-900 text-sm">{reportToLock.report_name}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <span>
+                  Sau khi khóa, hệ thống sẽ lưu bản chụp Snapshot số liệu bất biến. Kỳ báo cáo sẽ không thể chỉnh sửa hay nhập đè dữ liệu.
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={() => setReportToLock(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isActionLoading}
+                onClick={handleConfirmLock}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs transition-colors disabled:opacity-50"
+              >
+                {isActionLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang khóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Xác nhận khóa</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

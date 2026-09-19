@@ -28,9 +28,15 @@ import {
   Layers,
   Save,
   Check,
-  XCircle
+  XCircle,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
+  Building2,
 } from 'lucide-react';
 import { ReportFieldStatistic } from '../types/database';
+import { resolveLinhVuc } from '../utils/fieldResolver';
 
 export const ReportDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -158,6 +164,99 @@ export const ReportDetailPage: React.FC = () => {
       return true;
     });
   }, [isEditingInline, editingStats, stats, sourceFilter, unitFilter]);
+
+  // Collapsible state for source groups
+  const [collapsedSources, setCollapsedSources] = useState<Record<string, boolean>>({});
+
+  const toggleSourceCollapse = (sourceId: string) => {
+    setCollapsedSources((prev) => ({
+      ...prev,
+      [sourceId]: !prev[sourceId],
+    }));
+  };
+
+  const expandAllSources = () => setCollapsedSources({});
+
+  const collapseAllSources = () => {
+    const all: Record<string, boolean> = {};
+    sources.forEach((src) => {
+      all[src.id] = true;
+    });
+    setCollapsedSources(all);
+  };
+
+  const toRoman = (num: number): string => {
+    const romans = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+    return romans[num] || String(num + 1);
+  };
+
+  // Group displayedStats by Source with automatic sorting (Hệ thống các Bộ -> Hệ thống thành phố)
+  const groupedStats = useMemo(() => {
+    const map = new Map<string, ReportFieldStatistic[]>();
+    displayedStats.forEach((s) => {
+      const list = map.get(s.source_id) || [];
+      list.push(s);
+      map.set(s.source_id, list);
+    });
+
+    const sourceKeys = Array.from(map.keys());
+    sourceKeys.sort((a, b) => {
+      const nameA = (sources.find((s) => s.id === a)?.source_name || a).toLowerCase();
+      const nameB = (sources.find((s) => s.id === b)?.source_name || b).toLowerCase();
+      if (nameA.includes('bộ') || nameA.includes('bo')) return -1;
+      if (nameB.includes('bộ') || nameB.includes('bo')) return 1;
+      return nameA.localeCompare(nameB);
+    });
+
+    return sourceKeys.map((srcId) => {
+      const items = map.get(srcId) || [];
+      const srcObj = sources.find((s) => s.id === srcId);
+      const sourceName = srcObj?.source_name || (srcId.toLowerCase().includes('bo') ? 'Hệ thống các Bộ' : 'Hệ thống thành phố');
+
+      let recTotal = 0, recOnline = 0, recOffline = 0, carried = 0;
+      let compTotal = 0, compEarly = 0, compOnTime = 0, compLate = 0;
+      let pendTotal = 0, pendOnTime = 0, pendLate = 0;
+
+      items.forEach((s) => {
+        recTotal += s.received_total;
+        recOnline += s.received_online;
+        recOffline += s.received_offline;
+        carried += s.carried_forward;
+        compTotal += s.completed_total;
+        compEarly += s.completed_early;
+        compOnTime += s.completed_on_time;
+        compLate += s.completed_late;
+        pendTotal += s.pending_total;
+        pendOnTime += s.pending_on_time;
+        pendLate += s.pending_late;
+      });
+
+      const onTimeRate = compTotal > 0
+        ? (((compEarly + compOnTime) / compTotal) * 100).toFixed(1) + '%'
+        : '100%';
+
+      return {
+        sourceId: srcId,
+        sourceName,
+        srcObj,
+        items,
+        subtotal: {
+          recTotal,
+          recOnline,
+          recOffline,
+          carried,
+          compTotal,
+          compEarly,
+          compOnTime,
+          compLate,
+          pendTotal,
+          pendOnTime,
+          pendLate,
+          onTimeRate,
+        },
+      };
+    });
+  }, [displayedStats, sources]);
 
   // Calculate totals
   const totalStats = useMemo(() => {
@@ -461,7 +560,7 @@ export const ReportDetailPage: React.FC = () => {
       {/* TAB 1: STATS TABLE */}
       {activeTab === 'stats' && (
         <div className="space-y-4">
-          {/* Filters */}
+          {/* Filters & Actions Bar */}
           <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-slate-500">Lọc Nguồn:</span>
@@ -471,7 +570,7 @@ export const ReportDetailPage: React.FC = () => {
                 disabled={isEditingInline}
                 className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 disabled:opacity-60"
               >
-                <option value="ALL">Tất cả nguồn dữ liệu</option>
+                <option value="ALL">Tất cả nguồn ({groupedStats.length} nhóm)</option>
                 {sources.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.source_name}
@@ -495,6 +594,28 @@ export const ReportDetailPage: React.FC = () => {
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Expand / Collapse All Quick Controls */}
+            <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
+              <button
+                type="button"
+                onClick={expandAllSources}
+                title="Mở rộng tất cả các nhóm nguồn"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                <ChevronsDown className="w-3.5 h-3.5 text-slate-600" />
+                <span>Mở rộng tất cả</span>
+              </button>
+              <button
+                type="button"
+                onClick={collapseAllSources}
+                title="Thu gọn tất cả các nhóm nguồn"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                <ChevronsUp className="w-3.5 h-3.5 text-slate-600" />
+                <span>Thu gọn tất cả</span>
+              </button>
             </div>
 
             {!isLocked && currentUser.role !== 'viewer' && (
@@ -540,16 +661,15 @@ export const ReportDetailPage: React.FC = () => {
             )}
           </div>
 
-          {/* Statistical Grid */}
+          {/* Statistical Grid with Collapsible Source Groups */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto max-h-[650px]">
+            <div className="overflow-x-auto max-h-[700px]">
               <table className="w-full text-xs text-left border-collapse">
-                <thead className="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-10 border-b border-slate-200 text-[11px]">
+                <thead className="bg-slate-100 text-slate-700 font-semibold sticky top-0 z-20 border-b border-slate-200 text-[11px]">
                   <tr>
-                    <th className="p-2.5 text-center w-10">STT</th>
-                    <th className="p-2.5 min-w-[140px]">Nguồn</th>
+                    <th className="p-2.5 text-center w-12">STT</th>
                     <th className="p-2.5 min-w-[130px]">Đơn vị</th>
-                    <th className="p-2.5 min-w-[160px]">Lĩnh vực giải quyết</th>
+                    <th className="p-2.5 min-w-[180px]">Lĩnh vực giải quyết</th>
                     <th className="p-2.5 text-right bg-blue-50/50">Tổng TN (3)</th>
                     <th className="p-2.5 text-right">Trực tuyến (4)</th>
                     <th className="p-2.5 text-right">Trực tiếp (5)</th>
@@ -565,191 +685,309 @@ export const ReportDetailPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {displayedStats.map((s, idx) => {
-                    const srcObj = sources.find((src) => src.id === s.source_id);
-                    const onTimeRate = s.completed_total > 0
-                      ? (((s.completed_early + s.completed_on_time) / s.completed_total) * 100).toFixed(1) + '%'
-                      : '100%';
-                    const hasWarn = s.validation_status === 'warning' || s.validation_status === 'error' || s.validation_errors?.length > 0;
+                  {groupedStats.length === 0 ? (
+                    <tr>
+                      <td colSpan={15} className="py-12 text-center text-slate-500 font-sans">
+                        Chưa có số liệu thống kê cho báo cáo này. Vui lòng bấm <strong>+ Nhập đè Excel mới</strong> để tải lên dữ liệu.
+                      </td>
+                    </tr>
+                  ) : (
+                    groupedStats.map((group, groupIndex) => {
+                      const isCollapsed = Boolean(collapsedSources[group.sourceId]);
+                      const romanNum = toRoman(groupIndex);
 
-                    return (
-                      <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${hasWarn ? 'bg-amber-50/40' : ''}`}>
-                        <td className="p-2.5 text-center text-slate-400 font-sans">{idx + 1}</td>
-                        <td className="p-2.5 font-sans font-medium text-slate-700">
-                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100">
-                            {srcObj?.source_name || s.source_id}
-                          </span>
-                        </td>
-                        <td className="p-2.5 font-sans font-semibold text-slate-700">{s.unit_name_snapshot}</td>
-                        <td className="p-2.5 font-sans font-medium text-slate-900">
-                          <div className="flex items-center gap-1.5">
-                            <span>{s.field_name_snapshot}</span>
-                            {hasWarn && (
-                              <span title={s.validation_errors.map((e: any) => e.message).join('\n')}>
-                                {s.validation_status === 'error' ? (
-                                  <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 inline" />
-                                ) : (
-                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 inline" />
-                                )}
-                              </span>
-                            )}
-                          </div>
-                          {isEditingInline ? (
-                            <input
-                              type="text"
-                              className="mt-1 w-full text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded font-sans focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
-                              placeholder="Ghi chú dòng số liệu..."
-                              value={s.notes || ''}
-                              onChange={(e) => handleStatFieldChange(s.id, 'notes', e.target.value)}
-                            />
-                          ) : (
-                            s.notes && <span className="text-[10px] text-amber-700 block font-sans">{s.notes}</span>
+                      return (
+                        <React.Fragment key={group.sourceId}>
+                          {/* GROUP HEADER ROW - Clickable to expand/collapse */}
+                          <tr
+                            onClick={() => toggleSourceCollapse(group.sourceId)}
+                            className="bg-slate-800 text-white cursor-pointer hover:bg-slate-700 select-none transition-colors border-y-2 border-slate-700 sticky z-10"
+                            style={{ top: '37px' }}
+                          >
+                            <td colSpan={15} className="py-2.5 px-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5">
+                                  <span className="p-1 rounded bg-slate-700 text-amber-400">
+                                    {isCollapsed ? (
+                                      <ChevronRight className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4" />
+                                    )}
+                                  </span>
+                                  <span className="font-sans font-black tracking-wide text-xs uppercase text-amber-300">
+                                    {romanNum}. {group.sourceName}
+                                  </span>
+                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 border border-slate-600 font-sans font-medium">
+                                    {group.items.length} lĩnh vực
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-2.5 text-[11px] font-mono">
+                                  <span className="text-blue-300">
+                                    Tiếp nhận: <strong className="text-white font-bold">{formatNumber(group.subtotal.recTotal)}</strong>
+                                  </span>
+                                  <span className="text-slate-500">|</span>
+                                  <span className="text-emerald-300">
+                                    Đã GQ: <strong className="text-white font-bold">{formatNumber(group.subtotal.compTotal)}</strong>
+                                  </span>
+                                  <span className="text-slate-500">|</span>
+                                  <span className="text-amber-300">
+                                    Tồn: <strong className="text-white font-bold">{formatNumber(group.subtotal.pendTotal)}</strong>
+                                  </span>
+                                  <span className="text-slate-500">|</span>
+                                  <span className="text-emerald-400 font-bold">
+                                    Đúng hạn: {group.subtotal.onTimeRate}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-sans italic ml-1">
+                                    {isCollapsed ? '(Nhấn để mở rộng ▼)' : '(Nhấn để thu gọn ▲)'}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* STATISTICAL ROWS FOR THIS GROUP */}
+                          {!isCollapsed &&
+                            group.items.map((s, idx) => {
+                              const resolvedSector = resolveLinhVuc(
+                                s.field_name_snapshot || s.field_name || '',
+                                s.field_id,
+                                store.getFields()
+                              );
+
+                              const onTimeRate =
+                                s.completed_total > 0
+                                  ? (((s.completed_early + s.completed_on_time) / s.completed_total) * 100).toFixed(1) + '%'
+                                  : '100%';
+                              const hasWarn =
+                                s.validation_status === 'warning' ||
+                                s.validation_status === 'error' ||
+                                (s.validation_errors && s.validation_errors.length > 0);
+
+                              return (
+                                <tr
+                                  key={s.id}
+                                  className={`hover:bg-slate-50 transition-colors ${hasWarn ? 'bg-amber-50/40' : ''}`}
+                                >
+                                  <td className="p-2.5 text-center text-slate-400 font-sans">{idx + 1}</td>
+                                  <td className="p-2.5 font-sans font-semibold text-slate-700">
+                                    {s.unit_name_snapshot || 'Chưa gán đơn vị'}
+                                  </td>
+                                  <td className="p-2.5 font-sans font-bold text-slate-900">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-slate-900">{resolvedSector}</span>
+                                      {hasWarn && (
+                                        <span title={s.validation_errors?.map((e: any) => e.message).join('\n')}>
+                                          {s.validation_status === 'error' ? (
+                                            <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 inline" />
+                                          ) : (
+                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 inline" />
+                                          )}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {isEditingInline ? (
+                                      <input
+                                        type="text"
+                                        className="mt-1 w-full text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded font-sans focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+                                        placeholder="Ghi chú dòng số liệu..."
+                                        value={s.notes || ''}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'notes', e.target.value)}
+                                      />
+                                    ) : (
+                                      s.notes && <span className="text-[10px] text-amber-700 block font-sans font-normal">{s.notes}</span>
+                                    )}
+                                  </td>
+
+                                  {/* Metric Columns */}
+                                  <td className="p-2.5 text-right font-bold text-slate-900 bg-blue-50/20">
+                                    {formatNumber(s.received_total)}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.received_online}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'received_online', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-blue-600">{formatNumber(s.received_online)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.received_offline}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'received_offline', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-slate-600">{formatNumber(s.received_offline)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.carried_forward}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'carried_forward', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-amber-600">{formatNumber(s.carried_forward)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right font-bold text-emerald-700 bg-emerald-50/20">
+                                    {formatNumber(s.completed_total)}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.completed_early}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'completed_early', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-slate-600">{formatNumber(s.completed_early)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.completed_on_time}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'completed_on_time', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-slate-600">{formatNumber(s.completed_on_time)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.completed_late}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'completed_late', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className={s.completed_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>
+                                        {formatNumber(s.completed_late)}
+                                      </span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right font-bold text-amber-700 bg-amber-50/20">
+                                    {formatNumber(s.pending_total)}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.pending_on_time}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'pending_on_time', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-slate-600">{formatNumber(s.pending_on_time)}</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-right">
+                                    {isEditingInline ? (
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                                        value={s.pending_late}
+                                        onChange={(e) => handleStatFieldChange(s.id, 'pending_late', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className={s.pending_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>
+                                        {formatNumber(s.pending_late)}
+                                      </span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-2.5 text-center font-sans font-semibold text-emerald-700">
+                                    {onTimeRate}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+
+                          {/* GROUP SUBTOTAL ROW */}
+                          {!isCollapsed && (
+                            <tr className="bg-slate-100 font-mono font-bold text-slate-800 border-b-2 border-slate-300">
+                              <td className="p-2.5 text-center text-slate-500 font-sans">∑</td>
+                              <td colSpan={2} className="p-2.5 font-sans font-bold text-slate-800 text-xs">
+                                Cộng nhóm: {group.sourceName} ({group.items.length} lĩnh vực)
+                              </td>
+                              <td className="p-2.5 text-right text-blue-700 bg-blue-100/40">
+                                {formatNumber(group.subtotal.recTotal)}
+                              </td>
+                              <td className="p-2.5 text-right text-slate-700">{formatNumber(group.subtotal.recOnline)}</td>
+                              <td className="p-2.5 text-right text-slate-700">{formatNumber(group.subtotal.recOffline)}</td>
+                              <td className="p-2.5 text-right text-amber-700">{formatNumber(group.subtotal.carried)}</td>
+                              <td className="p-2.5 text-right text-emerald-700 bg-emerald-100/40">
+                                {formatNumber(group.subtotal.compTotal)}
+                              </td>
+                              <td className="p-2.5 text-right text-slate-700">{formatNumber(group.subtotal.compEarly)}</td>
+                              <td className="p-2.5 text-right text-slate-700">{formatNumber(group.subtotal.compOnTime)}</td>
+                              <td className="p-2.5 text-right text-rose-700">{formatNumber(group.subtotal.compLate)}</td>
+                              <td className="p-2.5 text-right text-amber-700 bg-amber-100/40">
+                                {formatNumber(group.subtotal.pendTotal)}
+                              </td>
+                              <td className="p-2.5 text-right text-slate-700">{formatNumber(group.subtotal.pendOnTime)}</td>
+                              <td className="p-2.5 text-right text-rose-700">{formatNumber(group.subtotal.pendLate)}</td>
+                              <td className="p-2.5 text-center font-sans text-emerald-800 font-extrabold">
+                                {group.subtotal.onTimeRate}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-
-                        {/* Calculations are non-editable to preserve equations */}
-                        <td className="p-2.5 text-right font-bold text-slate-900 bg-blue-50/20">{formatNumber(s.received_total)}</td>
-                        
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.received_online}
-                              onChange={(e) => handleStatFieldChange(s.id, 'received_online', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-blue-600">{formatNumber(s.received_online)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.received_offline}
-                              onChange={(e) => handleStatFieldChange(s.id, 'received_offline', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-slate-600">{formatNumber(s.received_offline)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.carried_forward}
-                              onChange={(e) => handleStatFieldChange(s.id, 'carried_forward', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-amber-600">{formatNumber(s.carried_forward)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right font-bold text-emerald-700 bg-emerald-50/20">{formatNumber(s.completed_total)}</td>
-                        
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.completed_early}
-                              onChange={(e) => handleStatFieldChange(s.id, 'completed_early', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-slate-600">{formatNumber(s.completed_early)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.completed_on_time}
-                              onChange={(e) => handleStatFieldChange(s.id, 'completed_on_time', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-slate-600">{formatNumber(s.completed_on_time)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.completed_late}
-                              onChange={(e) => handleStatFieldChange(s.id, 'completed_late', e.target.value)}
-                            />
-                          ) : (
-                            <span className={s.completed_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>{formatNumber(s.completed_late)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right font-bold text-amber-700 bg-amber-50/20">{formatNumber(s.pending_total)}</td>
-                        
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.pending_on_time}
-                              onChange={(e) => handleStatFieldChange(s.id, 'pending_on_time', e.target.value)}
-                            />
-                          ) : (
-                            <span className="text-slate-600">{formatNumber(s.pending_on_time)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-right">
-                          {isEditingInline ? (
-                            <input
-                              type="number"
-                              min={0}
-                              className="w-14 bg-white border border-slate-200 focus:border-blue-500 rounded px-1 py-0.5 text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
-                              value={s.pending_late}
-                              onChange={(e) => handleStatFieldChange(s.id, 'pending_late', e.target.value)}
-                            />
-                          ) : (
-                            <span className={s.pending_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}>{formatNumber(s.pending_late)}</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-center font-sans font-semibold text-emerald-700">{onTimeRate}</td>
-                      </tr>
-                    );
-                  })}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
 
-                {/* DÒNG TỔNG CỘNG ĐỘNG - TUÂN THỦ NGUYÊN TẮC "TỔNG CỘNG LÀ CALCULATED OUTPUT" */}
-                <tfoot className="bg-slate-900 text-white font-mono font-bold sticky bottom-0 z-10 border-t-2 border-slate-700">
+                {/* DÒNG TỔNG CỘNG TOÀN BỘ BÁO CÁO */}
+                <tfoot className="bg-slate-900 text-white font-mono font-bold sticky bottom-0 z-20 border-t-2 border-slate-700">
                   <tr>
                     <td className="p-3 text-center">∑</td>
-                    <td colSpan={3} className="p-3 font-sans font-black tracking-wide text-xs">
-                      TỔNG CỘNG (CALCULATED OUTPUT TỰ ĐỘNG TÍNH)
+                    <td colSpan={2} className="p-3 font-sans font-black tracking-wide text-xs uppercase text-amber-300">
+                      TỔNG CỘNG TOÀN BỘ BÁO CÁO ({displayedStats.length} LĨNH VỰC)
                     </td>
-                    <td className="p-3 text-right text-blue-300">{formatNumber(totalStats.recTotal)}</td>
+                    <td className="p-3 text-right text-blue-300 bg-blue-950/40">{formatNumber(totalStats.recTotal)}</td>
                     <td className="p-3 text-right text-blue-200">{formatNumber(totalStats.recOnline)}</td>
                     <td className="p-3 text-right text-slate-300">{formatNumber(totalStats.recOffline)}</td>
                     <td className="p-3 text-right text-amber-300">{formatNumber(totalStats.carried)}</td>
 
-                    <td className="p-3 text-right text-emerald-300">{formatNumber(totalStats.compTotal)}</td>
+                    <td className="p-3 text-right text-emerald-300 bg-emerald-950/40">{formatNumber(totalStats.compTotal)}</td>
                     <td className="p-3 text-right text-slate-300">{formatNumber(totalStats.compEarly)}</td>
                     <td className="p-3 text-right text-slate-300">{formatNumber(totalStats.compOnTime)}</td>
                     <td className="p-3 text-right text-rose-300">{formatNumber(totalStats.compLate)}</td>
 
-                    <td className="p-3 text-right text-amber-300">{formatNumber(totalStats.pendTotal)}</td>
+                    <td className="p-3 text-right text-amber-300 bg-amber-950/40">{formatNumber(totalStats.pendTotal)}</td>
                     <td className="p-3 text-right text-slate-300">{formatNumber(totalStats.pendOnTime)}</td>
                     <td className="p-3 text-right text-rose-300">{formatNumber(totalStats.pendLate)}</td>
 

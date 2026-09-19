@@ -46,6 +46,7 @@ export interface Field {
 
   // Extra metadata columns from Excel
   co_quan_cong_bo?: string;
+  quyet_dinh_cong_bo?: string;
   loai_tthc?: string;
   co_quan_thuc_hien?: string;
   cap_thuc_hien?: string;

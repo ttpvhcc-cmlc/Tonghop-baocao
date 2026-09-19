@@ -1,8 +1,12 @@
 import * as XLSX from 'xlsx';
 import { Report, ReportFieldStatistic } from '../types/database';
+import { store } from './store';
+import { resolveLinhVuc } from '../utils/fieldResolver';
 
 export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[]): void {
   const wb = XLSX.utils.book_new();
+  const sources = store.getSourcesByReport(report.id);
+  const fields = store.getFields();
 
   const titleRow = [`BÁO CÁO TỔNG HỢP TIẾP NHẬN VÀ GIẢI QUYẾT TTHC - ${report.report_name.toUpperCase()}`];
   const infoRow1 = [`Mã báo cáo: ${report.report_code}`, `Kỳ báo cáo: ${report.period_start} đến ${report.period_end}`, `Trạng thái: ${report.status.toUpperCase()}`];
@@ -64,6 +68,10 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
     sumPendOnTime += s.pending_on_time;
     sumPendLate += s.pending_late;
 
+    const srcObj = sources.find((src) => src.id === s.source_id);
+    const sourceName = srcObj?.source_name || s.source_id;
+    const linhVuc = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, fields);
+
     const onTimeRate = s.completed_total > 0
       ? (((s.completed_early + s.completed_on_time) / s.completed_total) * 100).toFixed(1) + '%'
       : '100%';
@@ -74,9 +82,9 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
 
     rows.push([
       idx + 1,
-      s.source_id,
+      sourceName,
       s.unit_name_snapshot,
-      s.field_name_snapshot,
+      linhVuc,
       s.received_total,
       s.received_online,
       s.received_offline,

@@ -1,5 +1,6 @@
 import { supabase, supabaseUrl, isSupabaseConfigured } from '../lib/supabase';
 import type { Unit, Field, ReportingPeriod, ReportSource, ReportStatistic } from '../types/database';
+import { store, deduplicateById } from './store';
 
 export const SEED_UNITS: Array<Omit<Unit, 'created_at' | 'updated_at'>> = [
   { id: 'a0000000-0000-0000-0000-000000000001', code: 'VP', name: 'Văn phòng', display_order: 1, active: true },
@@ -622,19 +623,29 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
   fields: Field[];
   rawCount: number;
 }> {
+  const localReports = store.getReports();
+  const localUnits = store.getUnits();
+  const localFields = store.getFields();
+
   if (!isSupabaseConfigured || !supabase) {
+    const activeReport = selectedReportId
+      ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
+      : localReports[0] || null;
+    const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
+    const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
+
     return {
       configured: false,
       connected: false,
-      schemaReady: false,
-      errorMessage: 'Chưa cấu hình Supabase URL hoặc Publishable Key.',
-      reports: [],
-      currentReport: null,
-      sources: [],
-      statistics: [],
-      units: [],
-      fields: [],
-      rawCount: 0,
+      schemaReady: true,
+      errorMessage: null,
+      reports: localReports,
+      currentReport: activeReport,
+      sources: localSources,
+      statistics: localStats,
+      units: localUnits,
+      fields: localFields,
+      rawCount: localStats.length,
     };
   }
 
@@ -644,26 +655,34 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
 
     if (reportsRes.error) {
       if (reportsRes.error.code === 'PGRST205' || reportsRes.error.message.includes('schema cache')) {
+        const activeReport = selectedReportId
+          ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
+          : localReports[0] || null;
+        const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
+        const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
+
         return {
           configured: true,
           connected: true,
           schemaReady: false,
-          errorMessage: 'Bảng CSDL chưa được khởi tạo trên Supabase (Lỗi PGRST205: schema cache). Vui lòng thực hiện chạy Migration SQL trong Supabase SQL Editor.',
-          reports: [],
-          currentReport: null,
-          sources: [],
-          statistics: [],
-          units: [],
-          fields: [],
-          rawCount: 0,
+          errorMessage: 'Bảng CSDL chưa được khởi tạo trên Supabase (Lỗi PGRST205: schema cache). Đang hiển thị dữ liệu cục bộ an toàn.',
+          reports: localReports,
+          currentReport: activeReport,
+          sources: localSources,
+          statistics: localStats,
+          units: localUnits,
+          fields: localFields,
+          rawCount: localStats.length,
         };
       }
       throw reportsRes.error;
     }
 
-    const reports: ReportingPeriod[] = Array.from(
+    const dbReports: ReportingPeriod[] = Array.from(
       new Map((reportsRes.data || []).map((r: any) => [r.id, r])).values()
     );
+    const reports = deduplicateById([...dbReports, ...localReports]);
+
     const activeReport = selectedReportId
       ? reports.find((r) => r.id === selectedReportId) || reports[0] || null
       : reports[0] || null;
@@ -674,20 +693,33 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       supabase.from('fields').select('*, units(*)').order('display_order', { ascending: true }),
     ]);
 
-    const units: Unit[] = Array.from(new Map((unitsRes.data || []).map((u: any) => [u.id, u])).values());
-    const fields: Field[] = Array.from(new Map((fieldsRes.data || []).map((f: any) => [f.id, f])).values());
+    const dbUnits: Unit[] = Array.from(new Map((unitsRes.data || []).map((u: any) => [u.id, u])).values());
+    const dbFields: Field[] = Array.from(new Map((fieldsRes.data || []).map((f: any) => [f.id, f])).values());
+    const units = deduplicateById([...dbUnits, ...localUnits]);
+    const fields = deduplicateById([...dbFields, ...localFields]);
 
     // 3. Fetch Sources & Statistics for Active Report
     let sources: ReportSource[] = [];
     let statistics: ReportStatistic[] = [];
 
     if (activeReport) {
+      const localSources = store.getSourcesByReport(activeReport.id);
       const srcRes = await supabase.from('report_sources').select('*').eq('report_id', activeReport.id);
-      sources = Array.from(new Map((srcRes.data || []).map((s: any) => [s.id, s])).values());
+      if (!srcRes.error && srcRes.data && srcRes.data.length > 0) {
+        sources = deduplicateById([...srcRes.data, ...localSources]);
+      } else {
+        sources = localSources;
+      }
 
+      const localStats = store.getStatsByReport(activeReport.id);
       const statsRes = await supabase.from('report_field_statistics').select('*').eq('report_id', activeReport.id);
-      if (statsRes.data) {
-        statistics = Array.from(new Map((statsRes.data || []).map((st: any) => [st.id, st])).values());
+      if (!statsRes.error && statsRes.data && statsRes.data.length > 0) {
+        const statsMap = new Map<string, any>();
+        localStats.forEach((st) => statsMap.set(st.id, st));
+        statsRes.data.forEach((st: any) => statsMap.set(st.id, st));
+        statistics = Array.from(statsMap.values());
+      } else {
+        statistics = localStats;
       }
     }
 
@@ -705,18 +737,24 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       rawCount: statistics.length,
     };
   } catch (err: any) {
+    const activeReport = selectedReportId
+      ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
+      : localReports[0] || null;
+    const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
+    const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
+
     return {
       configured: true,
       connected: false,
       schemaReady: false,
-      errorMessage: `Lỗi kết nối hoặc truy vấn Supabase: ${err.message}`,
-      reports: [],
-      currentReport: null,
-      sources: [],
-      statistics: [],
-      units: [],
-      fields: [],
-      rawCount: 0,
+      errorMessage: `Lỗi kết nối Supabase: ${err.message}. Đang hiển thị dữ liệu cục bộ.`,
+      reports: localReports,
+      currentReport: activeReport,
+      sources: localSources,
+      statistics: localStats,
+      units: localUnits,
+      fields: localFields,
+      rawCount: localStats.length,
     };
   }
 }

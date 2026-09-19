@@ -7,6 +7,23 @@ import { UserRole, Profile } from '../types/database';
 
 export const AppLayout: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const handleRoleChange = (role: UserRole) => {
     const updated = store.switchUserRole(role);
@@ -21,19 +38,21 @@ export const AppLayout: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
-      {/* Fixed Sidebar */}
-      <Sidebar />
+      {/* Dynamic Collapsible Sidebar */}
+      <Sidebar isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
 
-      {/* Main Content Area */}
+      {/* Main Content Area - Maximized Full-Width Presentation */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Header
           currentUser={currentUser}
           onUserRoleChange={handleRoleChange}
           onResetData={handleResetData}
+          isSidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={toggleSidebar}
         />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6">
+          <div className="w-full space-y-6">
             <Outlet context={{ currentUser }} />
           </div>
         </main>

@@ -45,10 +45,10 @@ export async function generateAIReportAnalysis(request: AIAnalysisRequest): Prom
 
     if (res.ok) {
       const data = await res.json();
-      if (data.analysisText) {
+      if (data && data.analysisText) {
         return {
           analysisText: data.analysisText,
-          generatedBy: 'gemini',
+          generatedBy: data.generatedBy || 'gemini',
         };
       }
     }

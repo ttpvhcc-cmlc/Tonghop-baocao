@@ -5,23 +5,27 @@ import { UserRole, Profile } from '../types/database';
 import { generateSampleExcelBuffer } from '../features/import/excelParser';
 import {
   Download,
-  RotateCcw,
   UserCheck,
   CheckCircle2,
-  AlertTriangle,
-  Database
+  Database,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 
 interface HeaderProps {
   currentUser: Profile;
   onUserRoleChange: (newRole: UserRole) => void;
   onResetData: () => void;
+  isSidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onUserRoleChange,
   onResetData,
+  isSidebarCollapsed,
+  onToggleSidebar,
 }) => {
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -61,21 +65,32 @@ export const Header: React.FC<HeaderProps> = ({
   const roleInfo = getRoleBadge(currentUser.role);
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
-      {/* Title / Breadcrumb context */}
-      <div className="flex items-center gap-4">
+    <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
+      {/* Title / Breadcrumb context with Sidebar Toggle */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="p-2 -ml-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-none flex items-center gap-1.5"
+          title={isSidebarCollapsed ? 'Mở rộng menu bên trái' : 'Thu gọn menu để mở rộng không gian'}
+          id="btn-header-toggle-sidebar"
+        >
+          {isSidebarCollapsed ? (
+            <PanelLeftOpen className="w-5 h-5 text-blue-600" />
+          ) : (
+            <PanelLeftClose className="w-5 h-5 text-slate-600" />
+          )}
+        </button>
+
         <div className="flex flex-col">
-          <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">
-            Cơ sở dữ liệu thống kê TTHC
-          </span>
-          <span className="text-sm font-bold text-slate-800">
-            Hệ thống quản lý, tổng hợp & thẩm định số liệu báo cáo
+          <span className="text-xs font-extrabold text-blue-600 uppercase tracking-wider">
+            CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC
           </span>
         </div>
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         {/* Supabase Status Link */}
         <Link
           to="/admin/supabase"
@@ -110,33 +125,16 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        {/* Reset Demo Data Button */}
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm('Bạn có chắc chắn muốn khôi phục dữ liệu mẫu gốc ban đầu (3 kỳ báo cáo, 15 lĩnh vực, 3 đơn vị)?')) {
-              onResetData();
-            }
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-          title="Khôi phục lại dữ liệu demo mặc định ban đầu"
-        >
-          <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-          <span>Reset Demo</span>
-        </button>
-
-        {/* Role Switcher */}
+        {/* User Badge - Clean without Admin subtitle */}
         <div className="relative">
           <button
             type="button"
             onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all ${roleInfo.bg}`}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-xl transition-all ${roleInfo.bg}`}
+            title="Nhấn để tùy chọn vai trò người dùng"
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <div className="text-left">
-              <span className="font-semibold block">{currentUser.full_name}</span>
-              <span className="text-[10px] opacity-85 block">{roleInfo.label}</span>
-            </div>
+            <span className="font-bold text-slate-800">{currentUser.full_name}</span>
           </button>
 
           {showRoleMenu && (

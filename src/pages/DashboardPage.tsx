@@ -101,7 +101,8 @@ export const DashboardPage: React.FC = () => {
   const loadData = useCallback(async (reportId?: string) => {
     setLoading(true);
     try {
-      const res = await fetchLiveDashboardData(reportId || selectedReportId);
+      const targetId = reportId || selectedReportId;
+      const res = await fetchLiveDashboardData(targetId);
       setDbStatus({
         configured: res.configured,
         connected: res.connected,
@@ -109,34 +110,28 @@ export const DashboardPage: React.FC = () => {
         errorMessage: res.errorMessage,
       });
 
-      if (res.schemaReady && res.reports.length > 0) {
-        setLiveReports(res.reports);
-        setLiveUnits(res.units);
-        setLiveFields(res.fields);
-        setLiveSources(res.sources);
-        setLiveStats(res.statistics);
+      setLiveReports(res.reports);
+      setLiveUnits(res.units);
+      setLiveFields(res.fields);
+      setLiveSources(res.sources);
+      setLiveStats(res.statistics);
 
-        if (!selectedReportId && res.currentReport) {
-          setSelectedReportId(res.currentReport.id);
-        }
-      } else {
-        // Fallback to cached store data if Supabase tables are not created yet
-        const fallbackReports = store.getReports();
-        setLiveReports(fallbackReports);
-        setLiveUnits(store.getUnits());
-        setLiveFields(store.getFields());
-        if (fallbackReports.length > 0 && !selectedReportId) {
-          const firstId = fallbackReports[0].id;
-          setSelectedReportId(firstId);
-          setLiveSources(store.getSourcesByReport(firstId));
-          setLiveStats(store.getStatsByReport(firstId));
-        } else if (selectedReportId) {
-          setLiveSources(store.getSourcesByReport(selectedReportId));
-          setLiveStats(store.getStatsByReport(selectedReportId));
-        }
+      if (!selectedReportId && res.currentReport) {
+        setSelectedReportId(res.currentReport.id);
       }
     } catch (err: any) {
       setDbStatus((prev) => ({ ...prev, errorMessage: err.message }));
+      // Fallback directly to store cache
+      const fallbackReports = store.getReports();
+      setLiveReports(fallbackReports);
+      setLiveUnits(store.getUnits());
+      setLiveFields(store.getFields());
+      const activeId = reportId || selectedReportId || fallbackReports[0]?.id;
+      if (activeId) {
+        if (!selectedReportId) setSelectedReportId(activeId);
+        setLiveSources(store.getSourcesByReport(activeId));
+        setLiveStats(store.getStatsByReport(activeId));
+      }
     } finally {
       setLoading(false);
     }
@@ -144,17 +139,16 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    const unsub = store.subscribe(() => {
+      loadData();
+    });
+    return () => unsub();
+  }, []);
 
   // When selectedReportId changes, reload specific report data
   const handleReportChange = (newReportId: string) => {
     setSelectedReportId(newReportId);
-    if (dbStatus.schemaReady) {
-      loadData(newReportId);
-    } else {
-      setLiveSources(store.getSourcesByReport(newReportId));
-      setLiveStats(store.getStatsByReport(newReportId));
-    }
+    loadData(newReportId);
   };
 
   // Run the full E2E Read/Write test
@@ -353,124 +347,26 @@ export const DashboardPage: React.FC = () => {
   const reportBadge = selectedReport ? getStatusBadge(selectedReport.status) : null;
 
   return (
-    <div className="space-y-6">
-      {/* 1. SUPABASE DATABASE STATUS & AUDIT BANNER */}
-      <div className={`rounded-xl border p-4 transition-all shadow-xs ${
-        dbStatus.schemaReady
-          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-          : 'bg-amber-50/80 border-amber-200 text-amber-950'
-      }`}>
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-white border border-slate-200 shadow-2xs">
-                <Database className="w-3.5 h-3.5 text-blue-600" />
-                <span>Supabase PostgreSQL:</span>
-                <span className="text-emerald-700 font-mono font-semibold truncate max-w-[200px]">
-                  {supabaseUrl ? new URL(supabaseUrl).hostname : 'mluyprtkhsjhigipqqjk.supabase.co'}
-                </span>
-                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Đã kết nối máy chủ Supabase" />
+    <div className="space-y-5 w-full">
+      {/* Top Controls & Global Filter Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Bộ lọc phân tích
+            </span>
+            {reportBadge && (
+              <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium border ${reportBadge.bg} ${reportBadge.text} ${reportBadge.border}`}>
+                {reportBadge.label}
               </span>
-
-              {dbStatus.schemaReady ? (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                  Đã kết nối CSDL Đám mây (Source of Truth)
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-900 bg-amber-100 px-2.5 py-1 rounded-md border border-amber-300">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                  CSDL chưa khởi tạo bảng (Lỗi PGRST205: Schema cache)
-                </span>
-              )}
-
-              {hasPassedTest && (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-800 bg-blue-100 px-2.5 py-1 rounded-md border border-blue-300">
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
-                  Kiểm thử Read/Write: ĐẠT
-                </span>
-              )}
-            </div>
-
-            <p className="text-xs leading-relaxed text-slate-700 mt-1">
-              {dbStatus.schemaReady
-                ? 'Hệ thống đang truy vấn số liệu thực tế từ Supabase. Đã xác thực 100% cả 4 công thức toán học và cấu trúc phân bổ FIELD thuộc đúng MỘT ĐƠN VỊ.'
-                : 'Cảnh báo: Bảng CSDL chưa được khởi tạo trên máy chủ Supabase. Bảng điều khiển đang hiển thị chế độ đệm. Vui lòng bấm "Xem & Sao chép SQL" để nạp DDL vào Supabase SQL Editor.'}
-            </p>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setShowSqlModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
-            >
-              <Code className="w-3.5 h-3.5 text-slate-600" />
-              Xem & Sao chép SQL
-            </button>
-
-            <button
-              onClick={handleInitSupabaseData}
-              disabled={isInitializingData}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/90 border border-emerald-300 rounded-lg hover:bg-emerald-200 transition-colors shadow-2xs disabled:opacity-50"
-            >
-              <Server className="w-3.5 h-3.5 text-emerald-700" />
-              {isInitializingData ? 'Đang nạp dữ liệu...' : 'Nạp dữ liệu mẫu lên Supabase'}
-            </button>
-
-            <button
-              onClick={handleRunE2ETest}
-              disabled={isRunningTest}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs disabled:opacity-50"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              Chạy kiểm thử Read/Write (E2E)
-            </button>
-
-            <button
-              onClick={() => loadData()}
-              disabled={loading}
-              className="p-1.5 text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-              title="Làm mới dữ liệu từ Supabase"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-            </button>
-          </div>
-        </div>
-
-        {initFeedback && (
-          <div className="mt-3 text-xs bg-white/90 border border-slate-200 p-2.5 rounded-lg flex items-center justify-between">
-            <span className="font-medium text-slate-800">{initFeedback}</span>
-            <button onClick={() => setInitFeedback(null)} className="text-slate-400 hover:text-slate-600 text-xs">
-              Đóng
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 2. Top Header Card & Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Bảng Chỉ huy Thống kê & Phân tích KPI TTHC
-              </h2>
-              {reportBadge && (
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${reportBadge.bg} ${reportBadge.text} ${reportBadge.border}`}>
-                  {reportBadge.label}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Số liệu tổng hợp chuẩn từ các nguồn hệ thống theo dõi và giải quyết TTHC cấp huyện/xã (Văn phòng, Phòng Kinh tế, Phòng VHXH)
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {selectedReportId && (
               <Link
                 to={`/reports/${selectedReportId}`}
-                className="px-3.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
               >
                 Xem chi tiết kỳ báo cáo này →
               </Link>
@@ -479,7 +375,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Global Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
           {/* Filter 1: Kỳ Báo Cáo */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -520,14 +416,14 @@ export const DashboardPage: React.FC = () => {
           {/* Filter 3: Đơn vị giải quyết */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Đơn vị giải quyết (Tự động map từ Lĩnh vực)
+              Đơn vị giải quyết
             </label>
             <select
               value={selectedUnitId}
               onChange={(e) => setSelectedUnitId(e.target.value)}
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="ALL">Tất cả đơn vị (Văn phòng, Kinh tế, VHXH)</option>
+              <option value="ALL">Tất cả đơn vị</option>
               {liveUnits.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name} ({u.code})
@@ -584,11 +480,8 @@ export const DashboardPage: React.FC = () => {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            8 Chỉ số Hiệu năng Cốt lõi (Core Performance KPIs)
+            8 Chỉ số Hiệu năng Cốt lõi
           </h3>
-          <span className="text-[11px] text-slate-400">
-            Xác thực 100% công thức: Tiếp nhận, Giải quyết, Đang xử lý
-          </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -705,7 +598,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                1. Diễn biến khối lượng theo tháng (Monthly Volume Trend)
+                1. Diễn biến khối lượng theo tháng
               </h3>
               <p className="text-[11px] text-slate-400">
                 Xu hướng tiếp nhận, giải quyết và hồ sơ tồn đọng qua các kỳ
@@ -736,7 +629,7 @@ export const DashboardPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                2. Phân bổ giải quyết (Resolution Distribution)
+                2. Phân bổ giải quyết
               </h3>
               <p className="text-[11px] text-slate-400">
                 Cơ cấu tỷ trọng Trước hạn, Đúng hạn và Quá hạn đã giải quyết

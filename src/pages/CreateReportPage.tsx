@@ -27,14 +27,60 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+const padZero = (n: number): string => String(n).padStart(2, '0');
+
+const getLocalDateString = (d: Date = new Date()): string => {
+  return `${d.getFullYear()}-${padZero(d.getMonth() + 1)}-${padZero(d.getDate())}`;
+};
+
+const getLocalDateTimeString = (d: Date = new Date()): string => {
+  return `${d.getFullYear()}-${padZero(d.getMonth() + 1)}-${padZero(d.getDate())}T${padZero(d.getHours())}:${padZero(d.getMinutes())}`;
+};
+
+const formatViDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateStr;
+};
+
+const generateDefaultReportName = (startDate: string, endDate: string): string => {
+  const startVi = formatViDate(startDate);
+  const endVi = formatViDate(endDate);
+  if (startVi && endVi) {
+    return `Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC từ ngày ${startVi} đến ngày ${endVi}`;
+  }
+  if (startVi) {
+    return `Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC từ ngày ${startVi}`;
+  }
+  return 'Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC';
+};
+
 export const CreateReportPage: React.FC = () => {
   const navigate = useNavigate();
   const units = useMemo(() => store.getUnits(), []);
   const fields = useMemo(() => store.getFields(), []);
 
+  // Compute standard initial dates
+  const now = useMemo(() => new Date(), []);
+  const currentYear = useMemo(() => now.getFullYear(), [now]);
+  const defaultPeriodStart = useMemo(() => `${currentYear}-01-01`, [currentYear]);
+  const defaultPeriodEnd = useMemo(() => getLocalDateString(now), [now]);
+  const defaultDataAsOf = useMemo(() => getLocalDateTimeString(now), [now]);
+  const defaultReportCode = useMemo(() => `BC-${currentYear}`, [currentYear]);
+  const defaultReportName = useMemo(
+    () => generateDefaultReportName(defaultPeriodStart, defaultPeriodEnd),
+    [defaultPeriodStart, defaultPeriodEnd]
+  );
+
   // Steps state: 1: Details form, 2: Upload Excel, 3: Success
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
   const [createdReport, setCreatedReport] = useState<Report | null>(null);
+
+  // Track if user has manually typed in the report name
+  const [isNameManuallyEdited, setIsNameManuallyEdited] = useState(false);
 
   // STEP 1 State: Form data
   const [formData, setFormData] = useState<{
@@ -46,14 +92,61 @@ export const CreateReportPage: React.FC = () => {
     data_as_of: string;
     notes: string;
   }>({
-    report_code: 'BC-2026-04',
-    report_name: 'Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC Tháng 04/2026',
-    report_type: 'monthly',
-    period_start: '2026-04-01',
-    period_end: '2026-04-30',
-    data_as_of: '2026-04-30T17:00',
+    report_code: defaultReportCode,
+    report_name: defaultReportName,
+    report_type: 'annual',
+    period_start: defaultPeriodStart,
+    period_end: defaultPeriodEnd,
+    data_as_of: defaultDataAsOf,
     notes: 'Kỳ báo cáo định kỳ theo dõi tiến độ tiếp nhận và xử lý hồ sơ thủ tục hành chính.',
   });
+
+  // Handlers to auto-update report name when dates change
+  const handleStartDateChange = (newStart: string) => {
+    setFormData((prev) => {
+      const updated = { ...prev, period_start: newStart };
+      if (!isNameManuallyEdited) {
+        updated.report_name = generateDefaultReportName(newStart, prev.period_end);
+      }
+      return updated;
+    });
+  };
+
+  const handleEndDateChange = (newEnd: string) => {
+    setFormData((prev) => {
+      const updated = { ...prev, period_end: newEnd };
+      if (!isNameManuallyEdited) {
+        updated.report_name = generateDefaultReportName(prev.period_start, newEnd);
+      }
+      return updated;
+    });
+  };
+
+  const handleReportTypeChange = (newType: Report['report_type']) => {
+    setFormData((prev) => {
+      const updated = { ...prev, report_type: newType };
+      if (newType === 'annual') {
+        updated.period_start = `${currentYear}-01-01`;
+        updated.period_end = getLocalDateString(now);
+        updated.report_code = `BC-${currentYear}`;
+      } else if (newType === 'monthly') {
+        const monthStr = padZero(now.getMonth() + 1);
+        updated.period_start = `${currentYear}-${monthStr}-01`;
+        updated.period_end = getLocalDateString(now);
+        updated.report_code = `BC-${currentYear}-${monthStr}`;
+      } else if (newType === 'quarterly') {
+        const q = Math.floor(now.getMonth() / 3) + 1;
+        const qStartMonth = padZero((q - 1) * 3 + 1);
+        updated.period_start = `${currentYear}-${qStartMonth}-01`;
+        updated.period_end = getLocalDateString(now);
+        updated.report_code = `BC-${currentYear}-Q${q}`;
+      }
+      if (!isNameManuallyEdited) {
+        updated.report_name = generateDefaultReportName(updated.period_start, updated.period_end);
+      }
+      return updated;
+    });
+  };
 
   const [isCreatingReport, setIsCreatingReport] = useState(false);
 
@@ -162,10 +255,71 @@ export const CreateReportPage: React.FC = () => {
     if (!createdReport || !parseResult) return;
 
     try {
+      // Ensure all rows are mapped to a field (or auto-create the field if missing)
+      const preparedRows = parseResult.draftRows.map((row) => {
+        let fieldId = row.matchedFieldId;
+        let fieldName = row.matchedFieldName || row.rawFieldName;
+        let unitId = row.unitId || '';
+        let unitName = row.unitName || 'Chưa gán đơn vị';
+
+        if (!fieldId) {
+          // Look if a field with the same name already exists in the store to avoid duplicates
+          const existing = store.getFields().find(
+            (f) =>
+              f.name.toLowerCase() === row.rawFieldName.toLowerCase() ||
+              f.linh_vuc?.toLowerCase() === row.rawFieldName.toLowerCase()
+          );
+          if (existing) {
+            fieldId = existing.id;
+            fieldName = existing.name;
+            unitId = existing.unit_id || '';
+            const matchedUnit = store.getUnits().find((u) => u.id === unitId);
+            unitName = matchedUnit ? matchedUnit.name : 'Chưa gán đơn vị';
+          } else {
+            // Auto-create field
+            try {
+              // Generate a clean transliterated unique code
+              const cleanCode = row.rawFieldName
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-zA-Z0-9\s]/g, '')
+                .toUpperCase()
+                .split(/\s+/)
+                .map((w) => w.substring(0, 3))
+                .join('_');
+              const randSuffix = Math.floor(1000 + Math.random() * 9000);
+              const generatedCode = `${cleanCode.substring(0, 10)}_${randSuffix}`;
+
+              const newField = store.saveField({
+                code: generatedCode,
+                name: row.rawFieldName,
+                linh_vuc: row.rawFieldName,
+                unit_id: '',
+                display_order: store.getFields().length + 1,
+                active: true,
+              });
+              fieldId = newField.id;
+              fieldName = newField.name;
+              unitId = '';
+              unitName = 'Chưa gán đơn vị';
+            } catch (err) {
+              console.error('Error auto-creating field:', err);
+            }
+          }
+        }
+
+        return {
+          ...row,
+          matchedFieldId: fieldId,
+          matchedFieldName: fieldName,
+          unitId,
+          unitName,
+        };
+      });
+
       // Group rows by sourceName
-      const sourcesMap = new Map<string, ParsedStatisticDraft[]>();
-      parseResult.draftRows.forEach((row) => {
-        if (!row.matchedFieldId || !row.unitId) return; // Skip unmapped
+      const sourcesMap = new Map<string, typeof preparedRows>();
+      preparedRows.forEach((row) => {
         const group = sourcesMap.get(row.sourceName) || [];
         group.push(row);
         sourcesMap.set(row.sourceName, group);
@@ -184,8 +338,8 @@ export const CreateReportPage: React.FC = () => {
         const statRows = rows.map((r) => ({
           field_id: r.matchedFieldId!,
           field_name_snapshot: r.matchedFieldName!,
-          unit_id: r.unitId!,
-          unit_name_snapshot: r.unitName!,
+          unit_id: r.unitId || '',
+          unit_name_snapshot: r.unitName || 'Chưa gán đơn vị',
           received_total: r.received_total,
           received_online: r.received_online,
           received_offline: r.received_offline,
@@ -307,12 +461,12 @@ export const CreateReportPage: React.FC = () => {
                 </label>
                 <select
                   value={formData.report_type}
-                  onChange={(e) => setFormData({ ...formData, report_type: e.target.value as any })}
+                  onChange={(e) => handleReportTypeChange(e.target.value as any)}
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 >
+                  <option value="annual">Báo cáo Năm</option>
                   <option value="monthly">Báo cáo Tháng</option>
                   <option value="quarterly">Báo cáo Quý</option>
-                  <option value="yearly">Báo cáo Năm</option>
                   <option value="ad_hoc">Chuyên đề / Đột xuất</option>
                 </select>
               </div>
@@ -320,16 +474,41 @@ export const CreateReportPage: React.FC = () => {
 
             {/* Tên Báo Cáo */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Tên kỳ báo cáo chi tiết <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Tên kỳ báo cáo chi tiết <span className="text-rose-500">*</span>
+                </label>
+                {isNameManuallyEdited ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNameManuallyEdited(false);
+                      setFormData((prev) => ({
+                        ...prev,
+                        report_name: generateDefaultReportName(prev.period_start, prev.period_end),
+                      }));
+                    }}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium hover:underline flex items-center gap-1"
+                    title="Khôi phục tên tự động theo Từ ngày - Đến ngày"
+                  >
+                    <span>↺ Tự động đặt lại tên theo mốc ngày</span>
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-emerald-600 font-medium">
+                    ✓ Tự động cập nhật theo mốc ngày chọn
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 required
                 value={formData.report_name}
-                onChange={(e) => setFormData({ ...formData, report_name: e.target.value })}
+                onChange={(e) => {
+                  setIsNameManuallyEdited(true);
+                  setFormData({ ...formData, report_name: e.target.value });
+                }}
                 className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                placeholder="VD: Báo cáo tình hình tiếp nhận, giải quyết TTHC Tháng 04/2026"
+                placeholder="VD: Báo cáo tổng hợp tình hình tiếp nhận, giải quyết TTHC từ ngày ... đến ngày ..."
               />
             </div>
 
@@ -343,7 +522,7 @@ export const CreateReportPage: React.FC = () => {
                   type="date"
                   required
                   value={formData.period_start}
-                  onChange={(e) => setFormData({ ...formData, period_start: e.target.value })}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -356,7 +535,7 @@ export const CreateReportPage: React.FC = () => {
                   type="date"
                   required
                   value={formData.period_end}
-                  onChange={(e) => setFormData({ ...formData, period_end: e.target.value })}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -570,7 +749,7 @@ export const CreateReportPage: React.FC = () => {
                     </span>
                   )}
                   {parseResult.unmappedFieldsCount > 0 && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold border border-rose-100">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold border border-amber-100">
                       {parseResult.unmappedFieldsCount} Chưa gán
                     </span>
                   )}
@@ -586,12 +765,7 @@ export const CreateReportPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleConfirmImport}
-                    disabled={parseResult.unmappedFieldsCount > 0}
-                    className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg shadow-xs transition-all ${
-                      parseResult.unmappedFieldsCount > 0
-                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                    }`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg shadow-xs transition-all bg-emerald-600 text-white hover:bg-emerald-700"
                   >
                     <span>Lưu số liệu & Hoàn tất</span>
                     <ArrowRight className="w-4 h-4" />
@@ -606,7 +780,7 @@ export const CreateReportPage: React.FC = () => {
                     Bảng thẩm định chi tiết trước khi nạp ({parseResult.draftRows.length} dòng số liệu)
                   </h3>
                   <span className="text-[10px] text-slate-500 font-medium">
-                    Hãy đảm bảo tất cả các hàng đều được ánh xạ với Lĩnh vực chuẩn của Hệ thống
+                    Hệ thống tự động đồng bộ hóa số liệu dựa trên phân công Lĩnh vực
                   </span>
                 </div>
 
@@ -617,7 +791,6 @@ export const CreateReportPage: React.FC = () => {
                         <th className="p-2 text-center w-10">Dòng</th>
                         <th className="p-2">Nguồn dữ liệu</th>
                         <th className="p-2 min-w-[140px]">Lĩnh vực gốc (File)</th>
-                        <th className="p-2 min-w-[180px]">Mapping Lĩnh vực chuẩn</th>
                         <th className="p-2">Đơn vị</th>
                         <th className="p-2 text-right">Tổng TN</th>
                         <th className="p-2 text-right">Trực tuyến</th>
@@ -632,8 +805,8 @@ export const CreateReportPage: React.FC = () => {
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
                       {parseResult.draftRows.map((row) => {
-                        const isWarning = row.validationStatus === 'warning';
-                        const isError = row.validationStatus === 'error' || !row.matchedFieldId;
+                        const isError = row.validationStatus === 'error';
+                        const isWarning = row.validationStatus === 'warning' || !row.matchedFieldId || !row.unitId;
 
                         return (
                           <tr
@@ -650,26 +823,6 @@ export const CreateReportPage: React.FC = () => {
                             </td>
                             <td className="p-2 font-sans font-medium text-slate-800">{row.rawFieldName}</td>
                             
-                            {/* Selector */}
-                            <td className="p-2">
-                              <select
-                                value={row.matchedFieldId || ''}
-                                onChange={(e) => handleFieldMapChange(row.rowNumber, e.target.value)}
-                                className={`w-full text-[11px] rounded border px-2 py-0.5 font-sans focus:outline-none ${
-                                  row.matchedFieldId
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-rose-100 border-rose-300 text-rose-800 font-bold'
-                                }`}
-                              >
-                                <option value="">-- Chưa ánh xạ --</option>
-                                {fields.map((f) => (
-                                  <option key={f.id} value={f.id}>
-                                    {f.name} ({f.unit?.name || 'Chưa gán'})
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-
                             <td className="p-2 font-sans font-semibold text-slate-600">{row.unitName || '—'}</td>
                             <td className={`p-2 text-right font-bold ${row.hasDifference ? 'text-amber-700' : 'text-slate-900'}`}>
                               {formatNumber(row.received_total)}
@@ -685,12 +838,12 @@ export const CreateReportPage: React.FC = () => {
                             <td className="p-2 text-right text-indigo-700 font-bold">{formatNumber(row.pending_total)}</td>
                             <td className="p-2 text-center font-sans">
                               {isError ? (
-                                <span className="inline-block px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 text-[9px] font-bold" title={row.validationErrors.map((e) => e.message).join('\n')}>
+                                <span className="inline-block px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 text-[9px] font-bold" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
                                   Lỗi
                                 </span>
                               ) : isWarning ? (
-                                <span className="inline-block px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold" title={row.validationErrors.map((e) => e.message).join('\n')}>
-                                  Lệch
+                                <span className="inline-block px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
+                                  {!row.matchedFieldId || !row.unitId ? 'Chưa gán' : 'Lệch'}
                                 </span>
                               ) : (
                                 <span className="inline-block px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 text-[9px] font-bold">

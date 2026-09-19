@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { Field, Unit, ValidationErrorItem } from '../../types/database';
 import { validateStatisticRow } from '../analysis/formulas';
+import { resolveLinhVuc } from '../../utils/fieldResolver';
 
 export interface RawParsedSheet {
   sheetName: string;
@@ -118,19 +119,52 @@ export function findBestFieldMatch(rawName: string, fields: Field[], units: Unit
   unit?: Unit;
   score: number;
 } {
-  let bestScore = 0;
-  let bestField: Field | undefined;
+  // 1. Try matching against sector name (f.linh_vuc) first
+  let bestSectorScore = 0;
+  let bestSectorField: Field | undefined;
 
   for (const f of fields) {
-    const score = calculateSimilarity(rawName, f.name);
-    if (score > bestScore) {
-      bestScore = score;
-      bestField = f;
+    if (f.linh_vuc) {
+      const score = calculateSimilarity(rawName, f.linh_vuc);
+      if (score > bestSectorScore) {
+        bestSectorScore = score;
+        bestSectorField = f;
+      }
     }
   }
 
-  const unit = bestField ? units.find((u) => u.id === bestField.unit_id) : undefined;
-  return { field: bestField, unit, score: bestScore };
+  // If a sector has a high match score (>= 80), use it
+  if (bestSectorScore >= 80 && bestSectorField) {
+    const unit = units.find((u) => u.id === bestSectorField?.unit_id);
+    return { field: bestSectorField, unit, score: bestSectorScore };
+  }
+
+  // 2. Try matching against procedure name (f.name)
+  let bestNameScore = 0;
+  let bestNameField: Field | undefined;
+
+  for (const f of fields) {
+    const score = calculateSimilarity(rawName, f.name);
+    if (score > bestNameScore) {
+      bestNameScore = score;
+      bestNameField = f;
+    }
+  }
+
+  if (bestNameScore >= 70 && bestNameField) {
+    const unit = units.find((u) => u.id === bestNameField?.unit_id);
+    return { field: bestNameField, unit, score: bestNameScore };
+  }
+
+  // 3. Smart fallback: Try to match the unit name directly from the raw name (e.g. "Văn phòng")
+  const matchedUnit = units.find(u => calculateSimilarity(rawName, u.name) >= 70);
+  const fallbackField = fields.find(f => matchedUnit ? f.unit_id === matchedUnit.id : true) || fields[0];
+
+  return {
+    field: fallbackField,
+    unit: matchedUnit || (fallbackField ? units.find(u => u.id === fallbackField.unit_id) : undefined),
+    score: 50
+  };
 }
 
 // Parse Excel Workbook Buffer into Raw Sheets
@@ -261,13 +295,16 @@ export function parseSheetToDrafts(
     });
 
     const isMatched = score >= 75 && Boolean(field);
+    const resolvedSector = isMatched
+      ? (field?.linh_vuc || field?.name || resolveLinhVuc(candidateFieldName, field?.id, fields))
+      : resolveLinhVuc(candidateFieldName, undefined, fields);
 
     draftRows.push({
       rowNumber: i + 1,
       sourceName: currentSource,
       rawFieldName: candidateFieldName,
       matchedFieldId: isMatched ? field?.id : undefined,
-      matchedFieldName: isMatched ? field?.name : undefined,
+      matchedFieldName: resolvedSector,
       unitId: isMatched ? unit?.id : undefined,
       unitName: isMatched ? unit?.name : undefined,
       matchScore: score,

@@ -314,32 +314,86 @@ async function startServer() {
     }
   });
 
-  // Server-side Gemini AI Analysis Route
+  // Helper to generate comprehensive rule-based analysis
+  function generateFallbackAnalysis(
+    reportName: string,
+    period: string,
+    metricsSummary: any,
+    promptScope: string
+  ): string {
+    const totals = metricsSummary?.totals || {};
+    const unitBreakdown: any[] = metricsSummary?.unitBreakdown || [];
+    const notableWarnings: string[] = metricsSummary?.notableWarnings || [];
+
+    const rec = Number(totals.received || 0);
+    const online = Number(totals.online || 0);
+    const onlineRate = totals.onlineRate || (rec > 0 ? ((online / rec) * 100).toFixed(1) : "0.0");
+    const comp = Number(totals.completed || 0);
+    const compRate = totals.completionRate || (rec > 0 ? ((comp / rec) * 100).toFixed(1) : "0.0");
+    const onTimeRate = totals.onTimeRate || "100.0";
+    const late = Number(totals.late || 0);
+    const pending = Number(totals.pending || 0);
+    const pendingLate = Number(totals.pendingLate || 0);
+
+    const sortedByLate = [...unitBreakdown].sort((a, b) => Number(b.late || 0) - Number(a.late || 0));
+    const highLateUnit = sortedByLate[0];
+    const sortedByRec = [...unitBreakdown].sort((a, b) => Number(b.received || 0) - Number(a.received || 0));
+    const topUnit = sortedByRec[0];
+
+    return `I. ĐÁNH GIÁ KHÁI QUÁT KẾT QUẢ ĐẠT ĐƯỢC
+- Trong kỳ báo cáo (${period || "kỳ này"}), toàn hệ thống đã tiếp nhận tổng số ${rec.toLocaleString("vi-VN")} hồ sơ TTHC, trong đó hình thức nộp trực tuyến đạt ${online.toLocaleString("vi-VN")} hồ sơ (chiếm tỷ lệ ${onlineRate}%).
+- Khối lượng hồ sơ đã hoàn thành giải quyết là ${comp.toLocaleString("vi-VN")} hồ sơ (đạt tỷ lệ giải quyết ${compRate}% so với tổng tiếp nhận).
+- Tỷ lệ giải quyết hồ sơ đúng hạn và trước hạn đạt ${onTimeRate}%, cho thấy tinh thần trách nhiệm và tính kỷ luật hành chính cao của các bộ phận chuyên môn.
+
+II. TỒN TẠI, HẠN CHẾ VÀ ĐIỂM NGHẼN
+${
+  late > 0 && highLateUnit && highLateUnit.late > 0
+    ? `- Về hồ sơ trễ hạn: Toàn hệ thống phát sinh ${late.toLocaleString("vi-VN")} hồ sơ quá hạn, tập trung chủ yếu tại đơn vị ${highLateUnit.unitName} (${highLateUnit.late} hồ sơ).`
+    : `- Về cơ bản, các đơn vị giải quyết hồ sơ đúng hạn, không để xảy ra tình trạng trễ hạn kéo dài hoặc gây phiền hà cho người dân.`
+}
+${
+  notableWarnings.length > 0
+    ? `- Cảnh báo chênh lệch/sai lệch số liệu đối soát: ${notableWarnings.join("; ")}.`
+    : ""
+}
+- Tình hình hồ sơ đang xử lý (tồn đọng): Còn ${pending.toLocaleString("vi-VN")} hồ sơ đang giải quyết trong hạn và ${pendingLate.toLocaleString("vi-VN")} hồ sơ đang giải quyết quá hạn cần tập trung đôn đốc.
+
+III. NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM
+1. Biểu dương ${topUnit?.unitName || "các đơn vị dẫn đầu"} đã xử lý khối lượng lớn hồ sơ kịp thời; tiếp tục đẩy mạnh số hóa quy trình và khuyến khích người dân nộp hồ sơ dịch vụ công trực tuyến toàn trình.
+2. Đề nghị lãnh đạo các phòng ban/đơn vị có hồ sơ quá hạn khẩn trương rà soát từng khâu thẩm định, xác định rõ nguyên nhân, trách nhiệm cá nhân và thực hiện quy trình xin lỗi người dân theo đúng quy định.
+3. Thường xuyên đối soát và chuẩn hóa danh mục Lĩnh vực TTHC giữa 2 hệ thống (Hệ thống các Bộ và Hệ thống thành phố) nhằm đảm bảo số liệu báo cáo luôn nhất quán, chính xác.`;
+  }
+
+  // Server-side Gemini AI Analysis Route with robust retry, model fallback & rule-engine fallback
   app.post("/api/gemini/generate-analysis", async (req, res) => {
-    try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(400).json({
-          error: "GEMINI_API_KEY is not configured in server environment."
-        });
-      }
+    const { reportName, period, metricsSummary, promptScope } = req.body;
 
-      const { reportName, period, metricsSummary, promptScope } = req.body;
+    if (!metricsSummary) {
+      return res.status(400).json({ error: "Missing metricsSummary in request body" });
+    }
 
-      if (!metricsSummary) {
-        return res.status(400).json({ error: "Missing metricsSummary in request body" });
-      }
+    const apiKey = process.env.GEMINI_API_KEY;
 
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not configured. Falling back to deterministic rule-based analysis.");
+      const fallbackText = generateFallbackAnalysis(reportName, period, metricsSummary, promptScope);
+      return res.json({
+        analysisText: fallbackText,
+        generatedBy: "rule_engine",
+        timestamp: new Date().toISOString(),
       });
+    }
 
-      const systemInstruction = `Bạn là chuyên gia phân tích số liệu hành chính công cao cấp của Văn phòng UBND.
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const systemInstruction = `Bạn là chuyên gia phân tích số liệu hành chính công cao cấp của Văn phòng UBND.
 Nhiệm vụ của bạn là đưa ra nhận xét, đánh giá chuyên môn chính xác về tình hình tiếp nhận và giải quyết thủ tục hành chính (TTHC) dựa trên số liệu tính toán được cung cấp.
 
 QUY TẮC BẮT BUỘC:
@@ -347,13 +401,13 @@ QUY TẮC BẮT BUỘC:
 2. TUYỆT ĐỐI KHÔNG tự tạo ra số liệu mới hoặc suy diễn các số không có trong dữ liệu.
 3. TUYỆT ĐỐI KHÔNG sửa đổi các chỉ số tính toán.
 4. KHÔNG suy đoán nguyên nhân chủ quan nếu trong dữ liệu không thể hiện.
-5. Định dạng đầu ra gồm các mục:
-   - Đánh giá khái quát kết quả đạt được (tỷ lệ giải quyết, tỷ lệ đúng hạn/trước hạn, tỷ lệ nộp hồ sơ trực tuyến).
-   - Tồn tại, hạn chế và cảnh báo nổi bật (lĩnh vực/đơn vị có hồ sơ quá hạn, mất cân đối số liệu, hoặc tồn đọng cao).
-   - Đề xuất giải pháp trọng tâm cho lãnh đạo đơn vị.
+5. Định dạng đầu ra gồm 3 mục rõ ràng:
+   I. ĐÁNH GIÁ KHÁI QUÁT KẾT QUẢ ĐẠT ĐƯỢC (tỷ lệ giải quyết, tỷ lệ đúng hạn/trước hạn, tỷ lệ nộp hồ sơ trực tuyến).
+   II. TỒN TẠI, HẠN CHẾ VÀ ĐIỂM NGHẼN (lĩnh vực/đơn vị có hồ sơ quá hạn, mất cân đối số liệu, hoặc tồn đọng cao).
+   III. ĐỀ XUẤT NHIỆM VỤ TRỌNG TÂM KỲ TỚI (chỉ đạo cụ thể cho các đơn vị).
 6. Sử dụng văn phong hành chính nhà nước Việt Nam, trang trọng, cô đọng, khúc chiết.`;
 
-      const prompt = `Hãy phân tích tình hình tiếp nhận và giải quyết TTHC cho báo cáo sau:
+    const prompt = `Hãy phân tích tình hình tiếp nhận và giải quyết TTHC cho báo cáo sau:
 Tên báo cáo: ${reportName || "Báo cáo kỳ"}
 Thời gian: ${period || "Kỳ báo cáo"}
 Phạm vi đánh giá: ${promptScope || "Toàn diện hệ thống"}
@@ -363,26 +417,65 @@ ${JSON.stringify(metricsSummary, null, 2)}
 
 Hãy xuất nhận xét phân tích sắc bén, nêu bật các chỉ số quan trọng, đơn vị làm tốt và các điểm nghẽn cần chỉ đạo xử lý.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          systemInstruction,
-          temperature: 0.3,
-        },
-      });
+    // Try primary and fallback models with retry logic for 503/429
+    const candidateModels = ["gemini-3.8-flash", "gemini-3.1-flash-lite"];
+    let lastError: any = null;
 
-      return res.json({
-        analysisText: response.text || "Chưa có nhận xét.",
-        generatedBy: "gemini",
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      console.error("Gemini analysis error:", error);
-      return res.status(500).json({
-        error: error?.message || "Lỗi khi tạo phân tích từ Gemini API"
-      });
+    for (const model of candidateModels) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              systemInstruction,
+              temperature: 0.3,
+            },
+          });
+
+          if (response.text) {
+            return res.json({
+              analysisText: response.text,
+              generatedBy: "gemini",
+              modelUsed: model,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (err: any) {
+          lastError = err;
+          const errMsg = err?.message || String(err);
+          const isRateOrHighDemand =
+            errMsg.includes("503") ||
+            errMsg.includes("UNAVAILABLE") ||
+            errMsg.includes("high demand") ||
+            errMsg.includes("429") ||
+            errMsg.includes("RESOURCE_EXHAUSTED");
+
+          console.warn(
+            `Gemini model ${model} (attempt ${attempt}/2) failed: ${errMsg.slice(0, 150)}`
+          );
+
+          if (isRateOrHighDemand && attempt === 1) {
+            // Wait 800ms before retrying the same model
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+          }
+          // Break out to try next candidate model
+          break;
+        }
+      }
     }
+
+    // If all Gemini models failed due to 503/429 or unavailability, gracefully fallback to high-standard rule engine
+    console.warn("All Gemini models encountered high demand/unavailability. Falling back to rule-based analysis synthesis:", lastError?.message);
+    const fallbackText = generateFallbackAnalysis(reportName, period, metricsSummary, promptScope);
+
+    return res.json({
+      analysisText: fallbackText,
+      generatedBy: "rule_engine",
+      note: "Hệ thống tự động tổng hợp phân tích chuẩn theo số liệu báo cáo do mô hình AI đang trong thời gian cao tải.",
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Vite middleware for development vs static build in production
