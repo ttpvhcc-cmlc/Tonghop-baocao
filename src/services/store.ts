@@ -1602,9 +1602,9 @@ export class StorageService {
       if (matchedSeedRep) {
         const seedStatsForRep = SEED_STATS.filter(s => s.report_id === matchedSeedRep.id);
         if (seedStatsForRep.length > 0) {
-          const remapped = seedStatsForRep.map(s => ({
+          const remapped = seedStatsForRep.map((s, idx) => ({
             ...s,
-            id: `f0000000-0000-${s.id.slice(19, 23) || '0000'}-${reportId.slice(-12)}`,
+            id: `f0000000-${reportId.slice(0, 4)}-${s.id.slice(14, 23)}-${(idx + 1).toString().padStart(12, '0')}`,
             report_id: reportId,
           }));
           this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
@@ -1614,12 +1614,12 @@ export class StorageService {
       }
     }
 
-    // Comprehensive 15,601 fallback
+    // Comprehensive 15,601 fallback with guaranteed unique IDs
     const defaultSeed = SEED_STATS.filter(s => s.report_id === 'd0000000-0000-0000-0000-000000000000');
     if (defaultSeed.length > 0) {
-      const remapped = defaultSeed.map(s => ({
+      const remapped = defaultSeed.map((s, idx) => ({
         ...s,
-        id: `f0000000-0000-1000-${reportId.slice(-12)}`,
+        id: `f0000000-${reportId.slice(0, 4)}-1000-${(idx + 1).toString().padStart(12, '0')}`,
         report_id: reportId,
       }));
       this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
