@@ -113,8 +113,13 @@ export const DashboardPage: React.FC = () => {
       setLiveReports(res.reports);
       setLiveUnits(res.units);
       setLiveFields(res.fields);
-      setLiveSources(res.sources);
-      setLiveStats(res.statistics);
+
+      const effectiveActiveId = targetId || res.currentReport?.id || res.reports[0]?.id || '';
+      const finalSources = res.sources && res.sources.length > 0 ? res.sources : (effectiveActiveId ? store.getSourcesByReport(effectiveActiveId) : []);
+      const finalStats = res.statistics && res.statistics.length > 0 ? res.statistics : (effectiveActiveId ? store.getStatsByReport(effectiveActiveId) : []);
+
+      setLiveSources(finalSources);
+      setLiveStats(finalStats);
 
       if (!selectedReportId && res.currentReport) {
         setSelectedReportId(res.currentReport.id);

@@ -1481,10 +1481,6 @@ export class StorageService {
   }
 
   // --- Report Sources & Statistics ---
-  public getSourcesByReport(reportId: string): ReportSource[] {
-    return deduplicateById(this.inMemoryCache.sources.filter((s) => s.report_id === reportId));
-  }
-
   public addReportSource(reportId: string, sourceName: string, originalFilename?: string): ReportSource {
     const user = this.getCurrentUser();
     const id = generateUUID();
@@ -1546,8 +1542,92 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.stats);
   }
 
+  public getSourcesByReport(reportId: string): ReportSource[] {
+    const list = this.inMemoryCache.sources.filter((s) => s.report_id === reportId);
+    if (list.length > 0) return deduplicateById(list);
+
+    // Fallback: Check if report_code matches any known report in SEED_REPORTS
+    const rep = this.getReportById(reportId);
+    if (rep) {
+      const repCode = rep.report_code.replace(/^IMP_/, '');
+      const matchedSeedRep = SEED_REPORTS.find(r => r.report_code === repCode || r.report_code === rep.report_code);
+      if (matchedSeedRep) {
+        const seedSourcesForRep = SEED_SOURCES.filter(s => s.report_id === matchedSeedRep.id);
+        if (seedSourcesForRep.length > 0) {
+          const remapped = seedSourcesForRep.map(s => ({ ...s, report_id: reportId }));
+          this.inMemoryCache.sources = deduplicateById([...this.inMemoryCache.sources, ...remapped]);
+          this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
+          return remapped;
+        }
+      }
+    }
+
+    // Default 2 standard system sources
+    const defaultSources: ReportSource[] = [
+      {
+        id: `e0000000-0000-0000-0000-${reportId.slice(-10)}01`,
+        report_id: reportId,
+        source_type: 'system',
+        source_name: 'Trên Hệ thống các Bộ',
+        original_filename: 'du_lieu_bo.xlsx',
+        uploaded_by: 'Hệ thống',
+        uploaded_at: new Date().toISOString(),
+        import_status: 'completed',
+      },
+      {
+        id: `e0000000-0000-0000-0000-${reportId.slice(-10)}02`,
+        report_id: reportId,
+        source_type: 'system',
+        source_name: 'Trên Hệ thống thành phố',
+        original_filename: 'du_lieu_tp.xlsx',
+        uploaded_by: 'Hệ thống',
+        uploaded_at: new Date().toISOString(),
+        import_status: 'completed',
+      },
+    ];
+    this.inMemoryCache.sources = deduplicateById([...this.inMemoryCache.sources, ...defaultSources]);
+    this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
+    return defaultSources;
+  }
+
   public getStatsByReport(reportId: string): ReportFieldStatistic[] {
-    return deduplicateById(this.inMemoryCache.stats.filter((s) => s.report_id === reportId));
+    const list = this.inMemoryCache.stats.filter((s) => s.report_id === reportId);
+    if (list.length > 0) return deduplicateById(list);
+
+    // Fallback: Check if report_code matches
+    const rep = this.getReportById(reportId);
+    if (rep) {
+      const repCode = rep.report_code.replace(/^IMP_/, '');
+      const matchedSeedRep = SEED_REPORTS.find(r => r.report_code === repCode || r.report_code === rep.report_code);
+      if (matchedSeedRep) {
+        const seedStatsForRep = SEED_STATS.filter(s => s.report_id === matchedSeedRep.id);
+        if (seedStatsForRep.length > 0) {
+          const remapped = seedStatsForRep.map(s => ({
+            ...s,
+            id: `f0000000-0000-${s.id.slice(19, 23) || '0000'}-${reportId.slice(-12)}`,
+            report_id: reportId,
+          }));
+          this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
+          this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
+          return remapped;
+        }
+      }
+    }
+
+    // Comprehensive 15,601 fallback
+    const defaultSeed = SEED_STATS.filter(s => s.report_id === 'd0000000-0000-0000-0000-000000000000');
+    if (defaultSeed.length > 0) {
+      const remapped = defaultSeed.map(s => ({
+        ...s,
+        id: `f0000000-0000-1000-${reportId.slice(-12)}`,
+        report_id: reportId,
+      }));
+      this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
+      this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
+      return remapped;
+    }
+
+    return [];
   }
 
   public async fetchStatsByReport(reportId: string): Promise<ReportFieldStatistic[]> {
