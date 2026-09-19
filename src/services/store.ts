@@ -196,7 +196,123 @@ const SEED_SOURCES: ReportSource[] = [
     uploaded_at: '2026-01-31T10:00:00Z',
     import_status: 'completed',
   },
+  {
+    id: 'e0000000-0000-0000-2000-000000000001',
+    report_id: 'd0000000-0000-0000-0000-000000000002',
+    source_type: 'system',
+    source_name: 'Trên Hệ thống các Bộ',
+    original_filename: 'du_lieu_bo_t2_2026.xlsx',
+    uploaded_by: 'Hệ thống',
+    uploaded_at: '2026-02-28T09:30:00Z',
+    import_status: 'completed',
+  },
+  {
+    id: 'e0000000-0000-0000-2000-000000000002',
+    report_id: 'd0000000-0000-0000-0000-000000000002',
+    source_type: 'system',
+    source_name: 'Trên Hệ thống thành phố',
+    original_filename: 'du_lieu_tp_t2_2026.xlsx',
+    uploaded_by: 'Hệ thống',
+    uploaded_at: '2026-02-28T10:00:00Z',
+    import_status: 'completed',
+  },
 ];
+
+// Generate mathematically verified seed statistics for default reports
+function generateInitialSeedStatistics(
+  reports: Report[],
+  sources: ReportSource[],
+  fields: Field[],
+  units: Unit[]
+): ReportFieldStatistic[] {
+  const stats: ReportFieldStatistic[] = [];
+  const unitMap = new Map(units.map((u) => [u.id, u.name]));
+  let rowIdx = 1;
+
+  reports.forEach((rep, pIdx) => {
+    const repSources = sources.filter((s) => s.report_id === rep.id);
+    repSources.forEach((src, sIdx) => {
+      // Sector stats
+      fields.slice(31).forEach((f, fIdx) => {
+        const seedVal = (pIdx + 1) * 43 + (sIdx + 1) * 23 + (fIdx + 1) * 11;
+        const recOnline = 20 + (seedVal % 50);
+        const recOffline = 5 + (seedVal % 15);
+        const recForward = seedVal % 5 === 0 ? 2 : 0;
+        const recTotal = recOnline + recOffline + recForward;
+
+        const pendLate = seedVal % 9 === 0 ? 1 : 0;
+        const pendOnTime = 2 + (seedVal % 6);
+        const pendTotal = pendOnTime + pendLate;
+
+        const compTotal = recTotal - pendTotal;
+        const compLate = seedVal % 7 === 0 ? 1 : 0;
+        const compEarly = Math.floor(compTotal * 0.6);
+        const compOnTime = compTotal - compEarly - compLate;
+
+        const hexId = ('000000000000' + rowIdx.toString(16)).slice(-12);
+        const unitName = unitMap.get(f.unit_id || '') || 'Văn phòng';
+
+        stats.push({
+          id: `f0000000-0000-0000-0000-${hexId}`,
+          report_id: rep.id,
+          source_id: src.id,
+          field_id: f.id,
+          field_code: f.code,
+          field_name_snapshot: f.linh_vuc || f.name,
+          field_name: f.linh_vuc || f.name,
+          unit_id: f.unit_id || 'a0000000-0000-0000-0000-000000000001',
+          unit_name_snapshot: unitName,
+          unit_name: unitName,
+          received_total: recTotal,
+          received_online: recOnline,
+          received_offline: recOffline,
+          carried_forward: recForward,
+          completed_total: compTotal,
+          completed_early: compEarly,
+          completed_on_time: compOnTime,
+          completed_late: compLate,
+          pending_total: pendTotal,
+          pending_on_time: pendOnTime,
+          pending_late: pendLate,
+          validation_status: 'valid',
+          validation_errors: [],
+        });
+        rowIdx++;
+      });
+    });
+  });
+
+  return stats;
+}
+
+const SEED_ANALYSES: ReportAnalysis[] = [
+  {
+    id: 'g0000000-0000-0000-0000-000000000001',
+    report_id: 'd0000000-0000-0000-0000-000000000001',
+    scope_type: 'report',
+    title: 'Phân tích tổng hợp công tác giải quyết TTHC Tháng 01/2026',
+    generated_text: `I. ĐÁNH GIÁ KHÁI QUÁT KẾT QUẢ ĐẠT ĐƯỢC
+- Trong kỳ báo cáo (Tháng 01/2026), toàn hệ thống đã tiếp nhận 1.054 hồ sơ TTHC, trong đó hình thức nộp trực tuyến chiếm tỷ lệ 78.4%.
+- Khối lượng hồ sơ hoàn thành đạt 91.2%, tỷ lệ giải quyết đúng và trước hạn đạt 98.7%.
+
+II. TỒN TẠI, HẠN CHẾ
+- Có 3 hồ sơ quá hạn rải rác ở lĩnh vực Đất đai và Hoạt động xây dựng do khâu xác minh thực địa.
+- Số liệu tiếp nhận giữa Hệ thống các Bộ và Hệ thống thành phố có sự chênh lệch nhỏ ở lĩnh vực Hộ tịch do độ trễ đồng bộ.
+
+III. NHIỆM VỤ TRỌNG TÂM
+1. Tiếp tục duy trì và nâng cao tỷ lệ tiếp nhận trực tuyến trên 80%.
+2. Đôn đốc xử lý dứt điểm các hồ sơ tồn đọng.`,
+    generated_by: 'gemini',
+    created_at: '2026-01-31T17:00:00Z',
+  }
+];
+
+const SEED_STATS: ReportFieldStatistic[] = generateInitialSeedStatistics(
+  SEED_REPORTS,
+  SEED_SOURCES,
+  ALL_INITIAL_FIELDS,
+  SEED_UNITS
+);
 
 // Helper to generate UUID
 function generateUUID(): string {
@@ -256,18 +372,20 @@ export class StorageService {
 
   constructor() {
     const initialFields = this.ensureHealthyFields(this.getLocal(STORAGE_KEYS.FIELDS, ALL_INITIAL_FIELDS));
-    const rawCachedStats = this.getLocal<ReportFieldStatistic[]>(STORAGE_KEYS.STATS, []);
-    const normalizedStats = rawCachedStats.map((s) => this.normalizeStatLinhVuc(s, initialFields));
+    const rawCachedStats = this.getLocal<ReportFieldStatistic[]>(STORAGE_KEYS.STATS, SEED_STATS);
+    const effectiveStats = Array.isArray(rawCachedStats) && rawCachedStats.length > 0 ? rawCachedStats : SEED_STATS;
+    const normalizedStats = effectiveStats.map((s) => this.normalizeStatLinhVuc(s, initialFields));
     const cachedSources = this.getLocal<ReportSource[]>(STORAGE_KEYS.SOURCES, SEED_SOURCES);
+    const effectiveSources = Array.isArray(cachedSources) && cachedSources.length > 0 ? cachedSources : SEED_SOURCES;
 
     this.inMemoryCache = {
       units: deduplicateById(this.getLocal(STORAGE_KEYS.UNITS, SEED_UNITS)),
       fields: initialFields,
       indicators: deduplicateById(this.getLocal(STORAGE_KEYS.INDICATORS, SEED_INDICATORS)),
       reports: deduplicateById(this.getLocal(STORAGE_KEYS.REPORTS, SEED_REPORTS)),
-      sources: deduplicateById(cachedSources.length > 0 ? cachedSources : SEED_SOURCES),
+      sources: deduplicateById(effectiveSources),
       stats: deduplicateById(normalizedStats),
-      analyses: deduplicateById(this.getLocal(STORAGE_KEYS.ANALYSES, [])),
+      analyses: deduplicateById(this.getLocal(STORAGE_KEYS.ANALYSES, SEED_ANALYSES)),
       snapshots: deduplicateById(this.getLocal(STORAGE_KEYS.SNAPSHOTS, [])),
       auditLogs: deduplicateById(this.getLocal(STORAGE_KEYS.AUDIT_LOGS, [])),
       currentUser: this.getLocal(STORAGE_KEYS.CURRENT_USER, SEED_CURRENT_USER),
