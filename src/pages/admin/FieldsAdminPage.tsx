@@ -12,7 +12,8 @@ import {
   Upload, 
   Check, 
   RefreshCw,
-  HelpCircle
+  HelpCircle,
+  Layers
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -44,6 +45,79 @@ export const FieldsAdminPage: React.FC = () => {
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importStats, setImportStats] = useState({ total: 0, added: 0, updated: 0 });
+
+  // Assign Units by Sector states & helper computations
+  const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
+  const [sectorMappings, setSectorMappings] = useState<{ [key: string]: string }>({});
+
+  const sectorsData = useMemo(() => {
+    const map: { [sector: string]: { count: number; currentUnitId: string | null } } = {};
+    
+    fields.forEach(f => {
+      const sec = f.linh_vuc || 'Chưa xác định';
+      if (!map[sec]) {
+        map[sec] = { count: 0, currentUnitId: null };
+      }
+      map[sec].count++;
+      
+      if (f.unit_id && !map[sec].currentUnitId) {
+        map[sec].currentUnitId = f.unit_id;
+      }
+    });
+
+    return Object.entries(map).map(([name, data]) => ({
+      name,
+      count: data.count,
+      currentUnitId: data.currentUnitId || ''
+    })).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [fields]);
+
+  const handleOpenSectorModal = () => {
+    const initial: { [key: string]: string } = {};
+    sectorsData.forEach(s => {
+      initial[s.name] = s.currentUnitId;
+    });
+    setSectorMappings(initial);
+    setIsSectorModalOpen(true);
+  };
+
+  const handleApplySectorMappings = () => {
+    const updatedFieldsList: Field[] = [];
+    
+    fields.forEach(f => {
+      const sec = f.linh_vuc || 'Chưa xác định';
+      const targetUnitId = sectorMappings[sec];
+      if (targetUnitId && targetUnitId !== f.unit_id) {
+        updatedFieldsList.push({
+          ...f,
+          unit_id: targetUnitId
+        });
+      }
+    });
+
+    if (updatedFieldsList.length > 0) {
+      try {
+        store.saveFieldsBulk(updatedFieldsList);
+        setFields(store.getFields());
+        setNotification({
+          message: `Đã cập nhật Đơn vị phụ trách cho ${updatedFieldsList.length} thủ tục theo Lĩnh vực thành công!`,
+          type: 'success'
+        });
+      } catch (err: any) {
+        setNotification({
+          message: `Có lỗi khi cập nhật: ${err.message}`,
+          type: 'error'
+        });
+      }
+    } else {
+      setNotification({
+        message: 'Không có thay đổi nào cần áp dụng.',
+        type: 'success'
+      });
+    }
+    
+    setIsSectorModalOpen(false);
+  };
 
   const [formData, setFormData] = useState({
     code: '',
@@ -144,8 +218,14 @@ export const FieldsAdminPage: React.FC = () => {
   // Helper to guess unit ID based on text keywords from Linh Vuc and Ten TTHC mapping to Registered Units
   const guessUnitId = (coQuanThucHien: string, linhVuc: string, tenTTHC: string): string => {
     const normCoQuan = (coQuanThucHien || '').toLowerCase();
-    const normLinhVuc = (linhVuc || '').toLowerCase();
+    const normLinhVuc = (linhVuc || '').trim().toLowerCase();
     const normTen = (tenTTHC || '').toLowerCase();
+
+    // 0. CHECK PRE-EXISTING SECTOR ASSIGNMENT MAP FIRST
+    const matchedSector = sectorsData.find(s => s.name.trim().toLowerCase() === normLinhVuc);
+    if (matchedSector && matchedSector.currentUnitId) {
+      return matchedSector.currentUnitId;
+    }
 
     // 1. JUSTICE & VITAL RECORDS (Tư pháp - Hộ tịch / Tư pháp / Pháp luật)
     const isJustice = 
@@ -492,6 +572,15 @@ export const FieldsAdminPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenSectorModal}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors shadow-xs"
+          >
+            <Layers className="w-4 h-4 text-amber-600" />
+            <span>Phân công theo Lĩnh vực</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
@@ -1122,6 +1211,96 @@ export const FieldsAdminPage: React.FC = () => {
                 className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm transition-all"
               >
                 Xác nhận Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTOR-BASED RESPONSIBLE UNIT ASSIGNMENT MODAL */}
+      {isSectorModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-150 animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-3 text-amber-600">
+                <span className="p-2 bg-amber-50 border border-amber-200 rounded-xl">
+                  <Layers className="w-6 h-6" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Phân công Đơn vị theo Lĩnh vực</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Áp dụng đơn vị phụ trách nhanh cho tất cả thủ tục cùng Lĩnh vực</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSectorModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              <div className="bg-blue-50 border border-blue-150 rounded-xl p-3 text-[11px] text-blue-800 leading-relaxed">
+                <strong>💡 Mẹo tiết kiệm thời gian:</strong> Chọn Đơn vị phụ trách cho từng Lĩnh vực bên dưới. Khi nhấn <strong>"Lưu & Áp dụng"</strong>, tất cả các thủ tục hành chính có tên Lĩnh vực tương ứng sẽ được tự động ánh xạ sang đơn vị đó. Điều này cũng giúp tự động phân loại chính xác khi bạn import file Excel mới sau này!
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                    <tr>
+                      <th className="p-3">Lĩnh vực ({sectorsData.length})</th>
+                      <th className="p-3 text-center w-28">Số thủ tục</th>
+                      <th className="p-3 w-72">Đơn vị phụ trách giải quyết</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150">
+                    {sectorsData.map((s) => (
+                      <tr key={s.name} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 font-semibold text-slate-800">{s.name}</td>
+                        <td className="p-3 text-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                            {s.count}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <select
+                            value={sectorMappings[s.name] || ''}
+                            onChange={(e) => setSectorMappings({
+                              ...sectorMappings,
+                              [s.name]: e.target.value
+                            })}
+                            className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                          >
+                            <option value="">-- Chưa phân công --</option>
+                            {units.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} ({u.code})
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setIsSectorModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleApplySectorMappings}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all inline-flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>Lưu & Áp dụng</span>
               </button>
             </div>
           </div>

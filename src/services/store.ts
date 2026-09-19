@@ -639,6 +639,46 @@ export class StorageService {
     return newField;
   }
 
+  public saveFieldsBulk(fieldsToUpdate: Field[]): void {
+    if (fieldsToUpdate.length === 0) return;
+
+    // Update in-memory cache
+    fieldsToUpdate.forEach((updatedField) => {
+      const idx = this.inMemoryCache.fields.findIndex((f) => f.id === updatedField.id);
+      if (idx !== -1) {
+        this.inMemoryCache.fields[idx] = { ...this.inMemoryCache.fields[idx], ...updatedField };
+      }
+    });
+
+    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
+    this.addAuditLog('BULK_UPDATE_FIELDS_UNIT', 'fields', `${fieldsToUpdate.length} fields updated`);
+
+    // Sync with Supabase
+    if (supabase && this.isSchemaReady) {
+      const rows = fieldsToUpdate.map(field => ({
+        id: field.id,
+        code: field.code,
+        name: field.name,
+        unit_id: field.unit_id,
+        display_order: field.display_order || 1,
+        active: field.active !== false,
+        co_quan_cong_bo: field.co_quan_cong_bo || null,
+        loai_tthc: field.loai_tthc || null,
+        co_quan_thuc_hien: field.co_quan_thuc_hien || null,
+        cap_thuc_hien: field.cap_thuc_hien || null,
+        muc_do_cung_cap: field.muc_do_cung_cap || null,
+        phi_le_phi: field.phi_le_phi || null,
+        linh_vuc: field.linh_vuc || null,
+      }));
+
+      supabase.from('fields').upsert(rows).then(({ error }) => {
+        if (error) console.error('Supabase saveFieldsBulk error:', error);
+      });
+    }
+
+    this.notify();
+  }
+
   public deleteField(fieldId: string): void {
     // Check if there are statistics belonging to locked or archived reports
     const hasLockedData = this.inMemoryCache.stats.some((s) => {
