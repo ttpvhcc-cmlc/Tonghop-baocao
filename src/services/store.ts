@@ -640,23 +640,51 @@ export class StorageService {
   }
 
   public deleteField(fieldId: string): void {
-    // Rule: deleting a field that has imported data must be blocked
-    const hasData = this.inMemoryCache.stats.some((s) => s.field_id === fieldId);
-    if (hasData) {
+    // Check if there are statistics belonging to locked or archived reports
+    const hasLockedData = this.inMemoryCache.stats.some((s) => {
+      if (s.field_id !== fieldId) return false;
+      const report = this.inMemoryCache.reports.find((r) => r.id === s.report_id);
+      return report && (report.status === 'locked' || report.status === 'archived');
+    });
+
+    if (hasLockedData) {
       throw new Error(
-        'Không thể xóa lĩnh vực này vì đã phát sinh số liệu thống kê trong các kỳ báo cáo. Để đảm bảo tính toàn vẹn dữ liệu lịch sử, bạn chỉ có thể chuyển trạng thái sang "Tạm dừng".'
+        'Không thể xóa thủ tục này vì đã phát sinh số liệu trong các kỳ báo cáo đã KHÓA hoặc LƯU TRỮ. Để đảm bảo tính toàn vẹn dữ liệu lịch sử, bạn chỉ có thể chuyển trạng thái sang "Tạm dừng".'
       );
     }
 
+    // Cascade delete statistics associated with this field in unlocked reports
+    const statsToDelete = this.inMemoryCache.stats.filter((s) => s.field_id === fieldId);
+    
+    // Remove stats from cache
+    this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.field_id !== fieldId);
+    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
+
+    // Remove field from cache
     this.inMemoryCache.fields = this.inMemoryCache.fields.filter((f) => f.id !== fieldId);
     this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
-    this.addAuditLog('DELETE_FIELD', 'fields', fieldId);
 
+    this.addAuditLog('DELETE_FIELD_CASCADED', 'fields', fieldId);
+
+    // Sync with Supabase
     if (supabase && this.isSchemaReady) {
-      supabase.from('fields').delete().eq('id', fieldId).then(({ error }) => {
-        if (error) console.error('Supabase deleteField error:', error);
-      });
+      if (statsToDelete.length > 0) {
+        const unlockedStatIds = statsToDelete.map(s => s.id);
+        supabase.from('report_field_statistics').delete().in('id', unlockedStatIds).then(({ error }) => {
+          if (error) console.error('Supabase delete cascaded stats error:', error);
+          
+          // Now delete the field
+          supabase.from('fields').delete().eq('id', fieldId).then(({ error: fieldErr }) => {
+            if (fieldErr) console.error('Supabase deleteField error:', fieldErr);
+          });
+        });
+      } else {
+        supabase.from('fields').delete().eq('id', fieldId).then(({ error }) => {
+          if (error) console.error('Supabase deleteField error:', error);
+        });
+      }
     }
+
     this.notify();
   }
 

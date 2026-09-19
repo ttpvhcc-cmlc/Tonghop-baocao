@@ -141,39 +141,176 @@ export const FieldsAdminPage: React.FC = () => {
     }
   };
 
-  // Helper to guess unit ID based on text keywords (e.g. "xã" -> UBND Cấp Xã, "Phòng" -> Phòng chuyên môn)
-  const guessUnitId = (coQuanThucHien: string, linhVuc: string): string => {
+  // Helper to guess unit ID based on text keywords from Linh Vuc and Ten TTHC mapping to Registered Units
+  const guessUnitId = (coQuanThucHien: string, linhVuc: string, tenTTHC: string): string => {
     const normCoQuan = (coQuanThucHien || '').toLowerCase();
     const normLinhVuc = (linhVuc || '').toLowerCase();
+    const normTen = (tenTTHC || '').toLowerCase();
 
-    // Loop through units to check for exact/partial names
+    // 1. JUSTICE & VITAL RECORDS (Tư pháp - Hộ tịch / Tư pháp / Pháp luật)
+    const isJustice = 
+      normLinhVuc.includes('hộ tịch') || 
+      normLinhVuc.includes('chứng thực') || 
+      normLinhVuc.includes('nuôi con nuôi') || 
+      normLinhVuc.includes('tư pháp') ||
+      normLinhVuc.includes('pháp luật') ||
+      normTen.includes('khai sinh') || 
+      normTen.includes('khai tử') || 
+      normTen.includes('kết hôn') || 
+      normTen.includes('giám hộ') || 
+      normTen.includes('chứng thực') || 
+      normTen.includes('di chúc') ||
+      normTen.includes('nuôi con nuôi') ||
+      normTen.includes('thừa kế');
+
+    if (isJustice) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('tư pháp') || n.includes('hộ tịch') || c.includes('tp') || c.includes('ht') || c.includes('tpht');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 2. LAND, ENVIRONMENT, CONSTRUCTION & AGRICULTURE (Địa chính - Xây dựng / Địa chính - Đất đai)
+    const isLandAndBuild = 
+      normLinhVuc.includes('đất đai') || 
+      normLinhVuc.includes('môi trường') || 
+      normLinhVuc.includes('khoáng sản') || 
+      normLinhVuc.includes('xây dựng') || 
+      normLinhVuc.includes('quy hoạch') || 
+      normLinhVuc.includes('nhà ở') || 
+      normLinhVuc.includes('đô thị') ||
+      normLinhVuc.includes('nông nghiệp') ||
+      normLinhVuc.includes('thủy sản') ||
+      normLinhVuc.includes('địa chính') ||
+      normTen.includes('đất đai') ||
+      normTen.includes('nhà ở') ||
+      normTen.includes('cấp phép xây dựng') ||
+      normTen.includes('quy hoạch') ||
+      normTen.includes('giao đất') ||
+      normTen.includes('thu hồi đất') ||
+      normTen.includes('thủy sản') ||
+      normTen.includes('nông nghiệp') ||
+      normTen.includes('sổ đỏ');
+
+    if (isLandAndBuild) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('địa chính') || n.includes('tài nguyên') || n.includes('môi trường') || n.includes('xây dựng') || n.includes('nông nghiệp') || n.includes('đô thị') || n.includes('kinh tế') || c.includes('dc') || c.includes('xd') || c.includes('tnmt') || c.includes('pkt') || c.includes('kt');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 3. CULTURE, SOCIAL AFFAIRS, EDUCATION, HEALTHCARE & POLICIES (Văn hóa - Xã hội / Lao động - Thương binh)
+    const isSocial = 
+      normLinhVuc.includes('bảo trợ') || 
+      normLinhVuc.includes('xã hội') || 
+      normLinhVuc.includes('giáo dục') || 
+      normLinhVuc.includes('y tế') || 
+      normLinhVuc.includes('văn hóa') || 
+      normLinhVuc.includes('thể thao') || 
+      normLinhVuc.includes('du lịch') || 
+      normLinhVuc.includes('người có công') || 
+      normLinhVuc.includes('chính sách') ||
+      normLinhVuc.includes('lao động') ||
+      normLinhVuc.includes('trợ cấp') ||
+      normLinhVuc.includes('giảm nghèo') ||
+      normTen.includes('người có công') ||
+      normTen.includes('trợ cấp') ||
+      normTen.includes('chính sách') ||
+      normTen.includes('thương binh') ||
+      normTen.includes('nghèo') ||
+      normTen.includes('giáo dục') ||
+      normTen.includes('y tế') ||
+      normTen.includes('văn hóa') ||
+      normTen.includes('học đường') ||
+      normTen.includes('bảo hiểm');
+
+    if (isSocial) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('văn hóa') || n.includes('xã hội') || n.includes('vhxh') || n.includes('lao động') || n.includes('y tế') || c.includes('vh') || c.includes('xh') || c.includes('vhxh') || c.includes('pvhxh');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 4. MILITARY & NATIONAL DEFENSE (Quân sự - Quốc phòng)
+    const isMilitary = 
+      normLinhVuc.includes('quân sự') || 
+      normLinhVuc.includes('quốc phòng') || 
+      normTen.includes('nghĩa vụ quân sự') ||
+      normTen.includes('dân quân') ||
+      normTen.includes('quân sự');
+
+    if (isMilitary) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('quân sự') || n.includes('quốc phòng') || n.includes('chỉ huy') || c.includes('qs') || c.includes('qp');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 5. PUBLIC SECURITY & POLICE (Công an)
+    const isSecurity = 
+      normLinhVuc.includes('công an') || 
+      normLinhVuc.includes('an ninh') || 
+      normTen.includes('hộ khẩu') ||
+      normTen.includes('cư trú') ||
+      normTen.includes('tạm trú') ||
+      normTen.includes('thường trú') ||
+      normTen.includes('định danh') ||
+      normTen.includes('căn cước') ||
+      normTen.includes('công an');
+
+    if (isSecurity) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('công an') || n.includes('an ninh') || c.includes('ca') || c.includes('an');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 6. FINANCE, PLANNING & BUDGET (Tài chính - Kế hoạch)
+    const isFinance = 
+      normLinhVuc.includes('tài chính') || 
+      normLinhVuc.includes('ngân sách') || 
+      normLinhVuc.includes('kế hoạch') || 
+      normLinhVuc.includes('đầu tư') || 
+      normLinhVuc.includes('thuế') || 
+      normLinhVuc.includes('phí') || 
+      normLinhVuc.includes('lệ phí') || 
+      normLinhVuc.includes('kinh doanh') ||
+      normTen.includes('hộ kinh doanh') ||
+      normTen.includes('ngân sách') ||
+      normTen.includes('tài chính') ||
+      normTen.includes('thuế') ||
+      normTen.includes('lệ phí');
+
+    if (isFinance) {
+      const uMatch = units.find(u => {
+        const n = u.name.toLowerCase();
+        const c = u.code.toLowerCase();
+        return n.includes('tài chính') || n.includes('kế hoạch') || n.includes('ngân sách') || n.includes('kế toán') || n.includes('kinh tế') || c.includes('tc') || c.includes('kh') || c.includes('tckh') || c.includes('pkt') || c.includes('kt');
+      });
+      if (uMatch) return uMatch.id;
+    }
+
+    // 7. General Fallback with unit name match check
     for (const u of units) {
       const normUnitName = u.name.toLowerCase();
-      if (normCoQuan.includes(normUnitName) || normUnitName.includes(normCoQuan)) {
+      if (normLinhVuc.includes(normUnitName) || normUnitName.includes(normLinhVuc)) {
         return u.id;
       }
     }
 
-    // Keyword heuristics
-    if (normCoQuan.includes('xã') || normCoQuan.includes('phường') || normCoQuan.includes('thị trấn') || normCoQuan.includes('ấp')) {
-      const xaUnit = units.find(u => u.name.toLowerCase().includes('xã') || u.code.toLowerCase().includes('xa'));
-      if (xaUnit) return xaUnit.id;
-    }
-
-    if (normCoQuan.includes('huyện') || normCoQuan.includes('quận') || normCoQuan.includes('thị xã') || normCoQuan.includes('phòng')) {
-      const huyenUnit = units.find(u => u.name.toLowerCase().includes('huyện') || u.code.toLowerCase().includes('huyen') || u.name.toLowerCase().includes('phòng'));
-      if (huyenUnit) return huyenUnit.id;
-    }
-
-    if (normLinhVuc.includes('đất đai') || normLinhVuc.includes('môi trường') || normLinhVuc.includes('khoáng sản')) {
-      const tnmtUnit = units.find(u => u.name.toLowerCase().includes('tài nguyên') || u.code.toLowerCase().includes('tnmt'));
-      if (tnmtUnit) return tnmtUnit.id;
-    }
-
-    if (normLinhVuc.includes('xây dựng') || normLinhVuc.includes('quy hoạch') || normLinhVuc.includes('nhà ở')) {
-      const qlydtUnit = units.find(u => u.name.toLowerCase().includes('đô thị') || u.name.toLowerCase().includes('xây dựng') || u.code.toLowerCase().includes('xd'));
-      if (qlydtUnit) return qlydtUnit.id;
-    }
+    // Default Fallback is the Office / General Unit (usually contains "Văn phòng" or has "VP" or display_order: 1)
+    const vpUnit = units.find(u => u.name.toLowerCase().includes('văn phòng') || u.code.toLowerCase().includes('vp'));
+    if (vpUnit) return vpUnit.id;
 
     return units[0]?.id || '';
   };
@@ -258,7 +395,7 @@ export const FieldsAdminPage: React.FC = () => {
           continue;
         }
 
-        const guessedUnit = guessUnitId(rawCoQuan, rawLinhVuc);
+        const guessedUnit = guessUnitId(rawCoQuan, rawLinhVuc, rawName);
         const existingField = fields.find(f => f.code === rawCode);
 
         total++;
