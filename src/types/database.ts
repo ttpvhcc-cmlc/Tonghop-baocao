@@ -43,6 +43,15 @@ export interface Field {
   unit?: Unit;
   created_at?: string;
   updated_at?: string;
+
+  // Extra metadata columns from Excel
+  co_quan_cong_bo?: string;
+  loai_tthc?: string;
+  co_quan_thuc_hien?: string;
+  cap_thuc_hien?: string;
+  muc_do_cung_cap?: string;
+  phi_le_phi?: string;
+  linh_vuc?: string;
 }
 
 // 4. reports (Central report table)

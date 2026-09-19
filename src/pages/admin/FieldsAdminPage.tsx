@@ -38,6 +38,13 @@ export const FieldsAdminPage: React.FC = () => {
     unit_id: units[0]?.id || '',
     display_order: 1,
     active: true,
+    co_quan_cong_bo: '',
+    loai_tthc: '',
+    co_quan_thuc_hien: '',
+    cap_thuc_hien: '',
+    muc_do_cung_cap: '',
+    phi_le_phi: '',
+    linh_vuc: '',
   });
 
   const filteredFields = useMemo(() => {
@@ -56,6 +63,13 @@ export const FieldsAdminPage: React.FC = () => {
       unit_id: units[0]?.id || '',
       display_order: fields.length + 1,
       active: true,
+      co_quan_cong_bo: '',
+      loai_tthc: '',
+      co_quan_thuc_hien: '',
+      cap_thuc_hien: '',
+      muc_do_cung_cap: '',
+      phi_le_phi: '',
+      linh_vuc: '',
     });
     setIsModalOpen(true);
   };
@@ -68,6 +82,13 @@ export const FieldsAdminPage: React.FC = () => {
       unit_id: f.unit_id,
       display_order: f.display_order,
       active: f.active,
+      co_quan_cong_bo: f.co_quan_cong_bo || '',
+      loai_tthc: f.loai_tthc || '',
+      co_quan_thuc_hien: f.co_quan_thuc_hien || '',
+      cap_thuc_hien: f.cap_thuc_hien || '',
+      muc_do_cung_cap: f.muc_do_cung_cap || '',
+      phi_le_phi: f.phi_le_phi || '',
+      linh_vuc: f.linh_vuc || '',
     });
     setIsModalOpen(true);
   };
@@ -154,7 +175,12 @@ export const FieldsAdminPage: React.FC = () => {
       let colIdxMa = 1;      // Default to Column B (idx 1)
       let colIdxTen = 2;     // Default to Column C (idx 2)
       let colIdxLinhVuc = 3; // Default to Column D (idx 3)
+      let colIdxCongBo = 4;  // Default to Column E (idx 4)
+      let colIdxLoai = 5;    // Default to Column F (idx 5)
       let colIdxCoQuan = 6;  // Default to Column G (idx 6)
+      let colIdxCap = 7;     // Default to Column H (idx 7)
+      let colIdxMucDo = 8;   // Default to Column I (idx 8)
+      let colIdxPhiLePhi = 9;// Default to Column J (idx 9)
 
       // Find the header row
       for (let i = 0; i < Math.min(rawRows.length, 15); i++) {
@@ -169,7 +195,12 @@ export const FieldsAdminPage: React.FC = () => {
             if (cellText.includes('mã tthc') || cellText.includes('mã thủ tục')) colIdxMa = idx;
             if (cellText.includes('tên thủ tục') || cellText.includes('tên tthc')) colIdxTen = idx;
             if (cellText.includes('lĩnh vực')) colIdxLinhVuc = idx;
+            if (cellText.includes('công bố')) colIdxCongBo = idx;
+            if (cellText.includes('loại tthc') || cellText.includes('loại thủ tục')) colIdxLoai = idx;
             if (cellText.includes('thực hiện')) colIdxCoQuan = idx;
+            if (cellText.includes('cấp thực hiện')) colIdxCap = idx;
+            if (cellText.includes('mức độ') || cellText.includes('dịch vụ công')) colIdxMucDo = idx;
+            if (cellText.includes('phí') || cellText.includes('lệ phí')) colIdxPhiLePhi = idx;
           });
           break;
         }
@@ -192,7 +223,12 @@ export const FieldsAdminPage: React.FC = () => {
         const rawCode = String(row[colIdxMa] || '').trim();
         const rawName = String(row[colIdxTen] || '').trim();
         const rawLinhVuc = String(row[colIdxLinhVuc] || '').trim();
+        const rawCongBo = String(row[colIdxCongBo] || '').trim();
+        const rawLoai = String(row[colIdxLoai] || '').trim();
         const rawCoQuan = String(row[colIdxCoQuan] || '').trim();
+        const rawCap = String(row[colIdxCap] || '').trim();
+        const rawMucDo = String(row[colIdxMucDo] || '').trim();
+        const rawPhiLePhi = String(row[colIdxPhiLePhi] || '').trim();
 
         // Skip rows without valid codes or names
         if (!rawCode || !rawName || rawCode === 'Mã TTHC' || rawName === 'Tên Thủ tục hành chính') {
@@ -213,7 +249,12 @@ export const FieldsAdminPage: React.FC = () => {
           code: rawCode,
           name: rawName,
           linh_vuc: rawLinhVuc,
+          co_quan_cong_bo: rawCongBo,
+          loai_tthc: rawLoai,
           co_quan_thuc_hien: rawCoQuan,
+          cap_thuc_hien: rawCap,
+          muc_do_cung_cap: rawMucDo,
+          phi_le_phi: rawPhiLePhi,
           guessed_unit_id: existingField ? existingField.unit_id : guessedUnit,
           isExisting: !!existingField,
           existingId: existingField?.id
@@ -246,7 +287,14 @@ export const FieldsAdminPage: React.FC = () => {
           name: row.name,
           unit_id: row.guessed_unit_id,
           display_order: fields.length + count + 1,
-          active: true
+          active: true,
+          linh_vuc: row.linh_vuc,
+          co_quan_cong_bo: row.co_quan_cong_bo,
+          loai_tthc: row.loai_tthc,
+          co_quan_thuc_hien: row.co_quan_thuc_hien,
+          cap_thuc_hien: row.cap_thuc_hien,
+          muc_do_cung_cap: row.muc_do_cung_cap,
+          phi_le_phi: row.phi_le_phi
         });
         count++;
       }
@@ -372,8 +420,25 @@ export const FieldsAdminPage: React.FC = () => {
                       {f.display_order}
                     </td>
                     <td className="p-3 font-mono font-bold text-blue-700">{f.code}</td>
-                    <td className="p-3 font-semibold text-slate-900 max-w-lg leading-relaxed">
-                      {f.name}
+                    <td className="p-3 max-w-xl leading-relaxed">
+                      <div className="font-semibold text-slate-900 mb-1.5">{f.name}</div>
+                      <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
+                        {f.linh_vuc && <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Lĩnh vực: {f.linh_vuc}</span>}
+                        {f.co_quan_cong_bo && <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Cơ quan công bố: {f.co_quan_cong_bo}</span>}
+                        {f.loai_tthc && <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Loại: {f.loai_tthc}</span>}
+                        {f.co_quan_thuc_hien && <span className="bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded">Thực hiện: {f.co_quan_thuc_hien}</span>}
+                        {f.cap_thuc_hien && <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Cấp: {f.cap_thuc_hien}</span>}
+                        {f.muc_do_cung_cap && (
+                          <span className="bg-blue-50 text-blue-700 font-medium px-1.5 py-0.5 rounded border border-blue-200">
+                            Mức độ: {f.muc_do_cung_cap}
+                          </span>
+                        )}
+                        {f.phi_le_phi && (
+                          <span className="bg-emerald-50 text-emerald-700 font-medium px-1.5 py-0.5 rounded border border-emerald-200">
+                            Phí/Lệ phí: {f.phi_le_phi}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3">
                       <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-blue-50 text-blue-800 font-medium text-xs border border-blue-200 whitespace-nowrap">
@@ -422,7 +487,7 @@ export const FieldsAdminPage: React.FC = () => {
       {/* MANUAL CREATE / EDIT MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl border border-slate-200">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="text-sm font-bold text-slate-900">
                 {editingField ? 'Cập nhật Thủ tục hành chính' : 'Thêm Thủ tục hành chính lẻ'}
@@ -485,7 +550,94 @@ export const FieldsAdminPage: React.FC = () => {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Extended Metadata Fields */}
+              <div className="border-t border-slate-100 pt-4 space-y-3">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Thông tin mở rộng (Metadata)
+                </span>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Lĩnh vực</label>
+                    <input
+                      type="text"
+                      value={formData.linh_vuc}
+                      onChange={(e) => setFormData({ ...formData, linh_vuc: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: Đất đai"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Cơ quan công bố</label>
+                    <input
+                      type="text"
+                      value={formData.co_quan_cong_bo}
+                      onChange={(e) => setFormData({ ...formData, co_quan_cong_bo: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: Bộ Tài nguyên..."
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Loại TTHC</label>
+                    <input
+                      type="text"
+                      value={formData.loai_tthc}
+                      onChange={(e) => setFormData({ ...formData, loai_tthc: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: Thủ tục liên thông"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Cơ quan thực hiện</label>
+                    <input
+                      type="text"
+                      value={formData.co_quan_thuc_hien}
+                      onChange={(e) => setFormData({ ...formData, co_quan_thuc_hien: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: UBND Cấp xã"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Cấp thực hiện</label>
+                    <input
+                      type="text"
+                      value={formData.cap_thuc_hien}
+                      onChange={(e) => setFormData({ ...formData, cap_thuc_hien: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: Cấp Xã"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Mức độ cung cấp</label>
+                    <input
+                      type="text"
+                      value={formData.muc_do_cung_cap}
+                      onChange={(e) => setFormData({ ...formData, muc_do_cung_cap: e.target.value })}
+                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: Toàn trình"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Phí & Lệ phí</label>
+                  <input
+                    type="text"
+                    value={formData.phi_le_phi}
+                    onChange={(e) => setFormData({ ...formData, phi_le_phi: e.target.value })}
+                    className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="VD: Miễn phí hoặc 10.000đ"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Thứ tự hiển thị
@@ -563,18 +715,19 @@ export const FieldsAdminPage: React.FC = () => {
               {/* Instructions */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 leading-relaxed grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <h4 className="font-bold text-slate-800 mb-1">Hướng dẫn cột trong file Excel:</h4>
+                  <h4 className="font-bold text-slate-800 mb-1">Hướng dẫn cột trong file Excel (Nhập đầy đủ):</h4>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li><strong>Mã TTHC (Cột B):</strong> VD: <code className="bg-slate-200 px-1 rounded text-red-600 font-bold">2.002913</code> (Dùng làm mã định danh duy nhất)</li>
+                    <li><strong>Mã TTHC (Cột B):</strong> VD: <code className="bg-slate-200 px-1 rounded text-red-600 font-bold">2.002913</code></li>
                     <li><strong>Tên Thủ tục (Cột C):</strong> Tên đầy đủ của thủ tục hành chính</li>
-                    <li><strong>Lĩnh vực (Cột D):</strong> Lĩnh vực quản lý (Ví dụ: Đất đai, Giảm nghèo...)</li>
-                    <li><strong>Thực hiện (Cột G):</strong> Cơ quan giải quyết để hệ thống gợi ý Đơn vị phụ trách</li>
+                    <li><strong>Lĩnh vực (Cột D) & Cơ quan công bố (Cột E)</strong></li>
+                    <li><strong>Loại TTHC (Cột F) & Cơ quan thực hiện (Cột G)</strong></li>
+                    <li><strong>Cấp thực hiện (Cột H), Mức độ (Cột I) & Phí - Lệ phí (Cột J)</strong></li>
                   </ul>
                 </div>
                 <div className="flex flex-col justify-between">
                   <div>
                     <h4 className="font-bold text-slate-800 mb-1">Quy tắc thông minh:</h4>
-                    <p>Hệ thống tự động rà soát: Nếu Mã TTHC đã tồn tại sẽ **Cập nhật tên mới**, nếu chưa có sẽ **Thêm mới**. Đồng thời tự động phân luồng đơn vị phụ trách dựa trên từ khóa cơ quan thực hiện!</p>
+                    <p>Hệ thống tự động đồng bộ hóa: Nếu Mã TTHC đã tồn tại sẽ **Cập nhật toàn bộ metadata mới**, nếu chưa có sẽ **Thêm mới**. Đồng thời tự động phân bổ đơn vị phụ trách giải quyết dựa trên từ khóa ở cột cơ quan thực hiện!</p>
                   </div>
                 </div>
               </div>
@@ -634,19 +787,24 @@ export const FieldsAdminPage: React.FC = () => {
                     Xem trước danh sách và Điều chỉnh nhanh Đơn vị phụ trách trước khi lưu:
                   </h4>
 
-                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[350px] overflow-y-auto">
-                    <table className="w-full text-xs text-left border-collapse">
+                  <div className="border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[350px]">
+                    <table className="w-full text-xs text-left border-collapse min-w-[1200px]">
                       <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 border-b border-slate-200 z-10">
                         <tr>
                           <th className="p-2.5 w-12 text-center">STT</th>
                           <th className="p-2.5 w-24">Mã TTHC</th>
-                          <th className="p-2.5">Tên Thủ tục</th>
-                          <th className="p-2.5">Lĩnh vực</th>
-                          <th className="p-2.5">Thực hiện</th>
-                          <th className="p-2.5 w-56">Đơn vị phụ trách (Điều chỉnh)</th>
+                          <th className="p-2.5 w-64">Tên Thủ tục</th>
+                          <th className="p-2.5 w-36">Lĩnh vực</th>
+                          <th className="p-2.5 w-36">Cơ quan công bố</th>
+                          <th className="p-2.5 w-32">Loại TTHC</th>
+                          <th className="p-2.5 w-40">Cơ quan thực hiện</th>
+                          <th className="p-2.5 w-28">Cấp thực hiện</th>
+                          <th className="p-2.5 w-28">Mức độ cung cấp</th>
+                          <th className="p-2.5 w-32">Phí - lệ phí</th>
+                          <th className="p-2.5 w-56 sticky right-0 bg-slate-50 border-l border-slate-200 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)] z-20">Đơn vị phụ trách (Điều chỉnh)</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 bg-white">
                         {parsedRows.map((row, idx) => (
                           <tr key={`p_${idx}`} className="hover:bg-slate-50 transition-colors">
                             <td className="p-2 text-center font-mono text-slate-400 font-semibold">{idx + 1}</td>
@@ -658,16 +816,27 @@ export const FieldsAdminPage: React.FC = () => {
                                 </span>
                               )}
                             </td>
-                            <td className="p-2 font-medium text-slate-900 leading-relaxed max-w-xs line-clamp-2" title={row.name}>
+                            <td className="p-2 font-medium text-slate-900 leading-relaxed max-w-xs break-words" title={row.name}>
                               {row.name}
                             </td>
-                            <td className="p-2 text-slate-500">{row.linh_vuc}</td>
-                            <td className="p-2 text-slate-400 italic text-[11px]">{row.co_quan_thuc_hien}</td>
+                            <td className="p-2 text-slate-600">{row.linh_vuc}</td>
+                            <td className="p-2 text-slate-500 text-[11px]">{row.co_quan_cong_bo}</td>
+                            <td className="p-2 text-slate-500 text-[11px]">{row.loai_tthc}</td>
+                            <td className="p-2 text-slate-600 font-medium text-[11px]">{row.co_quan_thuc_hien}</td>
+                            <td className="p-2 text-slate-500 text-[11px]">{row.cap_thuc_hien}</td>
                             <td className="p-2">
+                              {row.muc_do_cung_cap && (
+                                <span className="inline-block bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] border border-blue-200">
+                                  {row.muc_do_cung_cap}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2 text-slate-600 text-[11px]">{row.phi_le_phi}</td>
+                            <td className="p-2 sticky right-0 bg-white hover:bg-slate-50 border-l border-slate-200 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)] z-10">
                               <select
                                 value={row.guessed_unit_id}
                                 onChange={(e) => handleUpdateParsedRowUnit(idx, e.target.value)}
-                                className="w-full text-xs bg-slate-100 border border-slate-200 rounded px-2 py-1 text-slate-700 font-medium"
+                                className="w-full text-xs bg-slate-100 border border-slate-200 rounded px-2 py-1 text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
                               >
                                 {units.map((u) => (
                                   <option key={`opt_${u.id}`} value={u.id}>
