@@ -1,0 +1,6 @@
+{
+  "name": "Hệ thống tổng hợp, phân tích tiếp nhận, giải quyết TTHC",
+  "description": "Hệ thống quản lý, tổng hợp số liệu, phân tích tình hình tiếp nhận và giải quyết thủ tục hành chính theo đơn vị, lĩnh vực và thời gian.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
