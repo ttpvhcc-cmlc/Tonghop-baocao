@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Field } from '../../types/database';
 import { 
@@ -24,6 +24,19 @@ export const FieldsAdminPage: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingField, setEditingField] = useState<Field | null>(null);
+
+  // Non-blocking in-app notifications and delete confirmation
+  const [deleteConfirmField, setDeleteConfirmField] = useState<Field | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Import Excel catalog states
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -94,13 +107,19 @@ export const FieldsAdminPage: React.FC = () => {
   };
 
   const handleDeleteField = (f: Field) => {
-    if (window.confirm(`Bạn có chắc chắn muốn xóa lĩnh vực/thủ tục "${f.name}" (${f.code})?`)) {
-      try {
-        store.deleteField(f.id);
-        setFields(store.getFields());
-      } catch (err: any) {
-        alert(err.message);
-      }
+    setDeleteConfirmField(f);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmField) return;
+    try {
+      store.deleteField(deleteConfirmField.id);
+      setFields(store.getFields());
+      setNotification({ message: `Đã xóa thủ tục "${deleteConfirmField.name}" thành công!`, type: 'success' });
+    } catch (err: any) {
+      setNotification({ message: err.message || 'Lỗi khi xóa thủ tục hành chính', type: 'error' });
+    } finally {
+      setDeleteConfirmField(null);
     }
   };
 
@@ -113,8 +132,12 @@ export const FieldsAdminPage: React.FC = () => {
       });
       setFields(store.getFields());
       setIsModalOpen(false);
+      setNotification({ 
+        message: editingField ? 'Cập nhật thủ tục thành công!' : 'Thêm thủ tục mới thành công!', 
+        type: 'success' 
+      });
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi lưu lĩnh vực');
+      setNotification({ message: err.message || 'Lỗi khi lưu lĩnh vực', type: 'error' });
     }
   };
 
@@ -885,6 +908,83 @@ export const FieldsAdminPage: React.FC = () => {
                     <span>Xác nhận Lưu {parsedRows.length} thủ tục</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM FLOATING TOAST NOTIFICATION */}
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className={`p-4 rounded-xl shadow-xl border flex items-start gap-3 ${
+            notification.type === 'success' 
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
+              : 'bg-rose-50 text-rose-900 border-rose-200'
+          }`}>
+            <span className={`p-1 rounded-lg ${
+              notification.type === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+            }`}>
+              {notification.type === 'success' ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <X className="w-4 h-4" />
+              )}
+            </span>
+            <div className="flex-1">
+              <h5 className="text-xs font-bold">{notification.type === 'success' ? 'Thành công' : 'Không thể thực hiện'}</h5>
+              <p className="text-[11px] text-slate-600 mt-0.5 font-medium leading-relaxed">{notification.message}</p>
+            </div>
+            <button 
+              onClick={() => setNotification(null)}
+              className="text-slate-400 hover:text-slate-600 p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DELETE CONFIRMATION MODAL */}
+      {deleteConfirmField && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-150 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <span className="p-2 bg-rose-100 rounded-xl">
+                <Trash2 className="w-6 h-6" />
+              </span>
+              <h3 className="text-sm font-bold text-slate-900">Xác nhận xóa Thủ tục</h3>
+            </div>
+            
+            <div className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Bạn có chắc chắn muốn xóa thủ tục hành chính sau khỏi danh mục chuẩn hóa? Hành động này không thể hoàn tác.
+              </p>
+              
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+                <div className="font-semibold text-slate-800">{deleteConfirmField.name}</div>
+                <div className="text-slate-500 font-mono text-[10px] mt-1">Mã thủ tục: {deleteConfirmField.code}</div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed">
+                <strong>Lưu ý về Toàn vẹn dữ liệu:</strong> Nếu thủ tục này đã được sử dụng và có phát sinh số liệu trong bất kỳ báo cáo nào trước đây, hệ thống và cơ sở dữ liệu Supabase sẽ <strong>từ chối xóa</strong> để bảo vệ tính toàn vẹn dữ liệu lịch sử.
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmField(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm transition-all"
+              >
+                Xác nhận Xóa
               </button>
             </div>
           </div>
