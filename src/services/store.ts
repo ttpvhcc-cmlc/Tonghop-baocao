@@ -458,6 +458,7 @@ export class StorageService {
     units: Unit[];
     fields: Field[];
     indicators: IndicatorDefinition[];
+    reportIndicators: ReportIndicator[];
     reports: Report[];
     sources: ReportSource[];
     stats: ReportFieldStatistic[];
@@ -488,6 +489,7 @@ export class StorageService {
       units: [],
       fields: [],
       indicators: [],
+      reportIndicators: [],
       reports: [],
       sources: [],
       stats: [],
