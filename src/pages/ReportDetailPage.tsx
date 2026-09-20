@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { store } from '../services/store';
 import { formatNumber, formatPercent, formatDate, formatDateTime, getStatusBadge } from '../utils/format';
@@ -64,6 +64,18 @@ export const ReportDetailPage: React.FC = () => {
 
   // Selected snapshot for inspection
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+  const [, forceRefresh] = useState(0);
+  useEffect(() => {
+    if (!id) return;
+    const refresh = () => forceRefresh((v) => v + 1);
+    const unsubscribe = store.subscribe(refresh);
+    void Promise.all([
+      store.fetchReportById(id),
+      store.fetchStatsByReport(id),
+    ]).catch((error) => alert(error.message || 'Không thể tải báo cáo từ Supabase.'));
+    return unsubscribe;
+  }, [id]);
+
 
   // Inline editing states
   const [isEditingInline, setIsEditingInline] = useState(false);
