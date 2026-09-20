@@ -800,53 +800,38 @@ export class StorageService {
     return this.getUnits();
   }
 
-  public saveUnit(unit: Omit<Unit, 'id'> & { id?: string }): Unit {
+  public async saveUnit(unit: Omit<Unit, 'id'> & { id?: string }): Promise<Unit> {
     this.assertRole(['admin'], 'quản lý đơn vị');
-    const codeClean = (unit.code || '').trim().toUpperCase();
-    if (!codeClean) {
-      throw new Error('Mã đơn vị không được để trống.');
-    }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    // Rule: unit code must be unique
+    const codeClean = (unit.code || '').trim().toUpperCase();
+    if (!codeClean) throw new Error('Mã đơn vị không được để trống.');
+
     const existingWithCode = this.inMemoryCache.units.find(
       (u) => u.code.trim().toUpperCase() === codeClean && u.id !== unit.id
     );
-    if (existingWithCode) {
-      throw new Error(`Mã đơn vị "${codeClean}" đã tồn tại trên hệ thống. Vui lòng nhập mã đơn vị duy nhất.`);
-    }
+    if (existingWithCode) throw new Error(`Mã đơn vị "${codeClean}" đã tồn tại trên hệ thống.`);
 
     const id = unit.id || generateUUID();
-    const newUnit: Unit = {
-      ...unit,
-      code: codeClean,
+    const payload = {
       id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      code: codeClean,
+      name: unit.name,
+      display_order: unit.display_order || 1,
+      active: unit.active !== false,
     };
 
-    const idx = this.inMemoryCache.units.findIndex((u) => u.id === id);
-    if (idx !== -1) {
-      this.inMemoryCache.units[idx] = { ...this.inMemoryCache.units[idx], ...newUnit };
-    } else {
-      this.inMemoryCache.units.push(newUnit);
-    }
-    this.addAuditLog(unit.id ? 'UPDATE_UNIT' : 'CREATE_UNIT', 'units', id, newUnit);
+    const { data: saved, error } = await supabase.from('units').upsert(payload).select('*').single();
+    if (error) throw new Error(`Không thể lưu đơn vị vào Supabase: ${error.message}`);
 
-    // Asynchronously persist to Supabase
-    if (supabase && this.isSchemaReady) {
-      supabase.from('units').upsert({
-        id,
-        code: newUnit.code,
-        name: unit.name,
-        display_order: unit.display_order || 1,
-        active: unit.active !== false,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase saveUnit warning:', error.message);
-      });
-    }
-
+    const result = saved as Unit;
+    this.inMemoryCache.units = [
+      ...this.inMemoryCache.units.filter((u) => u.id !== result.id),
+      result,
+    ];
     this.notify();
-    return newUnit;
+    return result;
   }
 
   public deleteUnit(unitId: string): void {
@@ -895,49 +880,64 @@ export class StorageService {
     return this.getFields();
   }
 
-  public saveField(field: Omit<Field, 'id'> & { id?: string }): Field {
+  public async saveField(field: Omit<Field, 'id'> & { id?: string }): Promise<Field> {
     this.assertRole(['admin'], 'quản lý lĩnh vực');
-    const codeClean = (field.code || '').trim().toUpperCase();
-    if (!codeClean) {
-      throw new Error('Mã lĩnh vực không được để trống.');
-    }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    // Rule: field code must be unique
+    const codeClean = (field.code || '').trim().toUpperCase();
+    if (!codeClean) throw new Error('Mã lĩnh vực không được để trống.');
+
     const existingWithCode = this.inMemoryCache.fields.find(
       (f) => f.code.trim().toUpperCase() === codeClean && f.id !== field.id
     );
-    if (existingWithCode) {
-      throw new Error(`Mã lĩnh vực "${codeClean}" đã tồn tại trên hệ thống. Vui lòng nhập mã lĩnh vực duy nhất.`);
-    }
+    if (existingWithCode) throw new Error(`Mã lĩnh vực "${codeClean}" đã tồn tại trên hệ thống.`);
+
+    if (!field.unit_id) throw new Error(`Lĩnh vực "${field.name}" phải được gán đúng đơn vị trong Master.`);
 
     const id = field.id || generateUUID();
-    const newField: Field = {
-      ...field,
-      code: codeClean,
+    const payload = {
       id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      code: codeClean,
+      name: field.name,
+      unit_id: field.unit_id,
+      display_order: field.display_order || 1,
+      active: field.active !== false,
+      co_quan_cong_bo: field.co_quan_cong_bo || null,
+      quyet_dinh_cong_bo: field.quyet_dinh_cong_bo || null,
+      loai_tthc: field.loai_tthc || null,
+      co_quan_thuc_hien: field.co_quan_thuc_hien || null,
+      cap_thuc_hien: field.cap_thuc_hien || null,
+      muc_do_cung_cap: field.muc_do_cung_cap || null,
+      phi_le_phi: field.phi_le_phi || null,
+      linh_vuc: field.linh_vuc || null,
     };
 
-    const idx = this.inMemoryCache.fields.findIndex((f) => f.id === id);
-    if (idx !== -1) {
-      this.inMemoryCache.fields[idx] = { ...this.inMemoryCache.fields[idx], ...newField };
-    } else {
-      this.inMemoryCache.fields.push(newField);
-    }
-    this.addAuditLog(field.id ? 'UPDATE_FIELD' : 'CREATE_FIELD', 'fields', id, newField);
+    const { data: saved, error } = await supabase.from('fields').upsert(payload).select('*').single();
+    if (error) throw new Error(`Không thể lưu lĩnh vực vào Supabase: ${error.message}`);
 
-    // Persist to Supabase with fallback unit_id to prevent FK constraint failure
-    if (supabase && this.isSchemaReady) {
-      const safeUnitId = (field.unit_id && field.unit_id.trim()) 
-        ? field.unit_id 
-        : 'a0000000-0000-0000-0000-000000000001';
+    const result = saved as Field;
+    this.inMemoryCache.fields = [
+      ...this.inMemoryCache.fields.filter((f) => f.id !== result.id),
+      result,
+    ];
+    this.notify();
+    return result;
+  }
 
-      supabase.from('fields').upsert({
-        id,
-        code: newField.code,
-        name: field.name,
-        unit_id: safeUnitId,
+  public async saveFieldsBulk(fieldsToUpdate: Field[]): Promise<Field[]> {
+    this.assertRole(['admin'], 'cập nhật danh mục lĩnh vực');
+    if (fieldsToUpdate.length === 0) return [];
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
+    const rows = fieldsToUpdate.map((field) => {
+      if (!field.unit_id) throw new Error(`Lĩnh vực "${field.name}" chưa được gán đơn vị.`);
+      return {
+        id: field.id || generateUUID(),
+        code: field.code.trim(),
+        name: field.name.trim(),
+        unit_id: field.unit_id,
         display_order: field.display_order || 1,
         active: field.active !== false,
         co_quan_cong_bo: field.co_quan_cong_bo || null,
@@ -948,65 +948,22 @@ export class StorageService {
         muc_do_cung_cap: field.muc_do_cung_cap || null,
         phi_le_phi: field.phi_le_phi || null,
         linh_vuc: field.linh_vuc || null,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase saveField warning:', error.message);
-      });
-    }
-
-    this.notify();
-    return newField;
-  }
-
-  public saveFieldsBulk(fieldsToUpdate: Field[]): void {
-    this.assertRole(['admin'], 'cập nhật danh mục lĩnh vực');
-    if (fieldsToUpdate.length === 0) return;
-
-    // Update or insert into in-memory cache
-    const processedFields: Field[] = fieldsToUpdate.map((field) => {
-      const id = field.id || generateUUID();
-      return {
-        ...field,
-        id,
-        created_at: field.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       };
     });
 
-    processedFields.forEach((field) => {
-      const idx = this.inMemoryCache.fields.findIndex((f) => f.id === field.id || (f.code && f.code === field.code));
-      if (idx !== -1) {
-        this.inMemoryCache.fields[idx] = { ...this.inMemoryCache.fields[idx], ...field };
-      } else {
-        this.inMemoryCache.fields.push(field);
-      }
-    });
-    this.addAuditLog('BULK_UPDATE_FIELDS_UNIT', 'fields', `${processedFields.length} fields updated`);
+    const { data: saved, error } = await supabase
+      .from('fields')
+      .upsert(rows, { onConflict: 'code' })
+      .select('*');
 
-    // Sync with Supabase with fallback unit_id to prevent FK constraint failure
-    if (supabase && this.isSchemaReady) {
-      const rows = processedFields.map(field => ({
-        id: field.id,
-        code: field.code,
-        name: field.name,
-        unit_id: (field.unit_id && field.unit_id.trim()) ? field.unit_id : 'a0000000-0000-0000-0000-000000000001',
-        display_order: field.display_order || 1,
-        active: field.active !== false,
-        co_quan_cong_bo: field.co_quan_cong_bo || null,
-        quyet_dinh_cong_bo: field.quyet_dinh_cong_bo || null,
-        loai_tthc: field.loai_tthc || null,
-        co_quan_thuc_hien: field.co_quan_thuc_hien || null,
-        cap_thuc_hien: field.cap_thuc_hien || null,
-        muc_do_cung_cap: field.muc_do_cung_cap || null,
-        phi_le_phi: field.phi_le_phi || null,
-        linh_vuc: field.linh_vuc || null,
-      }));
+    if (error) throw new Error(`Không thể lưu danh mục TTHC vào Supabase: ${error.message}`);
 
-      supabase.from('fields').upsert(rows).then(({ error }) => {
-        if (error) console.warn('Supabase saveFieldsBulk warning:', error.message);
-      });
-    }
-
+    this.inMemoryCache.fields = [
+      ...this.inMemoryCache.fields.filter((f) => !rows.some((r) => r.id === f.id || r.code === f.code)),
+      ...(saved || []),
+    ] as Field[];
     this.notify();
+    return (saved || []) as Field[];
   }
 
   public deleteField(fieldId: string): void {
