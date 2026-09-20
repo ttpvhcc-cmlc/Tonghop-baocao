@@ -1495,7 +1495,7 @@ export class StorageService {
     ];
 
     const hasErrors = savedRows.some((r) => r.validation_status === 'error');
-    const nextStatus: ReportStatus = hasErrors ? 'imported' : 'validated';
+    const nextStatus: Report['status'] = hasErrors ? 'imported' : 'validated';
     await this.updateReportStatus(reportId, nextStatus);
 
     this.addAuditLog('IMPORT_STATISTICS', 'reports', reportId, { sourceId, count: savedRows.length });
