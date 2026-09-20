@@ -288,22 +288,11 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
   };
 
   const handlePushAllToCloud = async () => {
-    setIsPushingCloud(true);
-    setPushMessage(null);
-    setPushProgress({ text: 'Bắt đầu chuẩn bị dữ liệu...', percent: 5 });
-    try {
-      const res = await store.pushAllDataToSupabase((msg, pct) => {
-        setPushProgress({ text: msg, percent: pct });
-      });
-      setPushMessage({ success: res.success, text: res.message });
-      if (res.success) {
-        await handleRunVerifications();
-      }
-    } catch (err: any) {
-      setPushMessage({ success: false, text: `Lỗi kết nối: ${err.message}` });
-    } finally {
-      setIsPushingCloud(false);
-    }
+    setPushMessage({
+      success: true,
+      text: 'Đã tắt cơ chế đẩy local → cloud. Mọi dữ liệu nghiệp vụ hiện được ghi trực tiếp vào Supabase và không cần bước đồng bộ trung gian.',
+    });
+    await handlePullFromCloud();
   };
 
   const handlePullFromCloud = async () => {
@@ -329,9 +318,9 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
     }
   };
 
-  const handleExportBackupJson = () => {
+  const handleExportBackupJson = async () => {
     try {
-      const jsonStr = store.exportFullDatabaseBackup();
+      const jsonStr = await store.exportFullDatabaseBackup();
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -348,18 +337,15 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
     }
   };
 
-  const handleImportBackupJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportBackupJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
       if (content) {
-        const res = store.importFullDatabaseBackup(content);
+        const res = await store.importFullDatabaseBackup(content);
         setBackupMessage({ success: res.success, text: res.message });
-        if (res.success) {
-          handlePushAllToCloud();
-        }
       }
     };
     reader.readAsText(file);
@@ -484,7 +470,7 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
         >
           <CloudUpload className="w-4 h-4 text-emerald-600" />
           <span className="flex items-center gap-1.5">
-            Đồng bộ Cloud & Sao lưu
+            Sao lưu CSDL Supabase
             <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Quan trọng</span>
           </span>
         </button>
@@ -513,7 +499,7 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
         >
           <ShieldCheck className="w-4 h-4 text-amber-500" />
           <span className="flex items-center gap-1.5">
-            Bản vá RLS Policies nhanh
+            RLS Hardening
             <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Khuyên dùng để sửa lỗi</span>
           </span>
         </button>
@@ -541,7 +527,7 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
               Phát hiện lỗi bảo mật chính sách bảo mật (RLS) của Supabase!
             </h4>
             <p className="text-xs text-amber-700 mt-1">
-              Một số tiêu chí RLS hoặc Kiểm thử khép kín (E2E) đang báo thất bại. Điều này là do cấu hình chính sách bảo mật trên Supabase của bạn chưa đồng bộ. Hãy chuyển sang tab <button type="button" onClick={() => setActiveTab('rlsPatch')} className="underline font-bold text-amber-950 hover:text-amber-800">"Bản vá RLS Policies nhanh"</button> để lấy mã SQL vá lỗi chỉ với 1-click!
+              Một số tiêu chí RLS hoặc Kiểm thử khép kín (E2E) đang báo thất bại. Điều này là do cấu hình chính sách bảo mật trên Supabase của bạn chưa đồng bộ. Hãy chuyển sang tab <button type="button" onClick={() => setActiveTab('rlsPatch')} className="underline font-bold text-amber-950 hover:text-amber-800">"RLS Hardening"</button> để lấy mã SQL vá lỗi chỉ với 1-click!
             </p>
           </div>
         </div>
@@ -556,9 +542,9 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-800/80 text-blue-200 text-xs font-semibold mb-2">
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  Trung tâm đồng bộ dữ liệu đa nền tảng
+                  Nguồn dữ liệu duy nhất: Supabase
                 </div>
-                <h2 className="text-xl font-bold">Đồng bộ Supabase Cloud & Sao lưu dữ liệu</h2>
+                <h2 className="text-xl font-bold">Sao lưu CSDL Supabase</h2>
                 <p className="text-sm text-blue-200 mt-1 max-w-2xl">
                   Giúp đưa toàn bộ dữ liệu số liệu báo cáo từ phiên làm việc này lên Cơ sở dữ liệu Supabase Cloud, để ứng dụng khi mở trên <strong>Netlify</strong> hoặc bất kỳ máy tính/thiết bị nào khác đều hiển thị đầy đủ số liệu.
                 </p>
@@ -591,7 +577,7 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    1. Đẩy toàn bộ dữ liệu lên Supabase Cloud
+                    1. Đồng bộ local → cloud
                   </h3>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                     Tải toàn bộ các kỳ báo cáo, nguồn dữ liệu và <strong>{statsCount.toLocaleString('vi-VN')} dòng số liệu thống kê</strong> đang có trong trình duyệt này lưu trực tiếp vào CSDL Supabase Cloud.
@@ -648,7 +634,7 @@ CREATE POLICY "exports_insert_policy" ON public.report_exports FOR INSERT WITH C
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    2. Tải dữ liệu mới nhất từ Supabase Cloud về
+                    2. Làm mới dữ liệu từ Supabase
                   </h3>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                     Đồng bộ và tải các số liệu báo cáo mới nhất đang được lưu trữ trên Supabase Cloud về trình duyệt hiện tại.
