@@ -319,6 +319,7 @@ export const CreateReportPage: React.FC = () => {
       }
 
       const hasErrors = preparedRows.some((r) => r.validationStatus === 'error');
+      await store.recalculateAndPersistReportIndicators(createdReport.id);
       await store.updateReportStatus(createdReport.id, 'imported');
       if (!hasErrors) {
         await store.updateReportStatus(createdReport.id, 'validated');
