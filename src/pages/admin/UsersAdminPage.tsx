@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
 import { Users, Shield, Check, X, UserCheck, Plus, Edit2, Trash2, Mail, Building } from 'lucide-react';
@@ -7,6 +7,15 @@ export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
   const [users, setUsers] = useState(store.getUsers());
   const units = store.getUnits();
+  useEffect(() => {
+    const refresh = () => {
+      setUsers(store.getUsers());
+      setCurrentUser(store.getCurrentUser());
+    };
+    void store.syncWithSupabase().then(refresh).catch((error) => console.warn('Không thể tải hồ sơ người dùng từ Supabase:', error));
+    return store.subscribe(refresh);
+  }, []);
+
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
