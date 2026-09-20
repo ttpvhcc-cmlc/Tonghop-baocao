@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -7,6 +7,16 @@ import { UserRole, Profile } from '../types/database';
 
 export const AppLayout: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
+  useEffect(() => {
+    const syncUser = () => setCurrentUser(store.getCurrentUser());
+    const unsubscribe = store.subscribe(syncUser);
+    void store.loadAuthenticatedUser().catch((error) => {
+      console.warn('Auth session sync failed:', error);
+    });
+    syncUser();
+    return unsubscribe;
+  }, []);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('sidebar_collapsed') === 'true';
