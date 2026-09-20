@@ -717,16 +717,16 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
     if (activeReport) {
       const localSources = store.getSourcesByReport(activeReport.id);
       const srcRes = await supabase.from('report_sources').select('*').eq('report_id', activeReport.id);
-      if (!srcRes.error && srcRes.data && srcRes.data.length > 0) {
-        sources = deduplicateById(srcRes.data);
+      if (!srcRes.error) {
+        sources = deduplicateById(srcRes.data || []);
       } else {
         sources = localSources;
       }
 
       const localStats = store.getStatsByReport(activeReport.id);
       const statsRes = await supabase.from('report_field_statistics').select('*').eq('report_id', activeReport.id);
-      if (!statsRes.error && statsRes.data && statsRes.data.length > 0) {
-        statistics = deduplicateById(statsRes.data as ReportStatistic[]);
+      if (!statsRes.error) {
+        statistics = deduplicateById(statsRes.data as ReportStatistic[] || []);
       } else {
         statistics = localStats;
       }
