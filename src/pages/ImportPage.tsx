@@ -85,12 +85,12 @@ export const ImportPage: React.FC = () => {
   const selectedReport = useMemo(() => reports.find((r) => r.id === selectedReportId) || reports[0], [reports, selectedReportId]);
   const isLocked = selectedReport?.status === 'locked';
 
-  const handleCreateQuickReport = (e: React.FormEvent) => {
+  const handleCreateQuickReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newReportCode.trim() || !newReportName.trim()) return;
 
     try {
-      const created = store.createReport({
+      const created = await store.createReport({
         report_code: newReportCode.trim().toUpperCase(),
         report_name: newReportName.trim(),
         report_type: newReportType,
@@ -177,7 +177,7 @@ export const ImportPage: React.FC = () => {
   };
 
   // Confirm Import
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!selectedReportId || !parseResult) return;
     if (isLocked) {
       alert('Báo cáo này đã bị khóa (Locked Snapshot). Không thể nhập đè dữ liệu!');
@@ -194,50 +194,7 @@ export const ImportPage: React.FC = () => {
         let unitName = row.unitName || 'Chưa gán đơn vị';
 
         if (!fieldId) {
-          // Look if a field with the same name already exists in the store to avoid duplicates
-          const existing = allFields.find(
-            (f) =>
-              f.name.toLowerCase() === row.rawFieldName.toLowerCase() ||
-              f.linh_vuc?.toLowerCase() === row.rawFieldName.toLowerCase() ||
-              f.linh_vuc?.toLowerCase() === fieldName.toLowerCase()
-          );
-          if (existing) {
-            fieldId = existing.id;
-            fieldName = existing.linh_vuc || existing.name;
-            unitId = existing.unit_id || '';
-            const matchedUnit = store.getUnits().find((u) => u.id === unitId);
-            unitName = matchedUnit ? matchedUnit.name : 'Chưa gán đơn vị';
-          } else {
-            // Auto-create field
-            try {
-              // Generate a clean transliterated unique code
-              const cleanCode = row.rawFieldName
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-zA-Z0-9\s]/g, '')
-                .toUpperCase()
-                .split(/\s+/)
-                .map((w) => w.substring(0, 3))
-                .join('_');
-              const randSuffix = Math.floor(1000 + Math.random() * 9000);
-              const generatedCode = `${cleanCode.substring(0, 10)}_${randSuffix}`;
-
-              const newField = store.saveField({
-                code: generatedCode,
-                name: row.rawFieldName,
-                linh_vuc: fieldName,
-                unit_id: '',
-                display_order: store.getFields().length + 1,
-                active: true,
-              });
-              fieldId = newField.id;
-              fieldName = newField.linh_vuc || newField.name;
-              unitId = '';
-              unitName = 'Chưa gán đơn vị';
-            } catch (err) {
-              console.error('Error auto-creating field:', err);
-            }
-          }
+          throw new Error(`Lĩnh vực "\${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
         }
 
         return {
@@ -263,12 +220,12 @@ export const ImportPage: React.FC = () => {
       let totalCompleted = 0;
       let totalPending = 0;
 
-      sourcesMap.forEach((rows, sourceName) => {
+      for (const [sourceName, rows] of sourcesMap.entries()) {
         // Create or get source in store
         const reportSources = store.getSourcesByReport(selectedReportId);
         let src = reportSources.find((s) => s.source_name.toLowerCase() === sourceName.toLowerCase());
         if (!src) {
-          src = store.addReportSource(selectedReportId, sourceName, fileName);
+          src = await store.addReportSource(selectedReportId, sourceName, fileName);
         }
 
         const statRows = rows.map((r) => {
@@ -299,9 +256,9 @@ export const ImportPage: React.FC = () => {
           };
         });
 
-        store.saveReportStats(selectedReportId, src.id, statRows);
+        await store.saveReportStats(selectedReportId, src.id, statRows);
         totalSaved += statRows.length;
-      });
+      }
 
       setImportSummary({
         totalSaved,
