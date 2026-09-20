@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
 import { calcOnTimeRate, calcCompletionRate, calcOnlineRate } from '../../features/analysis/formulas';
@@ -9,6 +9,19 @@ export const UnitAnalysisPage: React.FC = () => {
   const reports = useMemo(() => store.getReports(), []);
   const units = useMemo(() => store.getUnits(), []);
   const [selectedReportId, setSelectedReportId] = useState<string>(reports[0]?.id || '');
+  useEffect(() => {
+    const refresh = () => {
+      const next = store.getReports();
+      setSelectedReportId((current) => current || next[0]?.id || '');
+    };
+    void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
+    return store.subscribe(refresh);
+  }, []);
+  useEffect(() => {
+    if (!selectedReportId) return;
+    void store.fetchStatsByReport(selectedReportId).catch((error) => console.warn('Không thể tải số liệu từ Supabase:', error));
+  }, [selectedReportId]);
+
 
   const stats = useMemo(() => selectedReportId ? store.getStatsByReport(selectedReportId) : [], [selectedReportId]);
 
