@@ -32,17 +32,13 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
-// Fallback defaults if not injected by environment
-const DEFAULT_SUPABASE_URL = 'https://mluyprtkhsjhigipqqjk.supabase.co';
-const DEFAULT_SUPABASE_KEY = 'sb_publishable_yGgg3zi2Gs8Yx-9_Cbqbhw_ueDpYhvt';
-
-// Normalize the Supabase URL: strip trailing /rest/v1/ or /rest/v1 or trailing slash
-const rawEnvUrl = (getEnvVar('VITE_SUPABASE_URL') || DEFAULT_SUPABASE_URL).trim();
+// Supabase configuration is explicit; never silently fall back to a built-in project.
+const rawEnvUrl = getEnvVar('VITE_SUPABASE_URL').trim();
 export const supabaseUrl = rawEnvUrl
   .replace(/\/rest\/v1\/?$/i, '')
   .replace(/\/+$/, '');
 
-export const supabaseAnonKey = (getEnvVar('VITE_SUPABASE_PUBLISHABLE_KEY') || DEFAULT_SUPABASE_KEY).trim();
+export const supabaseAnonKey = getEnvVar('VITE_SUPABASE_PUBLISHABLE_KEY').trim();
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
