@@ -1163,6 +1163,13 @@ export class StorageService {
     if (status === 'archived' && existing.status !== 'locked') {
       throw new Error('Chỉ báo cáo LOCKED mới được chuyển sang ARCHIVED.');
     }
+    const currentRole = this.getCurrentUser().role;
+    if (status === 'approved' && !['admin', 'analyst'].includes(currentRole)) {
+      throw new Error('Chỉ admin hoặc analyst mới được phê duyệt báo cáo.');
+    }
+    if (['locked', 'archived'].includes(status) && currentRole !== 'admin') {
+      throw new Error('Chỉ admin mới được khóa hoặc lưu trữ báo cáo.');
+    }
 
     const user = this.getCurrentUser();
     const now = new Date().toISOString();
@@ -1177,6 +1184,11 @@ export class StorageService {
     }
     if (status === 'locked') {
       payload.locked_at = now;
+    }
+
+    // Recalculate global indicators from the authoritative DB rows immediately before locking.
+    if (status === 'locked') {
+      await this.recalculateAndPersistReportIndicators(reportId);
     }
 
     // The database lifecycle trigger is authoritative; it also creates the immutable snapshot on lock.
