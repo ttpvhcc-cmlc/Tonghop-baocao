@@ -66,7 +66,9 @@ export const FieldsAdminPage: React.FC = () => {
     // Initial fetch to make sure fields are up to date
     const current = store.getFields();
     if (current.length === 0) {
-      store.restoreDefaultProcedures();
+      void store.restoreDefaultProcedures().catch((error) => {
+        setNotification({ type: 'error', message: error.message || 'Không thể tải danh mục từ Supabase.' });
+      });
     }
     setFields(store.getFields());
     setUnits(store.getUnits());
@@ -78,13 +80,17 @@ export const FieldsAdminPage: React.FC = () => {
     return unsub;
   }, []);
 
-  const handleRestoreDefaults = () => {
-    const restored = store.restoreDefaultProcedures();
+  const handleRestoreDefaults = async () => {
+    try {
+    const restored = await store.restoreDefaultProcedures();
     setFields(restored);
     setNotification({
       type: 'success',
-      message: 'Đã khôi phục hoàn chỉnh 31 Thủ tục hành chính chuẩn theo Lĩnh vực & Đơn vị phụ trách!',
+      message: 'Đã tải lại danh mục Lĩnh vực từ Supabase.',
     });
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Không thể tải danh mục từ Supabase.' });
+    }
   };
 
   // Auto-dismiss notification after 5s
