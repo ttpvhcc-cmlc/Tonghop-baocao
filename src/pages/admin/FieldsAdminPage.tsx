@@ -358,10 +358,10 @@ export const FieldsAdminPage: React.FC = () => {
   };
 
   // Delete field confirmation
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteConfirmField) return;
     try {
-      store.deleteField(deleteConfirmField.id);
+      await store.deleteField(deleteConfirmField.id);
       setNotification({
         type: 'success',
         message: `Đã xóa thủ tục "${deleteConfirmField.name}" khỏi danh mục!`,
