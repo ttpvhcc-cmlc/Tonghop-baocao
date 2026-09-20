@@ -1461,10 +1461,6 @@ export class StorageService {
       ...savedRows,
     ];
 
-    const hasErrors = savedRows.some((r) => r.validation_status === 'error');
-    const nextStatus: Report['status'] = hasErrors ? 'imported' : 'validated';
-    await this.updateReportStatus(reportId, nextStatus);
-
     this.addAuditLog('IMPORT_STATISTICS', 'reports', reportId, { sourceId, count: savedRows.length });
     this.notify();
   }
@@ -1519,9 +1515,6 @@ export class StorageService {
       ...this.inMemoryCache.stats.filter((s) => s.report_id !== reportId),
       ...savedRows,
     ];
-
-    const hasErrors = savedRows.some((r) => r.validation_status === 'error');
-    await this.updateReportStatus(reportId, hasErrors ? 'imported' : 'validated', 'Cập nhật trực tiếp số liệu từ giao diện Web.');
     this.addAuditLog('EDIT_STATISTICS_INLINE', 'reports', reportId, { count: savedRows.length });
     this.notify();
   }
@@ -1585,43 +1578,44 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.analyses.filter((a) => a.report_id === reportId));
   }
 
-  public saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & { id?: string }): ReportAnalysis {
+  public async saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & { id?: string }): Promise<ReportAnalysis> {
     this.assertRole(['admin', 'analyst'], 'lưu phân tích');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
+    }
+
     const now = new Date().toISOString();
     const id = analysis.id || generateUUID();
+    const { data: saved, error } = await supabase
+      .from('report_analysis')
+      .upsert({
+        id,
+        report_id: analysis.report_id,
+        scope_type: analysis.scope_type,
+        scope_id: analysis.scope_id,
+        title: analysis.title,
+        generated_text: analysis.generated_text,
+        generated_by: analysis.generated_by,
+        source_metrics: analysis.source_metrics,
+      })
+      .select('*')
+      .single();
 
-    const newAnalysis: ReportAnalysis = {
-      ...analysis,
-      id,
-      created_at: now,
-      updated_at: now,
-    };
+    if (error) throw new Error(`Không thể lưu phân tích vào Supabase: ${error.message}`);
+    const result = {
+      ...(saved as ReportAnalysis),
+      created_at: (saved as any).created_at || now,
+      updated_at: (saved as any).updated_at || now,
+    } as ReportAnalysis;
 
-    const idx = this.inMemoryCache.analyses.findIndex((a) => a.id === id);
-    if (idx !== -1) {
-      this.inMemoryCache.analyses[idx] = newAnalysis;
-    } else {
-      this.inMemoryCache.analyses.push(newAnalysis);
-    }
-    this.addAuditLog('SAVE_ANALYSIS', 'report_analysis', newAnalysis.id, { reportId: analysis.report_id, title: analysis.title });
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('report_analysis').upsert({
-        id: newAnalysis.id,
-        report_id: newAnalysis.report_id,
-        scope_type: newAnalysis.scope_type,
-        scope_id: newAnalysis.scope_id,
-        title: newAnalysis.title,
-        generated_text: newAnalysis.generated_text,
-        generated_by: newAnalysis.generated_by,
-        source_metrics: newAnalysis.source_metrics,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase saveAnalysis warning:', error.message);
-      });
-    }
-
+    this.inMemoryCache.analyses = [
+      ...this.inMemoryCache.analyses.filter((a) => a.id !== result.id),
+      result,
+    ];
+    this.addAuditLog('SAVE_ANALYSIS', 'report_analysis', result.id, { reportId: analysis.report_id, title: analysis.title });
     this.notify();
-    return newAnalysis;
+    return result;
   }
 
   // --- Audit Logs ---
