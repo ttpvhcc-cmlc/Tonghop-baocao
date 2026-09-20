@@ -72,11 +72,11 @@ export const ReportsListPage: React.FC = () => {
     });
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingReport) return;
     try {
-      store.updateReport(editingReport.id, {
+      await store.updateReport(editingReport.id, {
         ...editFormData,
         data_as_of: new Date(editFormData.data_as_of).toISOString(),
       });
@@ -119,7 +119,7 @@ export const ReportsListPage: React.FC = () => {
     if (!reportToLock) return;
     setIsActionLoading(true);
     try {
-      store.updateReportStatus(reportToLock.id, 'locked', 'Khóa snapshot chính thức.');
+      await store.updateReportStatus(reportToLock.id, 'locked', 'Khóa snapshot chính thức.');
       setReports(store.getReports());
       setToast({
         type: 'success',
