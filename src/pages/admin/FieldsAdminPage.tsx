@@ -124,6 +124,7 @@ export const FieldsAdminPage: React.FC = () => {
 
   // 1. Assign unit to an ENTIRE SECTOR
   const handleAssignSectorUnit = async (sectorName: string, unitId: string) => {
+    try {
     const cleanSector = (sectorName || '').trim().toLowerCase();
     const targetUnit = units.find((u) => u.id === unitId);
     if (!targetUnit) return;
@@ -139,10 +140,14 @@ export const FieldsAdminPage: React.FC = () => {
       type: 'success',
       message: `Đã phân công toàn bộ ${fieldsToUpdate.length} thủ tục thuộc lĩnh vực "${sectorName}" cho đơn vị "${targetUnit.name}"!`,
     });
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Không thể lưu phân công vào Supabase.' });
+    }
   };
 
   // 2. Assign unit to a single field
   const handleUpdateFieldUnit = async (fieldId: string, unitId: string) => {
+    try {
     const field = fields.find((f) => f.id === fieldId);
     if (!field) return;
 
@@ -156,10 +161,14 @@ export const FieldsAdminPage: React.FC = () => {
         ? `Đã phân công thủ tục "${field.code}" cho "${targetUnit.name}".`
         : `Đã hủy phân công đơn vị cho thủ tục "${field.code}".`,
     });
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Không thể lưu phân công vào Supabase.' });
+    }
   };
 
   // 3. Transfer all fields from one unit to another
   const handleTransferUnitFields = async (fromUnitId: string | null, toUnitId: string) => {
+    try {
     const targetUnit = units.find((u) => u.id === toUnitId);
     if (!targetUnit) return;
 
@@ -174,6 +183,9 @@ export const FieldsAdminPage: React.FC = () => {
       type: 'success',
       message: `Đã chuyển giao thành công ${fieldsToMove.length} thủ tục sang "${targetUnit.name}"!`,
     });
+    } catch (error: any) {
+      setNotification({ type: 'error', message: error.message || 'Không thể lưu phân công vào Supabase.' });
+    }
   };
 
   // 4. Transfer an entire sector to another unit
