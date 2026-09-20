@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { store } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
@@ -20,6 +20,19 @@ export const CompareAnalysisPage: React.FC = () => {
 
   const [repAId, setRepAId] = useState<string>(initialRep1);
   const [repBId, setRepBId] = useState<string>(initialRep2);
+  const [, forceRefresh] = useState(0);
+  useEffect(() => {
+    const refresh = () => forceRefresh((v) => v + 1);
+    const unsubscribe = store.subscribe(refresh);
+    void store.fetchReports().catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
+    return unsubscribe;
+  }, []);
+  useEffect(() => {
+    const ids = [repAId, repBId].filter(Boolean);
+    void Promise.all(ids.map((rid) => store.fetchStatsByReport(rid)))
+      .catch((error) => console.warn('Không thể tải số liệu so sánh từ Supabase:', error));
+  }, [repAId, repBId]);
+
 
   const repA = useMemo(() => reports.find((r) => r.id === repAId), [reports, repAId]);
   const repB = useMemo(() => reports.find((r) => r.id === repBId), [reports, repBId]);
