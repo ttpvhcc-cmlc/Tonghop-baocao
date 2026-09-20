@@ -1,10 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../../services/store';
 import { formatDateTime } from '../../utils/format';
 import { History, Search, Filter, ShieldCheck, ChevronDown, ChevronRight } from 'lucide-react';
 
 export const AuditLogsPage: React.FC = () => {
-  const [logs] = useState(store.getAuditLogs());
+  const [logs, setLogs] = useState(store.getAuditLogs());
+
+  useEffect(() => {
+    void store.fetchAuditLogs().then(setLogs).catch((error) => {
+      console.warn('Audit log load error:', error);
+    });
+  }, []);
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('ALL');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
