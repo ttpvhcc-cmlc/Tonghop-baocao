@@ -160,7 +160,6 @@ export const Header: React.FC<HeaderProps> = ({
                       try {
                         await store.signOut();
                         setShowAuthMenu(false);
-                        window.location.reload();
                       } catch (e: any) {
                         setAuthError(e.message || 'Không thể đăng xuất');
                       } finally {
@@ -180,7 +179,6 @@ export const Header: React.FC<HeaderProps> = ({
                       if (error) throw error;
                       await store.loadAuthenticatedUser();
                       setShowAuthMenu(false);
-                      window.location.reload();
                     } catch (e: any) {
                       setAuthError(e.message || 'Đăng nhập thất bại');
                     } finally {
