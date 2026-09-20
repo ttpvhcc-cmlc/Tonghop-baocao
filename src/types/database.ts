@@ -173,22 +173,25 @@ export interface ReportIndicator {
   id: string;
   report_id: string;
   indicator_definition_id: string;
-  value: number;
-  unit: string;
-  metadata?: Record<string, any>;
+  scope_type?: ScopeType;
+  scope_id?: string | null;
+  calculated_value: number;
+  formatted_value: string;
+  target_status?: 'achieved' | 'warning' | 'critical';
+  calculation_details?: Record<string, any>;
   created_at?: string;
-  // Aliases
+  updated_at?: string;
+  // Legacy aliases
+  value?: number;
+  unit?: string;
+  metadata?: Record<string, any>;
   indicator_code?: string;
   indicator_name?: string;
-  scope_type?: ScopeType;
-  scope_id?: string;
   scope_name_snapshot?: string;
   value_numeric?: number;
   numerator?: number;
   denominator?: number;
-  calculation_metadata?: Record<string, any>;
 }
-
 // 9. report_analysis
 export interface ReportAnalysis {
   id: string;
