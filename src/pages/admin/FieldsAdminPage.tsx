@@ -200,23 +200,13 @@ export const FieldsAdminPage: React.FC = () => {
     newUnitsToCreate: string[]
   ) => {
     try {
-      // Step A: Create any new units detected in column 11
+      // Step A: Units are mastered in Supabase. Do not create units implicitly during field import.
       const currentUnits = [...store.getUnits()];
-      for (const newUnitName of newUnitsToCreate) {
-        const trimmed = newUnitName.trim();
-        if (!trimmed) continue;
-        const exists = matchUnitByNameOrCode(trimmed, currentUnits);
-        if (!exists) {
-          const words = trimmed.split(/\s+/);
-          const generatedCode = words.map((w) => w[0]?.toUpperCase() || '').join('') || `DV${currentUnits.length + 1}`;
-          const created = await store.saveUnit({
-            name: trimmed,
-            code: generatedCode,
-            display_order: currentUnits.length + 1,
-            active: true,
-          });
-          currentUnits.push(created);
-        }
+      const unknownUnits = newUnitsToCreate
+        .map((name) => name.trim())
+        .filter((name) => name && !matchUnitByNameOrCode(name, currentUnits));
+      if (unknownUnits.length > 0) {
+        throw new Error(`File Excel chứa Đơn vị chưa có trong Master Supabase: ${unknownUnits.join(', ')}. Hãy cập nhật Master Đơn vị trước khi nhập.`);
       }
 
       // Step B: Build field objects
