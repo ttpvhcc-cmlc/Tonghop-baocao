@@ -318,7 +318,7 @@ export const FieldsAdminPage: React.FC = () => {
   };
 
   // Submit manual create / edit
-  const handleSubmitManual = (e: React.FormEvent) => {
+  const handleSubmitManual = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const fieldData: Omit<Field, 'id'> & { id?: string } = {
