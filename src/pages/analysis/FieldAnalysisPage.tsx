@@ -5,15 +5,17 @@ import { calcOnTimeRate, calcOnlineRate, calcCompletionRate } from '../../featur
 import { FolderKanban, Search, Filter } from 'lucide-react';
 
 export const FieldAnalysisPage: React.FC = () => {
-  const reports = useMemo(() => store.getReports(), []);
-  const units = useMemo(() => store.getUnits(), []);
+  const [reports, setReports] = useState(store.getReports());
+  const [units, setUnits] = useState(store.getUnits());
   const [selectedReportId, setSelectedReportId] = useState<string>(reports[0]?.id || '');
   const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   useEffect(() => {
     const refresh = () => {
-      const next = store.getReports();
-      setSelectedReportId((current) => current || next[0]?.id || '');
+      const nextReports = store.getReports();
+      setReports(nextReports);
+      setUnits(store.getUnits());
+      setSelectedReportId((current) => current || nextReports[0]?.id || '');
     };
     void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
     return store.subscribe(refresh);
