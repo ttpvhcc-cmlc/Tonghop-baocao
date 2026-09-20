@@ -17,6 +17,18 @@ import { resolveLinhVuc } from '../utils/fieldResolver';
 
 // No business data is seeded in the client runtime. Supabase is the sole persistence source.
 
+const GUEST_USER: Profile = {
+  id: 'guest',
+  email: undefined,
+  full_name: 'Chưa đăng nhập',
+  role: 'viewer',
+  unit_id: null,
+  active: false,
+  created_at: '1970-01-01T00:00:00.000Z',
+  updated_at: '1970-01-01T00:00:00.000Z',
+};
+
+
 // Helper to generate UUID
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
