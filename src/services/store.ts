@@ -401,14 +401,12 @@ export class StorageService {
   }
 
   public async fetchUnits(): Promise<Unit[]> {
-    if (supabase && this.isSchemaReady) {
-      const { data, error } = await supabase.from('units').select('*').order('display_order', { ascending: true });
-      if (!error && data) {
-        this.inMemoryCache.units = deduplicateById(data);
-        this.notify();
-        return this.getUnits();
-      }
-    }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+    const { data, error } = await supabase.from('units').select('*').order('display_order', { ascending: true });
+    if (error) throw new Error(`Không thể tải đơn vị từ Supabase: ${error.message}`);
+    this.inMemoryCache.units = deduplicateById(data || []);
+    this.notify();
     return this.getUnits();
   }
 
