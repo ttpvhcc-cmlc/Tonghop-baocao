@@ -202,7 +202,7 @@ export interface ReportAnalysis {
   created_at?: string;
   updated_at?: string;
   // Aliases
-  scope_type?: 'report' | 'unit' | 'field';
+  scope_type?: ScopeType;
   scope_id?: string;
   title?: string;
   generated_text?: string;
