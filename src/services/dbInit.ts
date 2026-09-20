@@ -1,6 +1,6 @@
 import { supabase, supabaseUrl, isSupabaseConfigured } from '../lib/supabase';
 import type { Unit, Field, ReportingPeriod, ReportSource, ReportStatistic } from '../types/database';
-import { store, deduplicateById } from './store';
+import { deduplicateById } from './store';
 
 export const SEED_UNITS: Array<Omit<Unit, 'created_at' | 'updated_at'>> = [
   { id: 'a0000000-0000-0000-0000-000000000001', code: 'VP', name: 'Văn phòng', display_order: 1, active: true },
