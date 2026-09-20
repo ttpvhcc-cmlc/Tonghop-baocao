@@ -81,10 +81,10 @@ export const ReportDetailPage: React.FC = () => {
     }
   };
 
-  const handleSaveEditingStats = () => {
+  const handleSaveEditingStats = async () => {
     if (!reportState) return;
     try {
-      store.updateReportStatsList(reportState.id, editingStats);
+      await store.updateReportStatsList(reportState.id, editingStats);
       setIsEditingInline(false);
       // Force refresh data
       const freshReport = store.getReportById(reportState.id);
@@ -331,9 +331,9 @@ export const ReportDetailPage: React.FC = () => {
   }, [stats]);
 
   // Workflow actions
-  const handleUpdateStatus = (newStatus: any) => {
+  const handleUpdateStatus = async (newStatus: any) => {
     try {
-      const updated = store.updateReportStatus(reportState.id, newStatus);
+      const updated = await store.updateReportStatus(reportState.id, newStatus);
       setReportState(updated);
     } catch (err: any) {
       alert(err.message);
