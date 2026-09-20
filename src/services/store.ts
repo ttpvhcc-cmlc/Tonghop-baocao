@@ -790,7 +790,7 @@ export class StorageService {
   }
 
   public isAuthenticated(): boolean {
-    return this.inMemoryCache.currentUser.id !== 'guest' && Boolean(this.inMemoryCache.currentUser.user_id);
+    return this.inMemoryCache.currentUser.id !== 'guest' && this.inMemoryCache.currentUser.active === true;
   }
 
   public async loadAuthenticatedUser(): Promise<Profile | null> {
@@ -824,7 +824,6 @@ export class StorageService {
         .from('profiles')
         .insert({
           id: userId,
-          user_id: userId,
           email: session.user.email || undefined,
           full_name: session.user.user_metadata?.full_name || session.user.email || 'Người dùng',
           role: 'viewer',
@@ -841,7 +840,6 @@ export class StorageService {
 
     this.inMemoryCache.currentUser = {
       ...profile,
-      user_id: userId,
       email: profile.email || session.user.email || undefined,
     };
     this.setLocal(STORAGE_KEYS.CURRENT_USER, this.inMemoryCache.currentUser);
