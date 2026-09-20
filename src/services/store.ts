@@ -613,8 +613,27 @@ export class StorageService {
       this.inMemoryCache.stats = deduplicateById(statsData || []);
 
       // 8. Fetch indicators
-      const { data: indicatorsData } = await supabase.from('indicator_definitions').select('*');
+      const { data: indicatorsData, error: indicatorsError } = await supabase.from('indicator_definitions').select('*');
+      if (indicatorsError) throw indicatorsError;
       this.inMemoryCache.indicators = deduplicateById(indicatorsData || []);
+
+      const { data: reportIndicatorsData, error: reportIndicatorsError } = await supabase.from('report_indicators').select('*');
+      if (reportIndicatorsError) throw reportIndicatorsError;
+
+      const { data: analysesData, error: analysesError } = await supabase.from('report_analysis').select('*');
+      if (analysesError) throw analysesError;
+
+      const { data: snapshotsData, error: snapshotsError } = await supabase.from('report_snapshots').select('*');
+      if (snapshotsError) throw snapshotsError;
+
+      const { data: auditLogsData, error: auditLogsError } = await supabase
+        .from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200);
+      if (auditLogsError) throw auditLogsError;
+
+      this.inMemoryCache.reportIndicators = deduplicateById(reportIndicatorsData || []);
+      this.inMemoryCache.analyses = deduplicateById(analysesData || []);
+      this.inMemoryCache.snapshots = deduplicateById(snapshotsData || []);
+      this.inMemoryCache.auditLogs = deduplicateById(auditLogsData || []);
 
       this.lastSyncTime = new Date().toISOString();
       this.notify();
@@ -1534,32 +1553,35 @@ export class StorageService {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  public addAuditLog(action: string, entityType: string, entityId: string, metadata?: Record<string, any>): void {
+  public async addAuditLog(action: string, entityType: string, entityId: string, metadata?: Record<string, any>): Promise<void> {
+    if (!supabase) return;
+    if (!this.isSchemaReady) {
+      const synced = await this.syncWithSupabase();
+      if (!synced) return;
+    }
+
     const user = this.getCurrentUser();
-    const id = generateUUID();
-    const newLog: AuditLog = {
-      id,
-      user_id: user ? `${user.full_name} (${user.role})` : 'Hệ thống',
+    const userIdentity = user && user.id !== 'guest'
+      ? `${user.full_name} (${user.role})`
+      : 'Hệ thống';
+
+    const { error } = await supabase.from('audit_logs').insert({
+      id: generateUUID(),
+      user_id: user?.id || userIdentity,
       action,
       entity_type: entityType,
       entity_id: entityId,
       metadata: metadata || {},
-      created_at: new Date().toISOString(),
-    };
-    this.inMemoryCache.auditLogs.unshift(newLog);
+    });
+    if (error) throw new Error(`Không thể ghi Audit Log vào Supabase: ${error.message}`);
 
-    if (supabase && this.isSchemaReady) {
-      supabase.from('audit_logs').insert({
-        id: newLog.id,
-        user_id: newLog.user_id,
-        action: newLog.action,
-        entity_type: newLog.entity_type,
-        entity_id: newLog.entity_id,
-        metadata: newLog.metadata,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase addAuditLog warning:', error.message);
-      });
-    }
+    const { data } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    this.inMemoryCache.auditLogs = deduplicateById(data || []);
+    this.notify();
   }
 
   // Reset to factory defaults
