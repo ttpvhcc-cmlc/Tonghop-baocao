@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
-import { Users, Shield, Check, X, UserCheck, Edit2, Mail, Building } from 'lucide-react';
+import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building } from 'lucide-react';
 
 export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
