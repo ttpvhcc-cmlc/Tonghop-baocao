@@ -160,7 +160,7 @@ export const CreateReportPage: React.FC = () => {
   const [importSuccessMessage, setImportSuccessMessage] = useState<string>('');
 
   // Handle Step 1 Submit (Create Report period record)
-  const handleCreateReport = (e: React.FormEvent) => {
+  const handleCreateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.report_code || !formData.report_name) {
       alert('Vui lòng điền đầy đủ Mã báo cáo và Tên báo cáo');
@@ -170,7 +170,7 @@ export const CreateReportPage: React.FC = () => {
     setIsCreatingReport(true);
     try {
       // Create report in database
-      const newRep = store.createReport({
+      const newRep = await store.createReport({
         ...formData,
         data_as_of: new Date(formData.data_as_of).toISOString(),
       });
@@ -251,7 +251,7 @@ export const CreateReportPage: React.FC = () => {
   };
 
   // Confirm Excel Import in Step 2
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!createdReport || !parseResult) return;
 
     try {
@@ -263,49 +263,7 @@ export const CreateReportPage: React.FC = () => {
         let unitName = row.unitName || 'Chưa gán đơn vị';
 
         if (!fieldId) {
-          // Look if a field with the same name already exists in the store to avoid duplicates
-          const existing = store.getFields().find(
-            (f) =>
-              f.name.toLowerCase() === row.rawFieldName.toLowerCase() ||
-              f.linh_vuc?.toLowerCase() === row.rawFieldName.toLowerCase()
-          );
-          if (existing) {
-            fieldId = existing.id;
-            fieldName = existing.name;
-            unitId = existing.unit_id || '';
-            const matchedUnit = store.getUnits().find((u) => u.id === unitId);
-            unitName = matchedUnit ? matchedUnit.name : 'Chưa gán đơn vị';
-          } else {
-            // Auto-create field
-            try {
-              // Generate a clean transliterated unique code
-              const cleanCode = row.rawFieldName
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-zA-Z0-9\s]/g, '')
-                .toUpperCase()
-                .split(/\s+/)
-                .map((w) => w.substring(0, 3))
-                .join('_');
-              const randSuffix = Math.floor(1000 + Math.random() * 9000);
-              const generatedCode = `${cleanCode.substring(0, 10)}_${randSuffix}`;
-
-              const newField = store.saveField({
-                code: generatedCode,
-                name: row.rawFieldName,
-                linh_vuc: row.rawFieldName,
-                unit_id: '',
-                display_order: store.getFields().length + 1,
-                active: true,
-              });
-              fieldId = newField.id;
-              fieldName = newField.name;
-              unitId = '';
-              unitName = 'Chưa gán đơn vị';
-            } catch (err) {
-              console.error('Error auto-creating field:', err);
-            }
-          }
+          throw new Error(`Lĩnh vực "\${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
         }
 
         return {
@@ -327,12 +285,12 @@ export const CreateReportPage: React.FC = () => {
 
       let totalSaved = 0;
 
-      sourcesMap.forEach((rows, sourceName) => {
+      for (const [sourceName, rows] of sourcesMap.entries()) {
         // Create or get source in store
         const reportSources = store.getSourcesByReport(createdReport.id);
         let src = reportSources.find((s) => s.source_name.toLowerCase() === sourceName.toLowerCase());
         if (!src) {
-          src = store.addReportSource(createdReport.id, sourceName, fileName);
+          src = await store.addReportSource(createdReport.id, sourceName, fileName);
         }
 
         const statRows = rows.map((r) => ({
@@ -356,9 +314,9 @@ export const CreateReportPage: React.FC = () => {
           validation_errors: r.validationErrors,
         }));
 
-        store.saveReportStats(createdReport.id, src.id, statRows);
+        await store.saveReportStats(createdReport.id, src.id, statRows);
         totalSaved += statRows.length;
-      });
+      }
 
       setImportSuccessMessage(
         `Khởi tạo kỳ báo cáo thành công! Đã tạo "${createdReport.report_code}" và tự động bóc tách, nạp ${totalSaved} số liệu thống kê chi tiết.`
