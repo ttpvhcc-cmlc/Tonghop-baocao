@@ -167,10 +167,11 @@ export class StorageService {
       this.inMemoryCache.units = deduplicateById(unitsData || []);
 
       // 3. Fetch fields (Safely merged to NEVER erase procedures, sectors, or mappings)
-      const { data: fieldsData } = await supabase
+      const { data: fieldsData, error: fieldsError } = await supabase
         .from('fields')
         .select('*, units(*)')
         .order('display_order', { ascending: true });
+      if (fieldsError) throw fieldsError;
       this.inMemoryCache.fields = deduplicateById(fieldsData || []);
 
       // 4. Fetch reports (Merge Supabase reports with local reports)
@@ -178,6 +179,9 @@ export class StorageService {
         .from('reports')
         .select('*')
         .order('period_start', { ascending: false });
+      if (!reportsData) {
+        this.inMemoryCache.reports = [];
+      }
       {
         const normalizedReports = (reportsData || []).map((rep: any) => {
           let code = rep.report_code || '';
@@ -194,14 +198,17 @@ export class StorageService {
 
       // 5. Fetch profiles
       const { data: profilesData, error: profilesError } = await supabase.from('profiles').select('*');
-      if (!profilesError) this.inMemoryCache.users = deduplicateById(profilesData || []);
+      if (profilesError) throw profilesError;
+      this.inMemoryCache.users = deduplicateById(profilesData || []);
 
       // 6. Fetch sources (Merge safely)
-      const { data: sourcesData } = await supabase.from('report_sources').select('*');
+      const { data: sourcesData, error: sourcesError } = await supabase.from('report_sources').select('*');
+      if (sourcesError) throw sourcesError;
       this.inMemoryCache.sources = deduplicateById(sourcesData || []);
 
       // 7. Fetch stats
-      const { data: statsData } = await supabase.from('report_field_statistics').select('*');
+      const { data: statsData, error: statsError } = await supabase.from('report_field_statistics').select('*');
+      if (statsError) throw statsError;
       this.inMemoryCache.stats = deduplicateById(statsData || []);
 
       // 8. Fetch indicators
@@ -233,6 +240,20 @@ export class StorageService {
     } catch (err: any) {
       console.warn('Sync with Supabase note:', err.message);
       this.syncError = err.message;
+      this.isSupabaseConnected = false;
+      this.isSchemaReady = false;
+      this.inMemoryCache.units = [];
+      this.inMemoryCache.fields = [];
+      this.inMemoryCache.reports = [];
+      this.inMemoryCache.sources = [];
+      this.inMemoryCache.stats = [];
+      this.inMemoryCache.indicators = [];
+      this.inMemoryCache.reportIndicators = [];
+      this.inMemoryCache.users = [];
+      this.inMemoryCache.analyses = [];
+      this.inMemoryCache.snapshots = [];
+      this.inMemoryCache.auditLogs = [];
+      this.notify();
       return false;
     }
   }
