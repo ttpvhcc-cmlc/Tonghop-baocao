@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { IndicatorDefinition } from '../../types/database';
 import { SlidersHorizontal, Plus, Edit2, Trash2, ShieldCheck, CheckCircle2, X } from 'lucide-react';
 
 export const IndicatorsAdminPage: React.FC = () => {
   const [indicators, setIndicators] = useState(store.getIndicators());
+  useEffect(() => {
+    const refresh = () => setIndicators(store.getIndicators());
+    void store.syncWithSupabase().then(refresh).catch((error) => console.warn('Không thể tải chỉ tiêu từ Supabase:', error));
+    return store.subscribe(refresh);
+  }, []);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<IndicatorDefinition | null>(null);
 
