@@ -556,13 +556,8 @@ export class StorageService {
     });
   }
 
-  private getLocal<T>(_key: string, defaultValue: T): T {
-    return defaultValue;
-  }
-
-  private setLocal<T>(_key: string, _value: T): void {
-    // Deliberately empty: application data is persisted only in Supabase.
-  }
+  private getLocal<T>(_key: string, defaultValue: T): T { return defaultValue; }
+  private setLocal<T>(_key: string, _value: T): void {}
   /**
    * Sync active memory cache with Supabase
    */
@@ -613,8 +608,8 @@ export class StorageService {
         .from('reports')
         .select('*')
         .order('period_start', { ascending: false });
-      if (reportsData && reportsData.length > 0) {
-        const normalizedReports = reportsData.map((rep: any) => {
+      {
+        const normalizedReports = (reportsData || []).map((rep: any) => {
           let code = rep.report_code || '';
           if (code.startsWith('IMP_') && !code.startsWith('IMP_SRV_')) {
             code = code.replace(/^IMP_/, '');
@@ -627,15 +622,19 @@ export class StorageService {
         this.inMemoryCache.reports = deduplicateById(normalizedReports);
       }
 
-      // 5. Fetch sources (Merge safely)
+      // 5. Fetch profiles
+      const { data: profilesData, error: profilesError } = await supabase.from('profiles').select('*');
+      if (!profilesError) this.inMemoryCache.users = deduplicateById(profilesData || []);
+
+      // 6. Fetch sources (Merge safely)
       const { data: sourcesData } = await supabase.from('report_sources').select('*');
       this.inMemoryCache.sources = deduplicateById(sourcesData || []);
 
-      // 6. Fetch stats (Merge safely, NEVER wipe out local stats when Supabase table is empty)
+      // 7. Fetch stats
       const { data: statsData } = await supabase.from('report_field_statistics').select('*');
       this.inMemoryCache.stats = deduplicateById(statsData || []);
 
-      // 7. Fetch indicators
+      // 8. Fetch indicators
       const { data: indicatorsData } = await supabase.from('indicator_definitions').select('*');
       this.inMemoryCache.indicators = deduplicateById(indicatorsData || []);
 
