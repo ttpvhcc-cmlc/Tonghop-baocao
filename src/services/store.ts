@@ -1450,6 +1450,107 @@ export class StorageService {
     this.notify();
   }
 
+  public getReportIndicators(reportId?: string): ReportIndicator[] {
+    const list = this.inMemoryCache.reportIndicators;
+    return deduplicateById(reportId ? list.filter((x) => x.report_id === reportId) : list);
+  }
+
+  public async recalculateAndPersistReportIndicators(reportId: string): Promise<ReportIndicator[]> {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'tính và lưu các chỉ tiêu báo cáo');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
+    }
+
+    const [{ data: stats, error: statsError }, { data: defs, error: defsError }] = await Promise.all([
+      supabase.from('report_field_statistics').select('*').eq('report_id', reportId),
+      supabase.from('indicator_definitions')
+        .select('id,code,name,target_value,formula_key,unit_measure,active')
+        .in('code', ['ONLINE_RATE', 'ONTIME_RATE', 'OVERDUE_RATE'])
+        .eq('active', true),
+    ]);
+
+    if (statsError) throw new Error(`Không thể đọc số liệu báo cáo từ Supabase: ${statsError.message}`);
+    if (defsError) throw new Error(`Không thể đọc định nghĩa chỉ tiêu từ Supabase: ${defsError.message}`);
+
+    const statRows: any[] = stats || [];
+    const definitions: any[] = defs || [];
+    const requiredCodes = ['ONLINE_RATE', 'ONTIME_RATE', 'OVERDUE_RATE'];
+    const missing = requiredCodes.filter((code) => !definitions.some((d) => d.code === code));
+    if (missing.length) {
+      throw new Error(`Thiếu định nghĩa chỉ tiêu bắt buộc trong Supabase: ${missing.join(', ')}.`);
+    }
+
+    const received = statRows.reduce((sum, r) => sum + Number(r.received_total || 0), 0);
+    const online = statRows.reduce((sum, r) => sum + Number(r.received_online || 0), 0);
+    const completed = statRows.reduce((sum, r) => sum + Number(r.completed_total || 0), 0);
+    const ontime = statRows.reduce((sum, r) => sum + Number(r.completed_early || 0) + Number(r.completed_on_time || 0), 0);
+    const overdue = statRows.reduce((sum, r) => sum + Number(r.completed_late || 0) + Number(r.pending_late || 0), 0);
+
+    if (received === 0) throw new Error('Không thể tính chỉ tiêu: tổng tiếp nhận bằng 0.');
+    if (completed === 0) throw new Error('Không thể tính chỉ tiêu: tổng đã giải quyết bằng 0.');
+
+    const values: Record<string, { numerator: number; denominator: number; value: number; formula: string }> = {
+      ONLINE_RATE: {
+        numerator: online,
+        denominator: received,
+        value: Number(((online / received) * 100).toFixed(4)),
+        formula: 'received_online / received_total * 100',
+      },
+      ONTIME_RATE: {
+        numerator: ontime,
+        denominator: completed,
+        value: Number(((ontime / completed) * 100).toFixed(4)),
+        formula: '(completed_early + completed_on_time) / completed_total * 100',
+      },
+      OVERDUE_RATE: {
+        numerator: overdue,
+        denominator: received,
+        value: Number(((overdue / received) * 100).toFixed(4)),
+        formula: '(completed_late + pending_late) / received_total * 100',
+      },
+    };
+
+    // Replace only global calculated indicators for this report, after the new values are ready.
+    const { error: deleteError } = await supabase
+      .from('report_indicators')
+      .delete()
+      .eq('report_id', reportId)
+      .eq('scope_type', 'global');
+    if (deleteError) throw new Error(`Không thể chuẩn hóa chỉ tiêu cũ trên Supabase: ${deleteError.message}`);
+
+    const rows = definitions.map((def) => {
+      const value = values[def.code];
+      return {
+        id: generateUUID(),
+        report_id: reportId,
+        indicator_definition_id: def.id,
+        scope_type: 'global',
+        scope_id: null,
+        calculated_value: value.value,
+        formatted_value: `${value.value.toFixed(4)}%`,
+        calculation_details: {
+          numerator: value.numerator,
+          denominator: value.denominator,
+          formula: value.formula,
+          calculation_source: 'report_field_statistics',
+        },
+      };
+    });
+
+    const { data: saved, error: insertError } = await supabase
+      .from('report_indicators')
+      .insert(rows)
+      .select('*');
+    if (insertError) throw new Error(`Không thể lưu các chỉ tiêu vào Supabase: ${insertError.message}`);
+
+    this.inMemoryCache.reportIndicators = [
+      ...this.inMemoryCache.reportIndicators.filter((x) => x.report_id !== reportId || x.scope_type !== 'global'),
+      ...(saved || []) as ReportIndicator[],
+    ];
+    this.notify();
+    return (saved || []) as ReportIndicator[];
+  }
 
   // --- Snapshots ---
   public getSnapshots(reportId: string): ReportSnapshot[] {
@@ -1457,51 +1558,58 @@ export class StorageService {
       .sort((a, b) => (b.version_number || 1) - (a.version_number || 1));
   }
 
-  public createReportSnapshot(reportId: string, reason: string): ReportSnapshot {
+  public async createReportSnapshot(reportId: string, reason: string): Promise<ReportSnapshot> {
     this.assertRole(['admin'], 'tạo snapshot báo cáo');
-    const existing = this.inMemoryCache.snapshots.filter((s) => s.report_id === reportId);
-    const versionNumber = existing.length + 1;
-
-    const report = this.getReportById(reportId);
-    const sources = this.getSourcesByReport(reportId);
-    const stats = this.getStatsByReport(reportId);
-    const user = this.getCurrentUser();
-
-    const snapshotPayload = {
-      report,
-      sources,
-      stats,
-      capturedAt: new Date().toISOString(),
-    };
-
-    const newSnapshot: ReportSnapshot = {
-      id: generateUUID(),
-      report_id: reportId,
-      version_number: versionNumber,
-      snapshot_json: snapshotPayload,
-      created_by: user.full_name,
-      created_at: new Date().toISOString(),
-      reason,
-    };
-
-    this.inMemoryCache.snapshots.push(newSnapshot);
-    this.addAuditLog('CREATE_SNAPSHOT', 'report_snapshots', newSnapshot.id, { reportId, versionNumber, reason });
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('report_snapshots').insert({
-        id: newSnapshot.id,
-        report_id: newSnapshot.report_id,
-        version_number: newSnapshot.version_number,
-        snapshot_json: newSnapshot.snapshot_json,
-        created_by: newSnapshot.created_by,
-        reason: newSnapshot.reason,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase createReportSnapshot warning:', error.message);
-      });
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
 
+    const [reportRes, sourcesRes, statsRes, indicatorsRes, analysesRes, versionRes] = await Promise.all([
+      supabase.from('reports').select('*').eq('id', reportId).single(),
+      supabase.from('report_sources').select('*').eq('report_id', reportId),
+      supabase.from('report_field_statistics').select('*').eq('report_id', reportId),
+      supabase.from('report_indicators').select('*').eq('report_id', reportId),
+      supabase.from('report_analysis').select('*').eq('report_id', reportId),
+      supabase.from('report_snapshots').select('version_number').eq('report_id', reportId).order('version_number', { ascending: false }).limit(1),
+    ]);
+    if (reportRes.error) throw new Error(`Không thể đọc báo cáo để snapshot: ${reportRes.error.message}`);
+    if (sourcesRes.error) throw new Error(`Không thể đọc nguồn để snapshot: ${sourcesRes.error.message}`);
+    if (statsRes.error) throw new Error(`Không thể đọc số liệu để snapshot: ${statsRes.error.message}`);
+    if (indicatorsRes.error) throw new Error(`Không thể đọc chỉ tiêu để snapshot: ${indicatorsRes.error.message}`);
+    if (analysesRes.error) throw new Error(`Không thể đọc phân tích để snapshot: ${analysesRes.error.message}`);
+    if (versionRes.error) throw new Error(`Không thể đọc phiên bản snapshot: ${versionRes.error.message}`);
+
+    const versionNumber = Number(versionRes.data?.[0]?.version_number || 0) + 1;
+    const user = this.getCurrentUser();
+    const { data: saved, error } = await supabase
+      .from('report_snapshots')
+      .insert({
+        id: generateUUID(),
+        report_id: reportId,
+        version_number: versionNumber,
+        snapshot_json: {
+          report: reportRes.data,
+          sources: sourcesRes.data || [],
+          stats: statsRes.data || [],
+          indicators: indicatorsRes.data || [],
+          analyses: analysesRes.data || [],
+          capturedAt: new Date().toISOString(),
+        },
+        created_by: user.full_name,
+        reason,
+      })
+      .select('*')
+      .single();
+
+    if (error) throw new Error(`Không thể lưu snapshot vào Supabase: ${error.message}`);
+    const result = saved as ReportSnapshot;
+    this.inMemoryCache.snapshots = [
+      ...this.inMemoryCache.snapshots.filter((x) => x.id !== result.id),
+      result,
+    ];
     this.notify();
-    return newSnapshot;
+    return result;
   }
 
   // --- Report Analyses ---
