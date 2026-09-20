@@ -699,10 +699,10 @@ COMMIT;
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    1. Đồng bộ local → cloud
+                    1. Nguồn dữ liệu nghiệp vụ
                   </h3>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Tải toàn bộ các kỳ báo cáo, nguồn dữ liệu và <strong>{statsCount.toLocaleString('vi-VN')} dòng số liệu thống kê</strong> đang có trong trình duyệt này lưu trực tiếp vào CSDL Supabase Cloud.
+                    Không có bước "local → cloud". Mọi dữ liệu nghiệp vụ được ghi trực tiếp vào Supabase; giao diện chỉ giữ trạng thái hiển thị tạm thời trong phiên.
                   </p>
                 </div>
 
@@ -744,7 +744,7 @@ COMMIT;
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-xs disabled:opacity-50"
               >
                 <CloudUpload className={`w-4 h-4 ${isPushingCloud ? 'animate-bounce' : ''}`} />
-                <span>{isPushingCloud ? 'Đang đẩy dữ liệu lên Cloud...' : 'Đẩy toàn bộ dữ liệu lên Supabase Cloud'}</span>
+                <span>Không có đồng bộ local → cloud</span>
               </button>
             </div>
 
@@ -834,6 +834,7 @@ COMMIT;
 
               <button
                 type="button"
+                disabled
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-semibold transition-colors shadow-xs"
               >
