@@ -1167,8 +1167,14 @@ export class StorageService {
 
     const existing = this.inMemoryCache.reports.find((r) => r.id === reportId);
     if (!existing) throw new Error('Không tìm thấy báo cáo');
-    if (existing.status === 'locked' || existing.status === 'archived') {
-      throw new Error('Báo cáo đã khóa/lưu trữ, không thể thay đổi trạng thái.');
+    if (existing.status === 'archived') {
+      throw new Error('Báo cáo đã lưu trữ, không thể thay đổi trạng thái.');
+    }
+    if (existing.status === 'locked' && status !== 'archived') {
+      throw new Error('Báo cáo đã khóa, chỉ được phép chuyển sang lưu trữ.');
+    }
+    if (status === 'archived' && existing.status !== 'locked') {
+      throw new Error('Chỉ báo cáo LOCKED mới được chuyển sang ARCHIVED.');
     }
 
     const user = this.getCurrentUser();
