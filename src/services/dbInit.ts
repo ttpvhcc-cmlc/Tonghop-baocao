@@ -680,6 +680,8 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       supabase.from('units').select('*').order('display_order', { ascending: true }),
       supabase.from('fields').select('*, units(*)').order('display_order', { ascending: true }),
     ]);
+    if (unitsRes.error) throw unitsRes.error;
+    if (fieldsRes.error) throw fieldsRes.error;
 
     const dbUnits: Unit[] = Array.from(new Map((unitsRes.data || []).map((u: any) => [u.id, u])).values());
     const dbFields: Field[] = Array.from(new Map((fieldsRes.data || []).map((f: any) => [f.id, f])).values());
@@ -691,21 +693,13 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
     let statistics: ReportStatistic[] = [];
 
     if (activeReport) {
-      const localSources = store.getSourcesByReport(activeReport.id);
       const srcRes = await supabase.from('report_sources').select('*').eq('report_id', activeReport.id);
-      if (!srcRes.error) {
-        sources = deduplicateById(srcRes.data || []);
-      } else {
-        sources = localSources;
-      }
+      if (srcRes.error) throw srcRes.error;
+      sources = deduplicateById(srcRes.data || []);
 
-      const localStats = store.getStatsByReport(activeReport.id);
       const statsRes = await supabase.from('report_field_statistics').select('*').eq('report_id', activeReport.id);
-      if (!statsRes.error) {
-        statistics = deduplicateById(statsRes.data as ReportStatistic[] || []);
-      } else {
-        statistics = localStats;
-      }
+      if (statsRes.error) throw statsRes.error;
+      statistics = deduplicateById((statsRes.data || []) as ReportStatistic[]);
     }
 
     return {
