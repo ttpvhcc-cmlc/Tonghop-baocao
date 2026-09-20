@@ -13,7 +13,6 @@ import {
   UserRole 
 } from '../types/database';
 import { supabase, isSupabaseConfigured, supabaseUrl } from '../lib/supabase';
-import { SAMPLE_PROCEDURES_DATA } from '../data/sampleProcedures';
 import { resolveLinhVuc } from '../utils/fieldResolver';
 
 // No business data is seeded in the client runtime. Supabase is the sole persistence source.
@@ -238,18 +237,6 @@ export class StorageService {
     }
   }
 
-  /**
-   * Seed tables on Supabase if empty
-   */
-  private async seedSupabaseTables(): Promise<void> {
-    if (!supabase || !this.isSchemaReady) return;
-    try {
-      const { initializeSupabaseDatabase } = await import('./dbInit');
-      await initializeSupabaseDatabase();
-    } catch (e) {
-      console.warn('Seed Supabase tables warning:', e);
-    }
-  }
 
   // --- Current User & Role ---
   public getCurrentUser(): Profile {
