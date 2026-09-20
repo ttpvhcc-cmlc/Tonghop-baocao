@@ -1072,14 +1072,12 @@ export class StorageService {
   }
 
   public async fetchReports(): Promise<Report[]> {
-    if (supabase && this.isSchemaReady) {
-      const { data, error } = await supabase.from('reports').select('*').order('period_start', { ascending: false });
-      if (!error && data) {
-        this.inMemoryCache.reports = deduplicateById(data);
-        this.notify();
-        return this.getReports();
-      }
-    }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+    const { data, error } = await supabase.from('reports').select('*').order('period_start', { ascending: false });
+    if (error) throw new Error(`Không thể tải kỳ báo cáo từ Supabase: ${error.message}`);
+    this.inMemoryCache.reports = deduplicateById(data || []);
+    this.notify();
     return this.getReports();
   }
 
@@ -1088,19 +1086,17 @@ export class StorageService {
   }
 
   public async fetchReportById(id: string): Promise<Report | undefined> {
-    if (supabase && this.isSchemaReady) {
-      const { data } = await supabase.from('reports').select('*').eq('id', id).single();
-      if (data) {
-        const idx = this.inMemoryCache.reports.findIndex((r) => r.id === id);
-        if (idx !== -1) {
-          this.inMemoryCache.reports[idx] = data;
-        } else {
-          this.inMemoryCache.reports.unshift(data);
-        }
-        return data;
-      }
-    }
-    return this.getReportById(id);
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+    const { data, error } = await supabase.from('reports').select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(`Không thể tải báo cáo từ Supabase: ${error.message}`);
+    if (!data) return undefined;
+    this.inMemoryCache.reports = [
+      ...this.inMemoryCache.reports.filter((r) => r.id !== id),
+      data as Report,
+    ];
+    this.notify();
+    return data as Report;
   }
 
   public async createReport(data: {
