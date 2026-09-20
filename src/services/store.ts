@@ -870,7 +870,9 @@ export class StorageService {
   }
 
   public saveUser(user: {
-    this.assertRole(['admin'], 'quản lý hồ sơ người dùng'); id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean }): Profile {
+    id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean
+  }): Profile {
+    this.assertRole(['admin'], 'quản lý hồ sơ người dùng');
     const id = user.id || generateUUID();
     const existing = this.inMemoryCache.users.find((u) => u.id === id);
     const now = new Date().toISOString();
@@ -964,8 +966,8 @@ export class StorageService {
     return this.getUnits();
   }
 
-  public saveUnit(unit: Omit<Unit, 'id'> & {
-    this.assertRole(['admin'], 'quản lý đơn vị'); id?: string }): Unit {
+  public saveUnit(unit: Omit<Unit, 'id'> & { id?: string }): Unit {
+    this.assertRole(['admin'], 'quản lý đơn vị');
     const codeClean = (unit.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã đơn vị không được để trống.');
@@ -1059,8 +1061,8 @@ export class StorageService {
     return this.getFields();
   }
 
-  public saveField(field: Omit<Field, 'id'> & {
-    this.assertRole(['admin'], 'quản lý lĩnh vực'); id?: string }): Field {
+  public saveField(field: Omit<Field, 'id'> & { id?: string }): Field {
+    this.assertRole(['admin'], 'quản lý lĩnh vực');
     const codeClean = (field.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã lĩnh vực không được để trống.');
@@ -1230,8 +1232,8 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.indicators);
   }
 
-  public saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & {
-    this.assertRole(['admin'], 'quản lý chỉ số'); id?: string }): IndicatorDefinition {
+  public saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & { id?: string }): IndicatorDefinition {
+    this.assertRole(['admin'], 'quản lý chỉ số');
     const codeClean = (indicator.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã chỉ tiêu không được để trống.');
@@ -1340,7 +1342,6 @@ export class StorageService {
   }
 
   public createReport(data: {
-    this.assertRole(['admin', 'analyst', 'data_entry'], 'tạo kỳ báo cáo');
     report_code: string;
     report_name: string;
     report_type: Report['report_type'];
@@ -1349,6 +1350,7 @@ export class StorageService {
     data_as_of: string;
     notes?: string;
   }): Report {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'tạo kỳ báo cáo');
     const user = this.getCurrentUser();
     const id = generateUUID();
     const newReport: Report = {
@@ -1842,8 +1844,8 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.analyses.filter((a) => a.report_id === reportId));
   }
 
-  public saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & {
-    this.assertRole(['admin', 'analyst'], 'lưu phân tích'); id?: string }): ReportAnalysis {
+  public saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & { id?: string }): ReportAnalysis {
+    this.assertRole(['admin', 'analyst'], 'lưu phân tích');
     const now = new Date().toISOString();
     const id = analysis.id || generateUUID();
 
@@ -1949,8 +1951,8 @@ export class StorageService {
    */
   public async pushAllDataToSupabase(
     onProgress?: (msg: string, percent: number) => void
-  ): Promise<{
-    this.assertRole(['admin'], 'đồng bộ dữ liệu lên Supabase'); success: boolean; message: string; details?: any }> {
+  ): Promise<{ success: boolean; message: string; details?: any }> {
+    this.assertRole(['admin'], 'đồng bộ dữ liệu lên Supabase');
     if (!supabase) {
       return { success: false, message: 'Chưa cấu hình Supabase Client.' };
     }
