@@ -540,7 +540,6 @@ export class StorageService {
   public restoreDefaultProcedures(): Field[] {
     const healthy = this.ensureHealthyFields(ALL_INITIAL_FIELDS);
     this.inMemoryCache.fields = healthy;
-    this.setLocal(STORAGE_KEYS.FIELDS, healthy);
     this.addAuditLog('RESTORE_CATALOG', 'fields', 'system', { count: healthy.length });
     this.notify();
     return this.getFields();
@@ -601,7 +600,6 @@ export class StorageService {
 
       // Supabase is the source of truth when the schema is reachable.
       this.inMemoryCache.units = deduplicateById(unitsData || []);
-      this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
 
       // 3. Fetch fields (Safely merged to NEVER erase procedures, sectors, or mappings)
       const { data: fieldsData } = await supabase
@@ -609,7 +607,6 @@ export class StorageService {
         .select('*, units(*)')
         .order('display_order', { ascending: true });
       this.inMemoryCache.fields = deduplicateById(fieldsData || []);
-      this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
 
       // 4. Fetch reports (Merge Supabase reports with local reports)
       const { data: reportsData } = await supabase
@@ -628,23 +625,19 @@ export class StorageService {
           };
         });
         this.inMemoryCache.reports = deduplicateById(normalizedReports);
-        this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
       }
 
       // 5. Fetch sources (Merge safely)
       const { data: sourcesData } = await supabase.from('report_sources').select('*');
       this.inMemoryCache.sources = deduplicateById(sourcesData || []);
-      this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
 
       // 6. Fetch stats (Merge safely, NEVER wipe out local stats when Supabase table is empty)
       const { data: statsData } = await supabase.from('report_field_statistics').select('*');
       this.inMemoryCache.stats = deduplicateById(statsData || []);
-      this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
 
       // 7. Fetch indicators
       const { data: indicatorsData } = await supabase.from('indicator_definitions').select('*');
       this.inMemoryCache.indicators = deduplicateById(indicatorsData || []);
-      this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
 
       this.lastSyncTime = new Date().toISOString();
       this.notify();
@@ -727,7 +720,6 @@ export class StorageService {
       ...profile,
       email: profile.email || session.user.email || undefined,
     };
-    this.setLocal(STORAGE_KEYS.CURRENT_USER, this.inMemoryCache.currentUser);
     this.notify();
     return this.inMemoryCache.currentUser;
   }
@@ -738,7 +730,6 @@ export class StorageService {
       if (error) throw error;
     }
     this.inMemoryCache.currentUser = GUEST_USER;
-    try { localStorage.removeItem(STORAGE_KEYS.CURRENT_USER); } catch {}
     this.notify();
   }
 
@@ -776,7 +767,6 @@ export class StorageService {
     } else {
       this.inMemoryCache.users.push(newUser);
     }
-    this.setLocal(STORAGE_KEYS.USERS, this.inMemoryCache.users);
     this.addAuditLog(user.id ? 'UPDATE_USER' : 'CREATE_USER', 'profiles', id, newUser);
 
     if (supabase && this.isSchemaReady) {
@@ -801,7 +791,6 @@ export class StorageService {
       throw new Error('Không thể xóa tài khoản của chính bạn đang đăng nhập.');
     }
     this.inMemoryCache.users = this.inMemoryCache.users.filter((u) => u.id !== userId);
-    this.setLocal(STORAGE_KEYS.USERS, this.inMemoryCache.users);
     this.addAuditLog('DELETE_USER', 'profiles', userId);
 
     if (supabase && this.isSchemaReady) {
@@ -827,7 +816,6 @@ export class StorageService {
       const { data, error } = await supabase.from('units').select('*').order('display_order', { ascending: true });
       if (!error && data) {
         this.inMemoryCache.units = deduplicateById(data);
-        this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
         this.notify();
         return this.getUnits();
       }
@@ -865,7 +853,6 @@ export class StorageService {
     } else {
       this.inMemoryCache.units.push(newUnit);
     }
-    this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
     this.addAuditLog(unit.id ? 'UPDATE_UNIT' : 'CREATE_UNIT', 'units', id, newUnit);
 
     // Asynchronously persist to Supabase
@@ -895,7 +882,6 @@ export class StorageService {
     }
 
     this.inMemoryCache.units = this.inMemoryCache.units.filter((u) => u.id !== unitId);
-    this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
     this.addAuditLog('DELETE_UNIT', 'units', unitId);
 
     if (supabase && this.isSchemaReady) {
@@ -922,7 +908,6 @@ export class StorageService {
       const { data, error } = await supabase.from('fields').select('*, units(*)').order('display_order', { ascending: true });
       if (!error && data && data.length > 0) {
         this.inMemoryCache.fields = this.mergeFieldsSafely(this.inMemoryCache.fields, data);
-        this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
         this.notify();
         return this.getFields();
       }
@@ -960,7 +945,6 @@ export class StorageService {
     } else {
       this.inMemoryCache.fields.push(newField);
     }
-    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
     this.addAuditLog(field.id ? 'UPDATE_FIELD' : 'CREATE_FIELD', 'fields', id, newField);
 
     // Persist to Supabase with fallback unit_id to prevent FK constraint failure
@@ -1016,8 +1000,6 @@ export class StorageService {
         this.inMemoryCache.fields.push(field);
       }
     });
-
-    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
     this.addAuditLog('BULK_UPDATE_FIELDS_UNIT', 'fields', `${processedFields.length} fields updated`);
 
     // Sync with Supabase with fallback unit_id to prevent FK constraint failure
@@ -1066,11 +1048,9 @@ export class StorageService {
     
     // Remove stats from cache
     this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.field_id !== fieldId);
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
 
     // Remove field from cache
     this.inMemoryCache.fields = this.inMemoryCache.fields.filter((f) => f.id !== fieldId);
-    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
 
     this.addAuditLog('DELETE_FIELD_CASCADED', 'fields', fieldId);
 
@@ -1135,8 +1115,6 @@ export class StorageService {
     } else {
       this.inMemoryCache.indicators.push(newInd);
     }
-
-    this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
     this.addAuditLog(indicator.id ? 'UPDATE_INDICATOR' : 'CREATE_INDICATOR', 'indicator_definitions', id, newInd);
 
     if (supabase && this.isSchemaReady) {
@@ -1159,7 +1137,6 @@ export class StorageService {
 
   public deleteIndicator(indicatorId: string): void {
     this.inMemoryCache.indicators = this.inMemoryCache.indicators.filter((ind) => ind.id !== indicatorId);
-    this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
     this.addAuditLog('DELETE_INDICATOR', 'indicator_definitions', indicatorId);
 
     if (supabase && this.isSchemaReady) {
@@ -1182,7 +1159,6 @@ export class StorageService {
       const { data, error } = await supabase.from('reports').select('*').order('period_start', { ascending: false });
       if (!error && data) {
         this.inMemoryCache.reports = deduplicateById(data);
-        this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
         this.notify();
         return this.getReports();
       }
@@ -1343,16 +1319,11 @@ export class StorageService {
     if (this.inMemoryCache.snapshots) {
       this.inMemoryCache.snapshots = this.inMemoryCache.snapshots.filter((sn) => sn.report_id !== targetId);
     }
-
-    this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
     this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
     this.setLocal(STORAGE_KEYS.ANALYSES, this.inMemoryCache.analyses);
-    this.setLocal(STORAGE_KEYS.SNAPSHOTS, this.inMemoryCache.snapshots);
 
     // CRUCIAL: Explicitly preserve and guard master catalog (Fields, Procedures, Units, Mappings)
     this.inMemoryCache.fields = this.ensureHealthyFields(this.inMemoryCache.fields);
-    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
 
     this.addAuditLog('DELETE_REPORT', 'report', targetId, { report_id: targetId, report_code: rep?.report_code });
     this.notify();
@@ -1431,7 +1402,6 @@ export class StorageService {
         // Merge into active stats
         const otherStats = this.inMemoryCache.stats.filter((s) => s.report_id !== reportId);
         this.inMemoryCache.stats = deduplicateById([...otherStats, ...data]);
-        this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
         this.notify();
         return this.getStatsByReport(reportId);
       }
@@ -1594,7 +1564,6 @@ export class StorageService {
     };
 
     this.inMemoryCache.snapshots.push(newSnapshot);
-    this.setLocal(STORAGE_KEYS.SNAPSHOTS, this.inMemoryCache.snapshots);
     this.addAuditLog('CREATE_SNAPSHOT', 'report_snapshots', newSnapshot.id, { reportId, versionNumber, reason });
 
     if (supabase && this.isSchemaReady) {
@@ -1637,7 +1606,6 @@ export class StorageService {
     } else {
       this.inMemoryCache.analyses.push(newAnalysis);
     }
-    this.setLocal(STORAGE_KEYS.ANALYSES, this.inMemoryCache.analyses);
     this.addAuditLog('SAVE_ANALYSIS', 'report_analysis', newAnalysis.id, { reportId: analysis.report_id, title: analysis.title });
 
     if (supabase && this.isSchemaReady) {
@@ -1678,7 +1646,6 @@ export class StorageService {
       created_at: new Date().toISOString(),
     };
     this.inMemoryCache.auditLogs.unshift(newLog);
-    this.setLocal(STORAGE_KEYS.AUDIT_LOGS, this.inMemoryCache.auditLogs.slice(0, 200));
 
     if (supabase && this.isSchemaReady) {
       supabase.from('audit_logs').insert({
@@ -1730,27 +1697,21 @@ export class StorageService {
 
       if (Array.isArray(data.units)) {
         this.inMemoryCache.units = deduplicateById([...data.units, ...this.inMemoryCache.units]);
-        this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
       }
       if (Array.isArray(data.fields)) {
         this.inMemoryCache.fields = this.mergeFieldsSafely(this.inMemoryCache.fields, data.fields);
-        this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
       }
       if (Array.isArray(data.reports)) {
         this.inMemoryCache.reports = deduplicateById([...data.reports, ...this.inMemoryCache.reports]);
-        this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
       }
       if (Array.isArray(data.sources)) {
         this.inMemoryCache.sources = deduplicateById([...data.sources, ...this.inMemoryCache.sources]);
-        this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
       }
       if (Array.isArray(data.stats)) {
         this.inMemoryCache.stats = deduplicateById([...data.stats, ...this.inMemoryCache.stats]);
-        this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
       }
       if (Array.isArray(data.analyses)) {
         this.inMemoryCache.analyses = deduplicateById([...data.analyses, ...this.inMemoryCache.analyses]);
-        this.setLocal(STORAGE_KEYS.ANALYSES, this.inMemoryCache.analyses);
       }
 
       this.addAuditLog('IMPORT_BACKUP_JSON', 'database', 'system', {
