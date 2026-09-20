@@ -17,20 +17,11 @@ export const AppLayout: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('sidebar_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem('sidebar_collapsed', String(next));
-      } catch {}
       return next;
     });
   };
