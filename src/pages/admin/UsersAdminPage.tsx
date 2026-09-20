@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
-import { Users, Shield, Check, X, UserCheck, Plus, Edit2, Trash2, Mail, Building } from 'lucide-react';
+import { Users, Shield, Check, X, UserCheck, Edit2, Mail, Building } from 'lucide-react';
 
 export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
@@ -38,15 +38,7 @@ export const UsersAdminPage: React.FC = () => {
   };
 
   const handleOpenCreate = () => {
-    setEditingUser(null);
-    setFormData({
-      full_name: '',
-      email: '',
-      role: 'data_entry',
-      unit_id: units[0]?.id || '',
-      active: true,
-    });
-    setIsModalOpen(true);
+    alert('Tài khoản đăng nhập phải được tạo trước tại Supabase Authentication. Màn hình này chỉ quản lý hồ sơ và quyền RBAC.');
   };
 
   const handleOpenEdit = (user: Profile) => {
@@ -76,9 +68,20 @@ export const UsersAdminPage: React.FC = () => {
   };
 
   const handleDelete = async (user: Profile) => {
-    if (window.confirm(`Bạn có chắc chắn muốn xóa tài khoản "${user.full_name}" (${user.email})?`)) {
+    if (user.id === currentUser.id) {
+      alert('Không thể vô hiệu hóa tài khoản đang đăng nhập.');
+      return;
+    }
+    if (window.confirm(`Vô hiệu hóa hồ sơ "${user.full_name}" (${user.email})?`)) {
       try {
-        await store.deleteUser(user.id);
+        await store.saveUser({
+          id: user.id,
+          full_name: user.full_name,
+          email: user.email || '',
+          role: user.role,
+          unit_id: user.unit_id || '',
+          active: false,
+        });
         setUsers(store.getUsers());
       } catch (err: any) {
         alert(err.message);
@@ -147,14 +150,9 @@ export const UsersAdminPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Thêm Người dùng mới</span>
-        </button>
+        <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          Tạo tài khoản đăng nhập tại Supabase Authentication; tại đây chỉ quản lý hồ sơ/RBAC.
+        </div>
       </div>
 
       {/* Users CRUD Table */}
@@ -241,7 +239,7 @@ export const UsersAdminPage: React.FC = () => {
                             type="button"
                             onClick={() => handleDelete(u)}
                             className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded"
-                            title="Xóa tài khoản"
+                            title="Vô hiệu hóa tài khoản"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
