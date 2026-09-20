@@ -246,7 +246,7 @@ export const FieldsAdminPage: React.FC = () => {
         await store.saveFieldsBulk(fieldsToSave);
       } else {
         // In upsert mode, save bulk
-        store.saveFieldsBulk(fieldsToSave);
+        await store.saveFieldsBulk(fieldsToSave);
       }
 
       setNotification({
