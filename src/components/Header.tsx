@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { store } from '../services/store';
 import { UserRole, Profile } from '../types/database';
+import { supabase } from '../lib/supabase';
 import { generateSampleExcelBuffer } from '../features/import/excelParser';
 import {
   Download,
@@ -29,6 +30,11 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const [showAuthMenu, setShowAuthMenu] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleDownloadSample = () => {
     try {
@@ -63,6 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const roleInfo = getRoleBadge(currentUser.role);
+  const isAuthenticated = currentUser.id !== 'guest' && Boolean(currentUser.user_id);
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
@@ -129,42 +136,68 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowRoleMenu(!showRoleMenu)}
+            onClick={() => setShowAuthMenu(!showAuthMenu)}
             className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-xl transition-all ${roleInfo.bg}`}
-            title="Nhấn để tùy chọn vai trò người dùng"
+            title={isAuthenticated ? "Tài khoản Supabase" : "Đăng nhập Supabase"}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span className="font-bold text-slate-800">{currentUser.full_name}</span>
+            <span className="font-bold text-slate-800">{isAuthenticated ? currentUser.full_name : "Đăng nhập"}</span>
           </button>
 
-          {showRoleMenu && (
-            <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50 animate-in fade-in zoom-in-95">
-              <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                <p className="text-xs font-semibold text-slate-800">Chuyển đổi vai trò kiểm thử</p>
-                <p className="text-[11px] text-slate-500">Thử nghiệm các cấp độ phân quyền RLS</p>
-              </div>
-
-              {(['admin', 'analyst', 'data_entry', 'viewer'] as UserRole[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    onUserRoleChange(r);
-                    setShowRoleMenu(false);
+          {showAuthMenu && (
+            <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50">
+              {isAuthenticated ? (
+                <>
+                  <p className="text-xs font-semibold text-slate-800">{currentUser.full_name}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">{currentUser.email || 'Tài khoản Supabase'}</p>
+                  <button
+                    type="button"
+                    className="mt-3 w-full px-3 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+                    disabled={authBusy}
+                    onClick={async () => {
+                      setAuthBusy(true);
+                      setAuthError(null);
+                      try {
+                        await store.signOut();
+                        setShowAuthMenu(false);
+                        window.location.reload();
+                      } catch (e: any) {
+                        setAuthError(e.message || 'Không thể đăng xuất');
+                      } finally {
+                        setAuthBusy(false);
+                      }
+                    }}
+                  >Đăng xuất</button>
+                </>
+              ) : (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setAuthBusy(true);
+                    setAuthError(null);
+                    try {
+                      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+                      if (error) throw error;
+                      await store.loadAuthenticatedUser();
+                      setShowAuthMenu(false);
+                      window.location.reload();
+                    } catch (e: any) {
+                      setAuthError(e.message || 'Đăng nhập thất bại');
+                    } finally {
+                      setAuthBusy(false);
+                    }
                   }}
-                  className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between ${
-                    currentUser.role === r ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700 hover:bg-slate-50'
-                  }`}
+                  className="space-y-2"
                 >
-                  <span>
-                    {r === 'admin' ? 'Quản trị viên (Toàn quyền)' :
-                     r === 'analyst' ? 'Chuyên viên phân tích (Duyệt/Khóa)' :
-                     r === 'data_entry' ? 'Chuyên viên nhập liệu (Tạo/Nhập)' :
-                     'Người xem (Chỉ đọc số liệu)'}
-                  </span>
-                  {currentUser.role === r && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
-                </button>
-              ))}
+                  <p className="text-xs font-bold text-slate-800">Đăng nhập để ghi dữ liệu</p>
+                  <input value={email} onChange={e => setEmail(e.target.value)} type="email" required placeholder="Email" className="w-full px-3 py-2 text-xs border rounded-lg" />
+                  <input value={password} onChange={e => setPassword(e.target.value)} type="password" required placeholder="Mật khẩu" className="w-full px-3 py-2 text-xs border rounded-lg" />
+                  {authError && <p className="text-[11px] text-rose-600">{authError}</p>}
+                  <button type="submit" disabled={authBusy} className="w-full px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                    {authBusy ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
         </div>
