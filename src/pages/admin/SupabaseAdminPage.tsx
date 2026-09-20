@@ -463,7 +463,7 @@ COMMIT;
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target?.result as string;
       if (content) {
         const res = await store.importFullDatabaseBackup(content);
