@@ -241,17 +241,16 @@ export const FieldsAdminPage: React.FC = () => {
         fieldsToSave.push(fieldItem);
       });
 
-      if (mode === 'replace') {
-        // In replace mode, overwrite existing fields
-        await store.saveFieldsBulk(fieldsToSave);
-      } else {
-        // In upsert mode, save bulk
-        await store.saveFieldsBulk(fieldsToSave);
+      const savedFields = await store.saveFieldsBulk(fieldsToSave);
+      const verifiedFields = await store.fetchFields();
+      if (savedFields.length !== fieldsToSave.length) {
+        throw new Error(`Supabase chỉ xác nhận lưu ${savedFields.length}/${fieldsToSave.length} dòng danh mục. Không ghi nhận thành công toàn bộ dữ liệu.`);
       }
 
+      setFields(verifiedFields);
       setNotification({
         type: 'success',
-        message: `Đồng bộ thành công ${rows.length} thủ tục từ file Excel! Đã tự động phân nhóm theo Lĩnh vực & gán Đơn vị thực hiện.`,
+        message: `Đã lưu ${verifiedFields.length} thủ tục vào Supabase. Có thể tải lại trình duyệt để kiểm tra dữ liệu.`,
       });
 
       // Switch to grouped tab to let user see result
