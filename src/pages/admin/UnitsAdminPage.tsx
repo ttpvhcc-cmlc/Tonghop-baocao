@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Unit } from '../../types/database';
 import { Building2, Plus, Edit2, CheckCircle2, X, Trash2 } from 'lucide-react';
@@ -6,6 +6,16 @@ import { Building2, Plus, Edit2, CheckCircle2, X, Trash2 } from 'lucide-react';
 export const UnitsAdminPage: React.FC = () => {
   const [units, setUnits] = useState(store.getUnits());
   const fields = store.getFields();
+  useEffect(() => {
+    const refresh = () => {
+      setUnits(store.getUnits());
+    };
+    void Promise.all([store.fetchUnits(), store.fetchFields()])
+      .then(() => refresh())
+      .catch((error) => console.warn('Không thể tải danh mục Đơn vị từ Supabase:', error));
+    return store.subscribe(refresh);
+  }, []);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
 
