@@ -768,13 +768,6 @@ export class StorageService {
       ...this.inMemoryCache.users.filter((u) => u.id !== result.id),
       result,
     ];
-    await this.addAuditLog('UPDATE_USER', 'profiles', result.id, {
-      full_name: result.full_name,
-      email: result.email,
-      role: result.role,
-      unit_id: result.unit_id,
-      active: result.active,
-    });
     this.notify();
     return result;
   }
@@ -789,7 +782,6 @@ export class StorageService {
     if (error) throw new Error(`Không thể xóa hồ sơ người dùng khỏi Supabase: ${error.message}`);
 
     this.inMemoryCache.users = this.inMemoryCache.users.filter((u) => u.id !== userId);
-    await this.addAuditLog('DELETE_USER', 'profiles', userId);
     this.notify();
   }
 
@@ -822,12 +814,11 @@ export class StorageService {
     const codeClean = (unit.code || '').trim().toUpperCase();
     if (!codeClean) throw new Error('Mã đơn vị không được để trống.');
 
-    const existingWithCode = this.inMemoryCache.units.find(
-      (u) => u.code.trim().toUpperCase() === codeClean && u.id !== unit.id
-    );
-    if (existingWithCode) throw new Error(`Mã đơn vị "${codeClean}" đã tồn tại trên hệ thống.`);
-
     const id = unit.id || generateUUID();
+    const { data: duplicateUnit, error: duplicateUnitError } = await supabase
+      .from('units').select('id').eq('code', codeClean).neq('id', id).maybeSingle();
+    if (duplicateUnitError) throw new Error(`Không thể kiểm tra mã đơn vị trên Supabase: ${duplicateUnitError.message}`);
+    if (duplicateUnit) throw new Error(`Mã đơn vị "${codeClean}" đã tồn tại trên hệ thống.`);
     const payload = {
       id,
       code: codeClean,
@@ -866,7 +857,6 @@ export class StorageService {
     if (error) throw new Error(`Không thể xóa đơn vị trên Supabase: ${error.message}`);
 
     this.inMemoryCache.units = this.inMemoryCache.units.filter((u) => u.id !== unitId);
-    await this.addAuditLog('DELETE_UNIT', 'units', unitId);
     this.notify();
   }
 
@@ -904,14 +894,14 @@ export class StorageService {
     const codeClean = (field.code || '').trim().toUpperCase();
     if (!codeClean) throw new Error('Mã lĩnh vực không được để trống.');
 
-    const existingWithCode = this.inMemoryCache.fields.find(
-      (f) => f.code.trim().toUpperCase() === codeClean && f.id !== field.id
-    );
-    if (existingWithCode) throw new Error(`Mã lĩnh vực "${codeClean}" đã tồn tại trên hệ thống.`);
+    const id = field.id || generateUUID();
+    const { data: duplicateField, error: duplicateFieldError } = await supabase
+      .from('fields').select('id').eq('code', codeClean).neq('id', id).maybeSingle();
+    if (duplicateFieldError) throw new Error(`Không thể kiểm tra mã lĩnh vực trên Supabase: ${duplicateFieldError.message}`);
+    if (duplicateField) throw new Error(`Mã lĩnh vực "${codeClean}" đã tồn tại trên hệ thống.`);
 
     if (!field.unit_id) throw new Error(`Lĩnh vực "${field.name}" phải được gán đúng đơn vị trong Master.`);
 
-    const id = field.id || generateUUID();
     const payload = {
       id,
       code: codeClean,
@@ -1028,7 +1018,6 @@ export class StorageService {
 
     this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.field_id !== fieldId);
     this.inMemoryCache.fields = this.inMemoryCache.fields.filter((f) => f.id !== fieldId);
-    await this.addAuditLog('DELETE_FIELD_CASCADED', 'fields', fieldId, { field_name: field.name });
     this.notify();
   }
 
@@ -1047,10 +1036,11 @@ export class StorageService {
     const formulaKey = indicator.formula_key || indicator.calculation_key || '';
     if (!formulaKey) throw new Error('Chỉ tiêu đo lường phải liên kết với một công thức tính hợp lệ.');
 
-    const existing = this.inMemoryCache.indicators.find((ind) => ind.code.toUpperCase() === codeClean && ind.id !== indicator.id);
-    if (existing) throw new Error(`Mã chỉ tiêu "${codeClean}" đã tồn tại.`);
-
     const id = indicator.id || generateUUID();
+    const { data: duplicateIndicator, error: duplicateIndicatorError } = await supabase
+      .from('indicator_definitions').select('id').eq('code', codeClean).neq('id', id).maybeSingle();
+    if (duplicateIndicatorError) throw new Error(`Không thể kiểm tra mã chỉ tiêu trên Supabase: ${duplicateIndicatorError.message}`);
+    if (duplicateIndicator) throw new Error(`Mã chỉ tiêu "${codeClean}" đã tồn tại.`);
     const payload = {
       id,
       code: codeClean,
@@ -1069,7 +1059,6 @@ export class StorageService {
       ...this.inMemoryCache.indicators.filter((i) => i.id !== result.id),
       result,
     ];
-    await this.addAuditLog(indicator.id ? 'UPDATE_INDICATOR' : 'CREATE_INDICATOR', 'indicator_definitions', id, result);
     this.notify();
     return result;
   }
@@ -1082,7 +1071,6 @@ export class StorageService {
     const { error } = await supabase.from('indicator_definitions').delete().eq('id', indicatorId);
     if (error) throw new Error(`Không thể xóa chỉ tiêu trên Supabase: ${error.message}`);
     this.inMemoryCache.indicators = this.inMemoryCache.indicators.filter((i) => i.id !== indicatorId);
-    await this.addAuditLog('DELETE_INDICATOR', 'indicator_definitions', indicatorId);
     this.notify();
   }
 
@@ -1153,7 +1141,6 @@ export class StorageService {
     const report = saved as Report;
 
     this.inMemoryCache.reports = [report, ...this.inMemoryCache.reports.filter((r) => r.id !== report.id)];
-    this.addAuditLog('CREATE_REPORT', 'reports', report.id, payload);
     this.notify();
     return report;
   }
@@ -1203,7 +1190,6 @@ export class StorageService {
     if (error) throw new Error(`Không thể cập nhật trạng thái trên Supabase: ${error.message}`);
     const updated = saved as Report;
     this.inMemoryCache.reports = this.inMemoryCache.reports.map((r) => r.id === reportId ? updated : r);
-    this.addAuditLog('UPDATE_REPORT_STATUS', 'reports', reportId, { from: existing.status, to: status, notes });
     this.notify();
     return updated;
   }
@@ -1240,7 +1226,6 @@ export class StorageService {
     if (error) throw new Error(`Không thể cập nhật báo cáo trên Supabase: ${error.message}`);
     const updated = saved as Report;
     this.inMemoryCache.reports = this.inMemoryCache.reports.map((r) => r.id === reportId ? updated : r);
-    this.addAuditLog('UPDATE_REPORT_INFO', 'reports', reportId, data);
     this.notify();
     return updated;
   }
@@ -1268,7 +1253,6 @@ export class StorageService {
     this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.report_id !== targetId);
     this.inMemoryCache.analyses = this.inMemoryCache.analyses.filter((a) => a.report_id !== targetId);
     this.inMemoryCache.snapshots = this.inMemoryCache.snapshots.filter((s) => s.report_id !== targetId);
-    this.addAuditLog('DELETE_REPORT', 'report', targetId, { report_id: targetId, report_code: rep.report_code });
     this.notify();
     return true;
   }
@@ -1303,7 +1287,6 @@ export class StorageService {
       ...this.inMemoryCache.sources.filter((s) => s.id !== source.id),
       source
     ];
-    this.addAuditLog('ADD_REPORT_SOURCE', 'report_sources', source.id, { reportId, sourceName });
     this.notify();
     return source;
   }
@@ -1397,8 +1380,6 @@ export class StorageService {
       ...this.inMemoryCache.stats.filter((s) => !(s.report_id === reportId && s.source_id === sourceId)),
       ...savedRows,
     ];
-
-    this.addAuditLog('IMPORT_STATISTICS', 'reports', reportId, { sourceId, count: savedRows.length });
     this.notify();
   }
 
@@ -1452,7 +1433,6 @@ export class StorageService {
       ...this.inMemoryCache.stats.filter((s) => s.report_id !== reportId),
       ...savedRows,
     ];
-    this.addAuditLog('EDIT_STATISTICS_INLINE', 'reports', reportId, { count: savedRows.length });
     this.notify();
   }
 
@@ -1658,7 +1638,6 @@ export class StorageService {
       ...this.inMemoryCache.analyses.filter((a) => a.id !== result.id),
       result,
     ];
-    this.addAuditLog('SAVE_ANALYSIS', 'report_analysis', result.id, { reportId: analysis.report_id, title: analysis.title });
     this.notify();
     return result;
   }
@@ -1669,36 +1648,10 @@ export class StorageService {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  public async addAuditLog(action: string, entityType: string, entityId: string, metadata?: Record<string, any>): Promise<void> {
-    if (!supabase) return;
-    if (!this.isSchemaReady) {
-      const synced = await this.syncWithSupabase();
-      if (!synced) return;
-    }
-
-    const user = this.getCurrentUser();
-    const userIdentity = user && user.id !== 'guest'
-      ? `${user.full_name} (${user.role})`
-      : 'Hệ thống';
-
-    const { error } = await supabase.from('audit_logs').insert({
-      id: generateUUID(),
-      user_id: user?.id || userIdentity,
-      action,
-      entity_type: entityType,
-      entity_id: entityId,
-      metadata: metadata || {},
-    });
-    if (error) throw new Error(`Không thể ghi Audit Log vào Supabase: ${error.message}`);
-
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
-    this.inMemoryCache.auditLogs = deduplicateById(data || []);
-    this.notify();
+  public async addAuditLog(_action: string, _entityType: string, _entityId: string, _metadata?: Record<string, any>): Promise<void> {
+    // Audit entries are generated by SECURITY DEFINER database triggers.
   }
+
 
   // Reset to factory defaults
   public async resetToFactoryDemo(): Promise<void> {
@@ -1752,11 +1705,6 @@ export class StorageService {
       if (Array.isArray(data.analyses)) {
         this.inMemoryCache.analyses = deduplicateById([...data.analyses, ...this.inMemoryCache.analyses]);
       }
-
-      this.addAuditLog('IMPORT_BACKUP_JSON', 'database', 'system', {
-        reports: data.reports?.length || 0,
-        stats: data.stats?.length || 0,
-      });
 
       this.notify();
 
