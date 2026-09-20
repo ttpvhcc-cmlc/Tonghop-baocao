@@ -261,6 +261,7 @@ export const ImportPage: React.FC = () => {
       }
 
       const hasErrors = preparedRows.some((r) => r.validationStatus === 'error');
+      await store.recalculateAndPersistReportIndicators(selectedReportId);
       await store.updateReportStatus(selectedReportId, 'imported');
       if (!hasErrors) {
         await store.updateReportStatus(selectedReportId, 'validated');
