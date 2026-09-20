@@ -18,21 +18,6 @@ import { SAMPLE_PROCEDURES_DATA } from '../data/sampleProcedures';
 import { resolveLinhVuc } from '../utils/fieldResolver';
 
 // Local storage backup key prefix
-const STORAGE_KEYS = {
-  UNITS: 'tthc_units_v2',
-  FIELDS: 'tthc_fields_v2',
-  INDICATORS: 'tthc_indicators_v2',
-  REPORTS: 'tthc_reports_v2',
-  SOURCES: 'tthc_sources_v2',
-  STATS: 'tthc_stats_v2',
-  REPORT_INDICATORS: 'tthc_report_indicators_v2',
-  ANALYSES: 'tthc_analyses_v2',
-  SNAPSHOTS: 'tthc_snapshots_v2',
-  AUDIT_LOGS: 'tthc_audit_logs_v2',
-  CURRENT_USER: 'tthc_current_user_v2',
-  USERS: 'tthc_users_v2',
-};
-
 // Initial Seed Data with valid UUIDs matching Supabase seed
 const SEED_UNITS: Unit[] = [
   { id: 'a0000000-0000-0000-0000-000000000001', code: 'VP', name: 'Văn phòng', display_order: 1, active: true },
@@ -499,7 +484,6 @@ export class StorageService {
   }
 
   constructor() {
-    // Business data is DB-only. No localStorage/sessionStorage/cache is used for application data.
     this.inMemoryCache = {
       units: [],
       fields: [],
