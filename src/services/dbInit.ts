@@ -627,29 +627,19 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
   fields: Field[];
   rawCount: number;
 }> {
-  const localReports = store.getReports();
-  const localUnits = store.getUnits();
-  const localFields = store.getFields();
-
   if (!isSupabaseConfigured || !supabase) {
-    const activeReport = selectedReportId
-      ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
-      : localReports[0] || null;
-    const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
-    const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
-
     return {
       configured: false,
       connected: false,
-      schemaReady: true,
-      errorMessage: null,
-      reports: localReports,
-      currentReport: activeReport,
-      sources: localSources,
-      statistics: localStats,
-      units: localUnits,
-      fields: localFields,
-      rawCount: localStats.length,
+      schemaReady: false,
+      errorMessage: 'Supabase chưa được cấu hình.',
+      reports: [],
+      currentReport: null,
+      sources: [],
+      statistics: [],
+      units: [],
+      fields: [],
+      rawCount: 0,
     };
   }
 
@@ -659,24 +649,18 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
 
     if (reportsRes.error) {
       if (reportsRes.error.code === 'PGRST205' || reportsRes.error.message.includes('schema cache')) {
-        const activeReport = selectedReportId
-          ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
-          : localReports[0] || null;
-        const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
-        const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
-
         return {
           configured: true,
           connected: true,
           schemaReady: false,
-          errorMessage: 'Bảng CSDL chưa được khởi tạo trên Supabase (Lỗi PGRST205: schema cache). Đang hiển thị dữ liệu cục bộ an toàn.',
-          reports: localReports,
-          currentReport: activeReport,
-          sources: localSources,
-          statistics: localStats,
-          units: localUnits,
-          fields: localFields,
-          rawCount: localStats.length,
+          errorMessage: 'Bảng CSDL chưa được khởi tạo trên Supabase (Lỗi PGRST205: schema cache).',
+          reports: [],
+          currentReport: null,
+          sources: [],
+          statistics: [],
+          units: [],
+          fields: [],
+          rawCount: 0,
         };
       }
       throw reportsRes.error;
@@ -738,24 +722,19 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       rawCount: statistics.length,
     };
   } catch (err: any) {
-    const activeReport = selectedReportId
-      ? localReports.find((r) => r.id === selectedReportId) || localReports[0] || null
-      : localReports[0] || null;
-    const localSources = activeReport ? store.getSourcesByReport(activeReport.id) : [];
-    const localStats = activeReport ? store.getStatsByReport(activeReport.id) : [];
-
     return {
       configured: true,
       connected: false,
       schemaReady: false,
-      errorMessage: `Lỗi kết nối Supabase: ${err.message}. Đang hiển thị dữ liệu cục bộ.`,
-      reports: localReports,
-      currentReport: activeReport,
-      sources: localSources,
-      statistics: localStats,
-      units: localUnits,
-      fields: localFields,
-      rawCount: localStats.length,
+      errorMessage: `Lỗi kết nối Supabase: ${err.message}`,
+      reports: [],
+      currentReport: null,
+      sources: [],
+      statistics: [],
+      units: [],
+      fields: [],
+      rawCount: 0,
     };
+
   }
 }
