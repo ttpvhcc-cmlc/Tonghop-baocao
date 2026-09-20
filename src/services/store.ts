@@ -720,62 +720,55 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.users);
   }
 
-  public saveUser(user: {
+  public async saveUser(user: {
     id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean
-  }): Profile {
+  }): Promise<Profile> {
     this.assertRole(['admin'], 'quản lý hồ sơ người dùng');
-    const id = user.id || generateUUID();
-    const existing = this.inMemoryCache.users.find((u) => u.id === id);
-    const now = new Date().toISOString();
-    const newUser: Profile = {
-      id,
-      full_name: user.full_name,
-      email: user.email,
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
+    if (!user.id) {
+      throw new Error('Không tạo tài khoản đăng nhập trực tiếp từ màn hình này. Hãy tạo người dùng trong Supabase Authentication trước, sau đó thêm/chỉnh sửa hồ sơ tương ứng.');
+    }
+
+    const payload = {
+      id: user.id,
+      full_name: user.full_name.trim(),
+      email: user.email?.trim() || null,
       role: user.role,
-      unit_id: user.unit_id,
+      unit_id: user.unit_id || null,
       active: user.active !== false,
-      created_at: existing?.created_at || now,
-      updated_at: now,
     };
 
-    const idx = this.inMemoryCache.users.findIndex((u) => u.id === id);
-    if (idx !== -1) {
-      this.inMemoryCache.users[idx] = { ...this.inMemoryCache.users[idx], ...newUser };
-    } else {
-      this.inMemoryCache.users.push(newUser);
-    }
-    this.addAuditLog(user.id ? 'UPDATE_USER' : 'CREATE_USER', 'profiles', id, newUser);
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('profiles').upsert({
-        id,
-        full_name: newUser.full_name,
-        email: newUser.email,
-        role: newUser.role,
-        unit_id: newUser.unit_id || null,
-        active: newUser.active !== false,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase saveUser warning:', error.message);
-      });
-    }
-
+    const { data: saved, error } = await supabase.from('profiles').upsert(payload).select('*').single();
+    if (error) throw new Error(`Không thể lưu hồ sơ người dùng vào Supabase: ${error.message}`);
+    const result = saved as Profile;
+    this.inMemoryCache.users = [
+      ...this.inMemoryCache.users.filter((u) => u.id !== result.id),
+      result,
+    ];
+    await this.addAuditLog('UPDATE_USER', 'profiles', result.id, {
+      full_name: result.full_name,
+      email: result.email,
+      role: result.role,
+      unit_id: result.unit_id,
+      active: result.active,
+    });
     this.notify();
-    return newUser;
+    return result;
   }
 
-  public deleteUser(userId: string): void {
-    if (userId === this.getCurrentUser().id) {
-      throw new Error('Không thể xóa tài khoản của chính bạn đang đăng nhập.');
-    }
+  public async deleteUser(userId: string): Promise<void> {
+    this.assertRole(['admin'], 'xóa hồ sơ người dùng');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+    if (userId === this.getCurrentUser().id) throw new Error('Không thể xóa tài khoản đang đăng nhập.');
+
+    const { error } = await supabase.from('profiles').delete().eq('id', userId);
+    if (error) throw new Error(`Không thể xóa hồ sơ người dùng khỏi Supabase: ${error.message}`);
+
     this.inMemoryCache.users = this.inMemoryCache.users.filter((u) => u.id !== userId);
-    this.addAuditLog('DELETE_USER', 'profiles', userId);
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('profiles').delete().eq('id', userId).then(({ error }) => {
-        if (error) console.warn('Supabase deleteUser warning:', error.message);
-      });
-    }
-
+    await this.addAuditLog('DELETE_USER', 'profiles', userId);
     this.notify();
   }
 
@@ -834,23 +827,25 @@ export class StorageService {
     return result;
   }
 
-  public deleteUnit(unitId: string): void {
-    // Rule: deleting a unit that has fields must be blocked
-    const linkedFields = this.inMemoryCache.fields.filter((f) => f.unit_id === unitId);
-    if (linkedFields.length > 0) {
-      throw new Error(
-        `Không thể xóa đơn vị này vì đang có ${linkedFields.length} lĩnh vực thuộc đơn vị (${linkedFields.map((f) => f.name).slice(0, 3).join(', ')}...). Vui lòng chuyển lĩnh vực sang đơn vị khác trước.`
-      );
+  public async deleteUnit(unitId: string): Promise<void> {
+    this.assertRole(['admin'], 'xóa đơn vị');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
+    const { data: linkedFields, error: fieldsError } = await supabase
+      .from('fields')
+      .select('id,name')
+      .eq('unit_id', unitId);
+    if (fieldsError) throw new Error(`Không thể kiểm tra liên kết lĩnh vực trên Supabase: ${fieldsError.message}`);
+    if ((linkedFields || []).length > 0) {
+      throw new Error(`Không thể xóa đơn vị này vì đang có ${linkedFields.length} lĩnh vực thuộc đơn vị.`);
     }
+
+    const { error } = await supabase.from('units').delete().eq('id', unitId);
+    if (error) throw new Error(`Không thể xóa đơn vị trên Supabase: ${error.message}`);
 
     this.inMemoryCache.units = this.inMemoryCache.units.filter((u) => u.id !== unitId);
-    this.addAuditLog('DELETE_UNIT', 'units', unitId);
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('units').delete().eq('id', unitId).then(({ error }) => {
-        if (error) console.warn('Supabase deleteUnit warning:', error.message);
-      });
-    }
+    await this.addAuditLog('DELETE_UNIT', 'units', unitId);
     this.notify();
   }
 
@@ -966,50 +961,53 @@ export class StorageService {
     return (saved || []) as Field[];
   }
 
-  public deleteField(fieldId: string): void {
-    // Check if there are statistics belonging to locked or archived reports
-    const hasLockedData = this.inMemoryCache.stats.some((s) => {
-      if (s.field_id !== fieldId) return false;
-      const report = this.inMemoryCache.reports.find((r) => r.id === s.report_id);
-      return report && (report.status === 'locked' || report.status === 'archived');
-    });
+  public async deleteField(fieldId: string): Promise<void> {
+    this.assertRole(['admin'], 'xóa lĩnh vực/thủ tục');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    if (hasLockedData) {
-      throw new Error(
-        'Không thể xóa thủ tục này vì đã phát sinh số liệu trong các kỳ báo cáo đã KHÓA hoặc LƯU TRỮ. Để đảm bảo tính toàn vẹn dữ liệu lịch sử, bạn chỉ có thể chuyển trạng thái sang "Tạm dừng".'
-      );
-    }
+    const { data: field, error: fieldError } = await supabase.from('fields').select('id,name').eq('id', fieldId).single();
+    if (fieldError) throw new Error(`Không thể tìm thấy lĩnh vực trên Supabase: ${fieldError.message}`);
 
-    // Cascade delete statistics associated with this field in unlocked reports
-    const statsToDelete = this.inMemoryCache.stats.filter((s) => s.field_id === fieldId);
-    
-    // Remove stats from cache
-    this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.field_id !== fieldId);
+    const { data: stats, error: statsError } = await supabase
+      .from('report_field_statistics')
+      .select('id,report_id');
+    if (statsError) throw new Error(`Không thể kiểm tra số liệu liên kết trên Supabase: ${statsError.message}`);
 
-    // Remove field from cache
-    this.inMemoryCache.fields = this.inMemoryCache.fields.filter((f) => f.id !== fieldId);
+    const statRows = stats || [];
+    if (statRows.length > 0) {
+      const reportIds = Array.from(new Set(statRows.map((s: any) => s.report_id)));
+      const { data: reports, error: reportsError } = await supabase
+        .from('reports')
+        .select('id,status');
+      if (reportsError) throw new Error(`Không thể kiểm tra trạng thái báo cáo trên Supabase: ${reportsError.message}`);
 
-    this.addAuditLog('DELETE_FIELD_CASCADED', 'fields', fieldId);
+      const reportStatus = new Map((reports || []).map((r: any) => [r.id, r.status]));
+      // We need the specific field's statistics; query again narrowly for authoritative delete set.
+      const { data: fieldStats, error: fieldStatsError } = await supabase
+        .from('report_field_statistics')
+        .select('id,report_id')
+        .eq('field_id', fieldId);
+      if (fieldStatsError) throw new Error(`Không thể kiểm tra số liệu của lĩnh vực trên Supabase: ${fieldStatsError.message}`);
 
-    // Sync with Supabase
-    if (supabase && this.isSchemaReady) {
-      if (statsToDelete.length > 0) {
-        const unlockedStatIds = statsToDelete.map(s => s.id);
-        supabase.from('report_field_statistics').delete().in('id', unlockedStatIds).then(({ error }) => {
-          if (error) console.warn('Supabase delete cascaded stats warning:', error.message);
-          
-          // Now delete the field
-          supabase.from('fields').delete().eq('id', fieldId).then(({ error: fieldErr }) => {
-            if (fieldErr) console.warn('Supabase deleteField warning:', fieldErr.message);
-          });
-        });
-      } else {
-        supabase.from('fields').delete().eq('id', fieldId).then(({ error }) => {
-          if (error) console.warn('Supabase deleteField warning:', error.message);
-        });
+      const locked = (fieldStats || []).find((s: any) => ['locked','archived'].includes(reportStatus.get(s.report_id) as string));
+      if (locked) {
+        throw new Error('Không thể xóa lĩnh vực vì đã phát sinh số liệu trong kỳ báo cáo LOCKED/ARCHIVED.');
+      }
+
+      const idsToDelete = (fieldStats || []).map((s: any) => s.id);
+      if (idsToDelete.length > 0) {
+        const { error: deleteStatsError } = await supabase.from('report_field_statistics').delete().in('id', idsToDelete);
+        if (deleteStatsError) throw new Error(`Không thể xóa số liệu liên kết trên Supabase: ${deleteStatsError.message}`);
       }
     }
 
+    const { error: deleteFieldError } = await supabase.from('fields').delete().eq('id', fieldId);
+    if (deleteFieldError) throw new Error(`Không thể xóa lĩnh vực trên Supabase: ${deleteFieldError.message}`);
+
+    this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.field_id !== fieldId);
+    this.inMemoryCache.fields = this.inMemoryCache.fields.filter((f) => f.id !== fieldId);
+    await this.addAuditLog('DELETE_FIELD_CASCADED', 'fields', fieldId, { field_name: field.name });
     this.notify();
   }
 
@@ -1018,70 +1016,52 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.indicators);
   }
 
-  public saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & { id?: string }): IndicatorDefinition {
+  public async saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & { id?: string }): Promise<IndicatorDefinition> {
     this.assertRole(['admin'], 'quản lý chỉ số');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
     const codeClean = (indicator.code || '').trim().toUpperCase();
-    if (!codeClean) {
-      throw new Error('Mã chỉ tiêu không được để trống.');
-    }
-
+    if (!codeClean) throw new Error('Mã chỉ tiêu không được để trống.');
     const formulaKey = indicator.formula_key || indicator.calculation_key || '';
-    if (!formulaKey) {
-      throw new Error('Chỉ tiêu đo lường phải liên kết với một công thức tính hợp lệ.');
-    }
+    if (!formulaKey) throw new Error('Chỉ tiêu đo lường phải liên kết với một công thức tính hợp lệ.');
 
-    const existingWithCode = this.inMemoryCache.indicators.find(
-      (ind) => ind.code.trim().toUpperCase() === codeClean && ind.id !== indicator.id
-    );
-    if (existingWithCode) {
-      throw new Error(`Mã chỉ tiêu "${codeClean}" đã tồn tại. Vui lòng đặt mã chỉ tiêu duy nhất.`);
-    }
+    const existing = this.inMemoryCache.indicators.find((ind) => ind.code.toUpperCase() === codeClean && ind.id !== indicator.id);
+    if (existing) throw new Error(`Mã chỉ tiêu "${codeClean}" đã tồn tại.`);
 
     const id = indicator.id || generateUUID();
-    const newInd: IndicatorDefinition = {
-      ...indicator,
+    const payload = {
       id,
       code: codeClean,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      name: indicator.name.trim(),
+      formula_key: formulaKey,
+      unit_measure: indicator.unit_measure || indicator.unit || '%',
+      description: indicator.description || null,
+      display_order: indicator.display_order || 1,
+      active: indicator.active !== false,
     };
 
-    const idx = this.inMemoryCache.indicators.findIndex((ind) => ind.id === id);
-    if (idx !== -1) {
-      this.inMemoryCache.indicators[idx] = { ...this.inMemoryCache.indicators[idx], ...newInd };
-    } else {
-      this.inMemoryCache.indicators.push(newInd);
-    }
-    this.addAuditLog(indicator.id ? 'UPDATE_INDICATOR' : 'CREATE_INDICATOR', 'indicator_definitions', id, newInd);
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('indicator_definitions').upsert({
-        id,
-        code: newInd.code,
-        name: newInd.name,
-        formula_key: newInd.formula_key,
-        unit_measure: newInd.unit_measure,
-        description: newInd.description,
-        active: newInd.active !== false,
-      }).then(({ error }) => {
-        if (error) console.warn('Supabase saveIndicator warning:', error.message);
-      });
-    }
-
+    const { data: saved, error } = await supabase.from('indicator_definitions').upsert(payload).select('*').single();
+    if (error) throw new Error(`Không thể lưu chỉ tiêu vào Supabase: ${error.message}`);
+    const result = saved as IndicatorDefinition;
+    this.inMemoryCache.indicators = [
+      ...this.inMemoryCache.indicators.filter((i) => i.id !== result.id),
+      result,
+    ];
+    await this.addAuditLog(indicator.id ? 'UPDATE_INDICATOR' : 'CREATE_INDICATOR', 'indicator_definitions', id, result);
     this.notify();
-    return newInd;
+    return result;
   }
 
-  public deleteIndicator(indicatorId: string): void {
-    this.inMemoryCache.indicators = this.inMemoryCache.indicators.filter((ind) => ind.id !== indicatorId);
-    this.addAuditLog('DELETE_INDICATOR', 'indicator_definitions', indicatorId);
+  public async deleteIndicator(indicatorId: string): Promise<void> {
+    this.assertRole(['admin'], 'xóa chỉ tiêu');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    if (supabase && this.isSchemaReady) {
-      supabase.from('indicator_definitions').delete().eq('id', indicatorId).then(({ error }) => {
-        if (error) console.warn('Supabase deleteIndicator warning:', error.message);
-      });
-    }
-
+    const { error } = await supabase.from('indicator_definitions').delete().eq('id', indicatorId);
+    if (error) throw new Error(`Không thể xóa chỉ tiêu trên Supabase: ${error.message}`);
+    this.inMemoryCache.indicators = this.inMemoryCache.indicators.filter((i) => i.id !== indicatorId);
+    await this.addAuditLog('DELETE_INDICATOR', 'indicator_definitions', indicatorId);
     this.notify();
   }
 
