@@ -85,6 +85,7 @@ export const ReportDetailPage: React.FC = () => {
     if (!reportState) return;
     try {
       await store.updateReportStatsList(reportState.id, editingStats);
+      await store.recalculateAndPersistReportIndicators(reportState.id);
       setIsEditingInline(false);
       // Force refresh data
       const freshReport = store.getReportById(reportState.id);
@@ -387,9 +388,9 @@ export const ReportDetailPage: React.FC = () => {
   };
 
   // Save Analysis
-  const handleSaveAnalysis = () => {
+  const handleSaveAnalysis = async () => {
     try {
-      store.saveAnalysis({
+      await store.saveAnalysis({
         report_id: reportState.id,
         section: 'Nhận xét, đánh giá',
         content: analysisContent,
