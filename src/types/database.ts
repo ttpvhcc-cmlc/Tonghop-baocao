@@ -4,7 +4,7 @@ export type ReportType = 'monthly' | 'quarterly' | 'annual' | 'adhoc' | 'weekly'
 
 export type ReportStatus = 'draft' | 'imported' | 'validated' | 'submitted' | 'approved' | 'locked' | 'archived';
 
-export type ScopeType = 'report' | 'unit' | 'field' | 'source';
+export type ScopeType = 'global' | 'overview' | 'report' | 'unit' | 'field' | 'source';
 
 export type ValidationStatus = 'valid' | 'warning' | 'error';
 
