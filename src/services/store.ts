@@ -1321,65 +1321,51 @@ export class StorageService {
   /**
    * Export all database contents as JSON string for backup/transfer
    */
-  public exportFullDatabaseBackup(): string {
-    const backupObject = {
-      export_version: '2.0',
+  public async exportFullDatabaseBackup(): Promise<string> {
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
+    const [units, fields, indicators, reports, sources, stats, reportIndicators, analyses, snapshots] = await Promise.all([
+      supabase.from('units').select('*'),
+      supabase.from('fields').select('*'),
+      supabase.from('indicator_definitions').select('*'),
+      supabase.from('reports').select('*'),
+      supabase.from('report_sources').select('*'),
+      supabase.from('report_field_statistics').select('*'),
+      supabase.from('report_indicators').select('*'),
+      supabase.from('report_analysis').select('*'),
+      supabase.from('report_snapshots').select('*'),
+    ]);
+
+    const results = [units, fields, indicators, reports, sources, stats, reportIndicators, analyses, snapshots];
+    const error = results.find((r: any) => r.error)?.error;
+    if (error) throw new Error(`Không thể xuất sao lưu trực tiếp từ Supabase: ${error.message}`);
+
+    return JSON.stringify({
+      export_version: '3.0-db-only',
       exported_at: new Date().toISOString(),
-      units: this.inMemoryCache.units,
-      fields: this.inMemoryCache.fields,
-      indicators: this.inMemoryCache.indicators,
-      reports: this.inMemoryCache.reports,
-      sources: this.inMemoryCache.sources,
-      stats: this.inMemoryCache.stats,
-      analyses: this.inMemoryCache.analyses,
-      snapshots: this.inMemoryCache.snapshots,
+      source: 'Supabase',
+      units: units.data || [],
+      fields: fields.data || [],
+      indicators: indicators.data || [],
+      reports: reports.data || [],
+      sources: sources.data || [],
+      stats: stats.data || [],
+      report_indicators: reportIndicators.data || [],
+      analyses: analyses.data || [],
+      snapshots: snapshots.data || [],
+    }, null, 2);
+  }
+
+
+  public async importFullDatabaseBackup(_jsonString: string): Promise<{ success: boolean; message: string; count?: any }> {
+    return {
+      success: false,
+      message: 'Không cho phép khôi phục JSON vào bộ nhớ trình duyệt. Khôi phục dữ liệu phải được thực hiện bằng giao dịch/SQL trực tiếp trên Supabase để bảo đảm tính toàn vẹn vòng đời và snapshot.',
     };
-    return JSON.stringify(backupObject, null, 2);
   }
 
-  /**
-   * Import all database contents from JSON string backup
-   */
-  public importFullDatabaseBackup(jsonString: string): { success: boolean; message: string; count?: any } {
-    try {
-      const data = JSON.parse(jsonString);
-      if (!data || typeof data !== 'object') {
-        return { success: false, message: 'Dữ liệu file sao lưu không hợp lệ.' };
-      }
 
-      if (Array.isArray(data.units)) {
-        this.inMemoryCache.units = deduplicateById([...data.units, ...this.inMemoryCache.units]);
-      }
-      if (Array.isArray(data.fields)) {
-        this.inMemoryCache.fields = this.mergeFieldsSafely(this.inMemoryCache.fields, data.fields);
-      }
-      if (Array.isArray(data.reports)) {
-        this.inMemoryCache.reports = deduplicateById([...data.reports, ...this.inMemoryCache.reports]);
-      }
-      if (Array.isArray(data.sources)) {
-        this.inMemoryCache.sources = deduplicateById([...data.sources, ...this.inMemoryCache.sources]);
-      }
-      if (Array.isArray(data.stats)) {
-        this.inMemoryCache.stats = deduplicateById([...data.stats, ...this.inMemoryCache.stats]);
-      }
-      if (Array.isArray(data.analyses)) {
-        this.inMemoryCache.analyses = deduplicateById([...data.analyses, ...this.inMemoryCache.analyses]);
-      }
-
-      this.notify();
-
-      return {
-        success: true,
-        message: `Đã khôi phục thành công ${data.reports?.length || 0} báo cáo và ${data.stats?.length || 0} số liệu thống kê vào ứng dụng!`,
-        count: {
-          reports: data.reports?.length || 0,
-          stats: data.stats?.length || 0,
-        },
-      };
-    } catch (e: any) {
-      return { success: false, message: `Lỗi đọc file sao lưu: ${e.message}` };
-    }
-  }
 }
 
 export const store = new StorageService();
