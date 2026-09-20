@@ -596,22 +596,14 @@ export async function runCompleteReadWriteTest(): Promise<E2ETestResult> {
   };
 }
 
-const READ_WRITE_TEST_PASSED_KEY = 'supabase_e2e_test_passed_flag';
+let readWriteTestPassed = false;
 
 export function isReadWriteTestPassed(): boolean {
-  try {
-    return localStorage.getItem(READ_WRITE_TEST_PASSED_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return readWriteTestPassed;
 }
 
 export function setReadWriteTestPassed(passed: boolean): void {
-  try {
-    localStorage.setItem(READ_WRITE_TEST_PASSED_KEY, passed ? 'true' : 'false');
-  } catch {
-    // Ignore localStorage errors
-  }
+  readWriteTestPassed = passed;
 }
 
 function SESEED_ID(type: 'unit' | 'field'): string {
