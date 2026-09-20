@@ -499,135 +499,41 @@ export class StorageService {
   }
 
   constructor() {
-    const initialFields = this.ensureHealthyFields(this.getLocal(STORAGE_KEYS.FIELDS, ALL_INITIAL_FIELDS));
-    const rawCachedStats = this.getLocal<ReportFieldStatistic[]>(STORAGE_KEYS.STATS, SEED_STATS);
-    const effectiveStats = Array.isArray(rawCachedStats) && rawCachedStats.length > 0 ? rawCachedStats : SEED_STATS;
-    const normalizedStats = effectiveStats.map((s) => this.normalizeStatLinhVuc(s, initialFields));
-    const cachedSources = this.getLocal<ReportSource[]>(STORAGE_KEYS.SOURCES, SEED_SOURCES);
-    const effectiveSources = Array.isArray(cachedSources) && cachedSources.length > 0 ? cachedSources : SEED_SOURCES;
-
+    // Business data is DB-only. No localStorage/sessionStorage/cache is used for application data.
     this.inMemoryCache = {
-      units: deduplicateById(this.getLocal(STORAGE_KEYS.UNITS, SEED_UNITS)),
-      fields: initialFields,
-      indicators: deduplicateById(this.getLocal(STORAGE_KEYS.INDICATORS, SEED_INDICATORS)),
-      reports: deduplicateById(this.getLocal(STORAGE_KEYS.REPORTS, SEED_REPORTS)),
-      sources: deduplicateById(effectiveSources),
-      stats: deduplicateById(normalizedStats),
-      analyses: deduplicateById(this.getLocal(STORAGE_KEYS.ANALYSES, SEED_ANALYSES)),
-      snapshots: deduplicateById(this.getLocal(STORAGE_KEYS.SNAPSHOTS, [])),
-      auditLogs: deduplicateById(this.getLocal(STORAGE_KEYS.AUDIT_LOGS, [])),
+      units: [],
+      fields: [],
+      indicators: [],
+      reports: [],
+      sources: [],
+      stats: [],
+      analyses: [],
+      snapshots: [],
+      auditLogs: [],
       currentUser: GUEST_USER,
-      users: deduplicateById(this.getLocal(STORAGE_KEYS.USERS, SEED_USERS)),
+      users: [],
     };
 
-    this.setLocal(STORAGE_KEYS.FIELDS, initialFields);
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-
-    // Auto-sync with Supabase
     if (typeof window !== 'undefined') {
       setTimeout(() => {
-        this.syncWithSupabase();
-      }, 100);
+        void this.syncWithSupabase();
+      }, 0);
     }
   }
-
   /**
    * Guarantees all 31 administrative procedures and sectors are always present,
    * properly categorized, mapped, and resilient against data loss.
    */
   public ensureHealthyFields(loadedFields: Field[]): Field[] {
-    const list = Array.isArray(loadedFields) && loadedFields.length > 0 ? [...loadedFields] : [];
-    const codeMap = new Map<string, Field>();
-
-    list.forEach((f) => {
-      if (f && f.code) {
-        codeMap.set(f.code.trim().toUpperCase(), f);
-      }
-    });
-
-    // Ensure all 31 real procedures exist and are intact with their sectors and mappings
-    DEFAULT_PROCEDURES_FIELDS.forEach((pField) => {
-      const codeKey = pField.code.trim().toUpperCase();
-      const existing = codeMap.get(codeKey);
-      if (!existing) {
-        list.push(pField);
-        codeMap.set(codeKey, pField);
-      } else {
-        // Self-heal: If procedure exists but lost its linh_vuc or unit_id, restore them
-        if (!existing.linh_vuc || existing.linh_vuc === 'Chưa phân loại') {
-          existing.linh_vuc = pField.linh_vuc;
-        }
-        if (!existing.unit_id && pField.unit_id) {
-          existing.unit_id = pField.unit_id;
-        }
-        if (!existing.co_quan_cong_bo && pField.co_quan_cong_bo) {
-          existing.co_quan_cong_bo = pField.co_quan_cong_bo;
-        }
-        if (!existing.muc_do_cung_cap && pField.muc_do_cung_cap) {
-          existing.muc_do_cung_cap = pField.muc_do_cung_cap;
-        }
-        if (!existing.phi_le_phi && pField.phi_le_phi) {
-          existing.phi_le_phi = pField.phi_le_phi;
-        }
-      }
-    });
-
-    // Self-heal: For any standard fields, make sure linh_vuc is set to field.name if missing
-    list.forEach((f) => {
-      if (!f.linh_vuc || f.linh_vuc === 'Chưa phân loại') {
-        f.linh_vuc = f.name;
-      }
-    });
-
-    return deduplicateById(list);
+    return deduplicateById(Array.isArray(loadedFields) ? loadedFields : []);
   }
-
   /**
    * Safely merge fields from Supabase or external sources without ever wiping out
    * local administrative procedures or mapping metadata.
    */
-  public mergeFieldsSafely(currentList: Field[], incomingList: any[]): Field[] {
-    const list = this.ensureHealthyFields(currentList || []);
-    const map = new Map<string, Field>();
-
-    // 1. Existing list with rich local data
-    list.forEach((f) => {
-      if (f.code) map.set(f.code.trim().toUpperCase(), f);
-      if (f.id) map.set(f.id, f);
-    });
-
-    // 2. Incoming from Supabase
-    incomingList.forEach((sf) => {
-      const codeKey = sf.code ? sf.code.trim().toUpperCase() : '';
-      const existing = (codeKey && map.get(codeKey)) || (sf.id && map.get(sf.id));
-      if (existing) {
-        const merged: Field = {
-          ...existing,
-          ...sf,
-          linh_vuc: sf.linh_vuc || existing.linh_vuc || existing.name || 'Chưa phân loại',
-          co_quan_cong_bo: sf.co_quan_cong_bo || existing.co_quan_cong_bo,
-          loai_tthc: sf.loai_tthc || existing.loai_tthc,
-          co_quan_thuc_hien: sf.co_quan_thuc_hien || existing.co_quan_thuc_hien,
-          cap_thuc_hien: sf.cap_thuc_hien || existing.cap_thuc_hien,
-          muc_do_cung_cap: sf.muc_do_cung_cap || existing.muc_do_cung_cap,
-          phi_le_phi: sf.phi_le_phi || existing.phi_le_phi,
-          unit_id: sf.unit_id || existing.unit_id,
-        };
-        if (codeKey) map.set(codeKey, merged);
-        if (sf.id) map.set(sf.id, merged);
-      } else {
-        const newField: Field = {
-          ...sf,
-          linh_vuc: sf.linh_vuc || sf.name || 'Chưa phân loại',
-        };
-        if (codeKey) map.set(codeKey, newField);
-        if (sf.id) map.set(sf.id, newField);
-      }
-    });
-
-    return this.ensureHealthyFields(Array.from(new Set(map.values())));
+  public mergeFieldsSafely(_currentList: Field[], incomingList: any[]): Field[] {
+    return deduplicateById(Array.isArray(incomingList) ? incomingList : []);
   }
-
   /**
    * Reset / restore the complete 31 TTHC procedures categorized by sectors with mapped handling units.
    */
@@ -651,34 +557,13 @@ export class StorageService {
     });
   }
 
-  private getLocal<T>(key: string, defaultValue: T): T {
-    if (typeof window === 'undefined' || !window.localStorage) return defaultValue;
-    try {
-      const item = localStorage.getItem(key);
-      if (!item) return defaultValue;
-      const parsed = JSON.parse(item);
-      if (Array.isArray(parsed)) {
-        return deduplicateById(parsed) as unknown as T;
-      }
-      return parsed;
-    } catch {
-      return defaultValue;
-    }
+  private getLocal<T>(_key: string, defaultValue: T): T {
+    return defaultValue;
   }
 
-  private setLocal<T>(key: string, value: T): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      if (Array.isArray(value)) {
-        localStorage.setItem(key, JSON.stringify(deduplicateById(value)));
-      } else {
-        localStorage.setItem(key, JSON.stringify(value));
-      }
-    } catch (e) {
-      console.warn('Storage setLocal error:', e);
-    }
+  private setLocal<T>(_key: string, _value: T): void {
+    // Deliberately empty: application data is persisted only in Supabase.
   }
-
   /**
    * Sync active memory cache with Supabase
    */
