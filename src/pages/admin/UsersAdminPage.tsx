@@ -24,10 +24,8 @@ export const UsersAdminPage: React.FC = () => {
     active: true,
   });
 
-  const handleSwitch = (role: UserRole) => {
-    const updated = store.switchUserRole(role);
-    setCurrentUser(updated);
-    window.location.reload();
+  const handleSwitch = (_role: UserRole) => {
+    alert('Vai trò được quản lý trực tiếp trong Supabase profiles. Không còn chuyển vai trò giả lập trên trình duyệt.');
   };
 
   const handleOpenCreate = () => {
@@ -54,10 +52,10 @@ export const UsersAdminPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      store.saveUser({
+      await store.saveUser({
         id: editingUser?.id,
         ...formData,
       });
@@ -68,10 +66,10 @@ export const UsersAdminPage: React.FC = () => {
     }
   };
 
-  const handleDelete = (user: Profile) => {
+  const handleDelete = async (user: Profile) => {
     if (window.confirm(`Bạn có chắc chắn muốn xóa tài khoản "${user.full_name}" (${user.email})?`)) {
       try {
-        store.deleteUser(user.id);
+        await store.deleteUser(user.id);
         setUsers(store.getUsers());
       } catch (err: any) {
         alert(err.message);
