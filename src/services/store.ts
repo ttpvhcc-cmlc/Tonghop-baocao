@@ -1303,42 +1303,32 @@ export class StorageService {
 
   public async deleteReport(reportId: string): Promise<boolean> {
     this.assertRole(['admin'], 'xóa báo cáo');
-    const rep = this.inMemoryCache.reports.find((r) => r.id === reportId || r.report_code === reportId);
-    const targetId = rep ? rep.id : reportId;
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
+    }
 
-    this.inMemoryCache.reports = this.inMemoryCache.reports.filter((r) => r.id !== targetId && r.report_code !== reportId);
+    const rep = this.inMemoryCache.reports.find((r) => r.id === reportId || r.report_code === reportId);
+    const targetId = rep?.id || reportId;
+    if (!rep) throw new Error('Không tìm thấy báo cáo');
+
+    if (rep.status === 'locked' || rep.status === 'archived') {
+      throw new Error('Báo cáo đã khóa/lưu trữ. Không thể xóa.');
+    }
+
+    const { error } = await supabase.from('reports').delete().eq('id', targetId);
+    if (error) throw new Error(`Không thể xóa báo cáo trên Supabase: ${error.message}`);
+
+    this.inMemoryCache.reports = this.inMemoryCache.reports.filter((r) => r.id !== targetId);
     this.inMemoryCache.sources = this.inMemoryCache.sources.filter((s) => s.report_id !== targetId);
     this.inMemoryCache.stats = this.inMemoryCache.stats.filter((s) => s.report_id !== targetId);
-    if (this.inMemoryCache.analyses) {
-      this.inMemoryCache.analyses = this.inMemoryCache.analyses.filter((a) => a.report_id !== targetId);
-    }
-    if (this.inMemoryCache.snapshots) {
-      this.inMemoryCache.snapshots = this.inMemoryCache.snapshots.filter((sn) => sn.report_id !== targetId);
-    }
-    this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-    this.setLocal(STORAGE_KEYS.ANALYSES, this.inMemoryCache.analyses);
-
-    // CRUCIAL: Explicitly preserve and guard master catalog (Fields, Procedures, Units, Mappings)
-    this.inMemoryCache.fields = this.ensureHealthyFields(this.inMemoryCache.fields);
-
-    this.addAuditLog('DELETE_REPORT', 'report', targetId, { report_id: targetId, report_code: rep?.report_code });
+    this.inMemoryCache.analyses = this.inMemoryCache.analyses.filter((a) => a.report_id !== targetId);
+    this.inMemoryCache.snapshots = this.inMemoryCache.snapshots.filter((s) => s.report_id !== targetId);
+    this.addAuditLog('DELETE_REPORT', 'report', targetId, { report_id: targetId, report_code: rep.report_code });
     this.notify();
-
-    if (supabase && this.isSchemaReady) {
-      try {
-        await supabase.from('report_indicators').delete().eq('report_id', targetId);
-        await supabase.from('report_analysis').delete().eq('report_id', targetId);
-        await supabase.from('report_snapshots').delete().eq('report_id', targetId);
-        await supabase.from('report_field_statistics').delete().eq('report_id', targetId);
-        await supabase.from('report_sources').delete().eq('report_id', targetId);
-        const { error } = await supabase.from('reports').delete().eq('id', targetId);
-        if (error) console.warn('Supabase deleteReport warning:', error.message);
-      } catch (err: any) {
-        console.warn('Supabase deleteReport cascade warning:', err?.message);
-      }
-    }
     return true;
   }
+
 
   // --- Report Sources & Statistics ---
   public async addReportSource(reportId: string, sourceName: string, originalFilename?: string): Promise<ReportSource> {
