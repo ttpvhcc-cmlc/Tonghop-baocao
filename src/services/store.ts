@@ -537,12 +537,8 @@ export class StorageService {
   /**
    * Reset / restore the complete 31 TTHC procedures categorized by sectors with mapped handling units.
    */
-  public restoreDefaultProcedures(): Field[] {
-    const healthy = this.ensureHealthyFields(ALL_INITIAL_FIELDS);
-    this.inMemoryCache.fields = healthy;
-    this.addAuditLog('RESTORE_CATALOG', 'fields', 'system', { count: healthy.length });
-    this.notify();
-    return this.getFields();
+  public async restoreDefaultProcedures(): Promise<Field[]> {
+    return this.fetchFields();
   }
 
   public subscribe(listener: Listener): () => void {
@@ -901,14 +897,17 @@ export class StorageService {
   }
 
   public async fetchFields(): Promise<Field[]> {
-    if (supabase && this.isSchemaReady) {
-      const { data, error } = await supabase.from('fields').select('*, units(*)').order('display_order', { ascending: true });
-      if (!error && data && data.length > 0) {
-        this.inMemoryCache.fields = this.mergeFieldsSafely(this.inMemoryCache.fields, data);
-        this.notify();
-        return this.getFields();
-      }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
+    const { data, error } = await supabase
+      .from('fields')
+      .select('*, units(*)')
+      .order('display_order', { ascending: true });
+    if (error) throw new Error(`Không thể tải danh mục lĩnh vực từ Supabase: ${error.message}`);
+    this.inMemoryCache.fields = deduplicateById(data || []);
+    this.notify();
     return this.getFields();
   }
 
@@ -1393,16 +1392,20 @@ export class StorageService {
   }
 
   public async fetchStatsByReport(reportId: string): Promise<ReportFieldStatistic[]> {
-    if (supabase && this.isSchemaReady) {
-      const { data, error } = await supabase.from('report_field_statistics').select('*').eq('report_id', reportId);
-      if (!error && data && data.length > 0) {
-        // Merge into active stats
-        const otherStats = this.inMemoryCache.stats.filter((s) => s.report_id !== reportId);
-        this.inMemoryCache.stats = deduplicateById([...otherStats, ...data]);
-        this.notify();
-        return this.getStatsByReport(reportId);
-      }
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
+    const { data, error } = await supabase
+      .from('report_field_statistics')
+      .select('*')
+      .eq('report_id', reportId);
+    if (error) throw new Error(`Không thể tải số liệu từ Supabase: ${error.message}`);
+    this.inMemoryCache.stats = [
+      ...this.inMemoryCache.stats.filter((s) => s.report_id !== reportId),
+      ...(data || []),
+    ];
+    this.notify();
     return this.getStatsByReport(reportId);
   }
 
