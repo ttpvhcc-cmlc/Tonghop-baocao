@@ -556,8 +556,6 @@ export class StorageService {
     });
   }
 
-  private getLocal<T>(_key: string, defaultValue: T): T { return defaultValue; }
-  private setLocal<T>(_key: string, _value: T): void {}
   /**
    * Sync active memory cache with Supabase
    */
