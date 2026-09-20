@@ -69,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const roleInfo = getRoleBadge(currentUser.role);
-  const isAuthenticated = currentUser.id !== 'guest' && Boolean(currentUser.user_id);
+  const isAuthenticated = currentUser.id !== 'guest' && currentUser.active === true;
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
