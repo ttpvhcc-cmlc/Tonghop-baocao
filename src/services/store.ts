@@ -225,14 +225,9 @@ export class StorageService {
       const { data: snapshotsData, error: snapshotsError } = await supabase.from('report_snapshots').select('*');
       if (snapshotsError) throw snapshotsError;
 
-      const { data: auditLogsData, error: auditLogsError } = await supabase
-        .from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200);
-      if (auditLogsError) throw auditLogsError;
-
       this.inMemoryCache.reportIndicators = deduplicateById(reportIndicatorsData || []);
       this.inMemoryCache.analyses = deduplicateById(analysesData || []);
       this.inMemoryCache.snapshots = deduplicateById(snapshotsData || []);
-      this.inMemoryCache.auditLogs = deduplicateById(auditLogsData || []);
 
       this.lastSyncTime = new Date().toISOString();
       this.notify();
@@ -1303,6 +1298,17 @@ export class StorageService {
   }
 
   // --- Audit Logs ---
+  public async fetchAuditLogs(): Promise<AuditLog[]> {
+    this.assertRole(['admin'], 'xem Audit Logs');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+    const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500);
+    if (error) throw new Error(`Không thể tải Audit Logs từ Supabase: ${error.message}`);
+    this.inMemoryCache.auditLogs = deduplicateById(data || []);
+    this.notify();
+    return this.getAuditLogs();
+  }
+
   public getAuditLogs(): AuditLog[] {
     return deduplicateById(this.inMemoryCache.auditLogs)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
