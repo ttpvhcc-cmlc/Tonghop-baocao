@@ -14,7 +14,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 export const CompareAnalysisPage: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const reports = useMemo(() => store.getReports(), []);
+  const [reports, setReports] = useState(store.getReports());
   const initialRep1 = searchParams.get('rep1') || reports[0]?.id || '';
   const initialRep2 = searchParams.get('rep2') || reports[1]?.id || reports[0]?.id || '';
 
@@ -22,7 +22,10 @@ export const CompareAnalysisPage: React.FC = () => {
   const [repBId, setRepBId] = useState<string>(initialRep2);
   const [, forceRefresh] = useState(0);
   useEffect(() => {
-    const refresh = () => forceRefresh((v) => v + 1);
+    const refresh = () => {
+      setReports(store.getReports());
+      forceRefresh((v) => v + 1);
+    };
     const unsubscribe = store.subscribe(refresh);
     void store.fetchReports().catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
     return unsubscribe;
