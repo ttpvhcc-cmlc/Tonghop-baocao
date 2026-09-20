@@ -76,10 +76,10 @@ export const IndicatorsAdminPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      store.saveIndicator({
+      await store.saveIndicator({
         id: editingIndicator?.id,
         calculation_key: formData.formula_key,
         unit: formData.unit_measure,
@@ -93,10 +93,10 @@ export const IndicatorsAdminPage: React.FC = () => {
     }
   };
 
-  const handleDelete = (ind: IndicatorDefinition) => {
+  const handleDelete = async (ind: IndicatorDefinition) => {
     if (window.confirm(`Bạn có chắc chắn muốn xóa chỉ tiêu "${ind.name}" (${ind.code})?`)) {
       try {
-        store.deleteIndicator(ind.id);
+        await store.deleteIndicator(ind.id);
         setIndicators(store.getIndicators());
       } catch (err: any) {
         alert(err.message);
