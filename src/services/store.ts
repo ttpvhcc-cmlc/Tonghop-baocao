@@ -1120,38 +1120,53 @@ export class StorageService {
       },
     };
 
-    // Replace only global calculated indicators for this report, after the new values are ready.
-    const { error: deleteError } = await supabase
-      .from('report_indicators')
-      .delete()
-      .eq('report_id', reportId)
-      .eq('scope_type', 'global');
-    if (deleteError) throw new Error(`Không thể chuẩn hóa chỉ tiêu cũ trên Supabase: ${deleteError.message}`);
+    // Upsert each derived global indicator by its existing row when present.
+    for (const def of definitions) {
+      const calc = values[def.code];
+      const { data: existing, error: existingError } = await supabase
+        .from('report_indicators')
+        .select('id')
+        .eq('report_id', reportId)
+        .eq('indicator_definition_id', def.id)
+        .eq('scope_type', 'global')
+        .maybeSingle();
+      if (existingError) throw new Error(`Không thể đọc chỉ tiêu cũ trên Supabase: ${existingError.message}`);
 
-    const rows = definitions.map((def) => {
-      const value = values[def.code];
-      return {
-        id: generateUUID(),
+      const payload = {
         report_id: reportId,
         indicator_definition_id: def.id,
         scope_type: 'global',
         scope_id: null,
-        calculated_value: value.value,
-        formatted_value: `${value.value.toFixed(4)}%`,
+        calculated_value: calc.value,
+        formatted_value: `${calc.value.toFixed(4)}%`,
         calculation_details: {
-          numerator: value.numerator,
-          denominator: value.denominator,
-          formula: value.formula,
+          numerator: calc.numerator,
+          denominator: calc.denominator,
+          formula: calc.formula,
           calculation_source: 'report_field_statistics',
         },
       };
-    });
 
-    const { data: saved, error: insertError } = await supabase
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('report_indicators')
+          .update(payload)
+          .eq('id', existing.id);
+        if (error) throw new Error(`Không thể cập nhật chỉ tiêu ${def.code} trên Supabase: ${error.message}`);
+      } else {
+        const { error } = await supabase
+          .from('report_indicators')
+          .insert({ id: generateUUID(), ...payload });
+        if (error) throw new Error(`Không thể thêm chỉ tiêu ${def.code} vào Supabase: ${error.message}`);
+      }
+    }
+
+    const { data: saved, error: refreshError } = await supabase
       .from('report_indicators')
-      .insert(rows)
-      .select('*');
-    if (insertError) throw new Error(`Không thể lưu các chỉ tiêu vào Supabase: ${insertError.message}`);
+      .select('*')
+      .eq('report_id', reportId)
+      .eq('scope_type', 'global');
+    if (refreshError) throw new Error(`Không thể xác minh chỉ tiêu sau khi lưu trên Supabase: ${refreshError.message}`);
 
     this.inMemoryCache.reportIndicators = [
       ...this.inMemoryCache.reportIndicators.filter((x) => x.report_id !== reportId || x.scope_type !== 'global'),
@@ -1160,6 +1175,7 @@ export class StorageService {
     this.notify();
     return (saved || []) as ReportIndicator[];
   }
+
 
   // --- Snapshots ---
   public getSnapshots(reportId: string): ReportSnapshot[] {
