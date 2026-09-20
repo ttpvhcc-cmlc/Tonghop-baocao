@@ -134,7 +134,7 @@ export const FieldsAdminPage: React.FC = () => {
 
     if (fieldsToUpdate.length === 0) return;
 
-    store.saveFieldsBulk(fieldsToUpdate);
+    await store.saveFieldsBulk(fieldsToUpdate);
     setNotification({
       type: 'success',
       message: `Đã phân công toàn bộ ${fieldsToUpdate.length} thủ tục thuộc lĩnh vực "${sectorName}" cho đơn vị "${targetUnit.name}"!`,
@@ -148,7 +148,7 @@ export const FieldsAdminPage: React.FC = () => {
 
     const targetUnit = units.find((u) => u.id === unitId);
     const updated: Field = { ...field, unit_id: unitId || '' };
-    store.saveField(updated);
+    await store.saveField(updated);
 
     setNotification({
       type: 'success',
@@ -169,7 +169,7 @@ export const FieldsAdminPage: React.FC = () => {
 
     if (fieldsToMove.length === 0) return;
 
-    store.saveFieldsBulk(fieldsToMove);
+    await store.saveFieldsBulk(fieldsToMove);
     setNotification({
       type: 'success',
       message: `Đã chuyển giao thành công ${fieldsToMove.length} thủ tục sang "${targetUnit.name}"!`,
@@ -197,7 +197,7 @@ export const FieldsAdminPage: React.FC = () => {
         if (!exists) {
           const words = trimmed.split(/\s+/);
           const generatedCode = words.map((w) => w[0]?.toUpperCase() || '').join('') || `DV${currentUnits.length + 1}`;
-          const created = store.saveUnit({
+          const created = await store.saveUnit({
             name: trimmed,
             code: generatedCode,
             display_order: currentUnits.length + 1,
@@ -243,7 +243,7 @@ export const FieldsAdminPage: React.FC = () => {
 
       if (mode === 'replace') {
         // In replace mode, overwrite existing fields
-        store.saveFieldsBulk(fieldsToSave);
+        await store.saveFieldsBulk(fieldsToSave);
       } else {
         // In upsert mode, save bulk
         store.saveFieldsBulk(fieldsToSave);
@@ -327,7 +327,7 @@ export const FieldsAdminPage: React.FC = () => {
       };
 
       if (editingField) {
-        store.saveField({ ...editingField, ...fieldData });
+        await store.saveField({ ...editingField, ...fieldData });
 
         if (syncSector && formData.linh_vuc && formData.unit_id) {
           const cleanSec = formData.linh_vuc.trim().toLowerCase();
@@ -336,7 +336,7 @@ export const FieldsAdminPage: React.FC = () => {
             .map((f) => ({ ...f, unit_id: formData.unit_id }));
 
           if (siblingFields.length > 0) {
-            store.saveFieldsBulk(siblingFields);
+            await store.saveFieldsBulk(siblingFields);
           }
         }
 
@@ -347,7 +347,7 @@ export const FieldsAdminPage: React.FC = () => {
             : 'Cập nhật thủ tục thành công!',
         });
       } else {
-        store.saveField(fieldData);
+        await store.saveField(fieldData);
         setNotification({ type: 'success', message: 'Thêm mới thủ tục thành công!' });
       }
 
