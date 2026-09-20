@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { store } from '../services/store';
 import { formatNumber, formatDate, getStatusBadge } from '../utils/format';
@@ -25,6 +25,12 @@ export const ArchivePage: React.FC = () => {
   const [yearFilter, setYearFilter] = useState('ALL');
   const [monthFilter, setMonthFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  useEffect(() => {
+    const refresh = () => setReports(store.getReports());
+    void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải kho báo cáo từ Supabase:', error));
+    return store.subscribe(refresh);
+  }, []);
+
 
   // Compare mode state
   const [compareReport1, setCompareReport1] = useState<string>('');
