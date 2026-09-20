@@ -38,7 +38,7 @@ export const UnitsAdminPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleDeleteUnit = (unit: Unit) => {
+  const handleDeleteUnit = async (unit: Unit) => {
     const linkedFields = fields.filter((f) => f.unit_id === unit.id);
     if (linkedFields.length > 0) {
       alert(`Không thể xóa đơn vị "${unit.name}" vì đang có ${linkedFields.length} lĩnh vực thuộc đơn vị này (${linkedFields.map((f) => f.name).slice(0, 3).join(', ')}...). Vui lòng chuyển các lĩnh vực sang đơn vị khác trước khi xóa.`);
@@ -47,7 +47,7 @@ export const UnitsAdminPage: React.FC = () => {
 
     if (window.confirm(`Bạn có chắc chắn muốn xóa đơn vị "${unit.name}" (${unit.code})?`)) {
       try {
-        store.deleteUnit(unit.id);
+        await store.deleteUnit(unit.id);
         setUnits(store.getUnits());
       } catch (err: any) {
         alert(err.message);
