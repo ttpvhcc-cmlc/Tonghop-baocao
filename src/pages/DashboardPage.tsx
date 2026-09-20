@@ -115,8 +115,8 @@ export const DashboardPage: React.FC = () => {
       setLiveFields(res.fields);
 
       const effectiveActiveId = targetId || res.currentReport?.id || res.reports[0]?.id || '';
-      const finalSources = res.sources && res.sources.length > 0 ? res.sources : (effectiveActiveId ? store.getSourcesByReport(effectiveActiveId) : []);
-      const finalStats = res.statistics && res.statistics.length > 0 ? res.statistics : (effectiveActiveId ? store.getStatsByReport(effectiveActiveId) : []);
+      const finalSources = res.sources;
+      const finalStats = res.statistics;
 
       setLiveSources(finalSources);
       setLiveStats(finalStats);
@@ -125,18 +125,12 @@ export const DashboardPage: React.FC = () => {
         setSelectedReportId(res.currentReport.id);
       }
     } catch (err: any) {
-      setDbStatus((prev) => ({ ...prev, errorMessage: err.message }));
-      // Fallback directly to store cache
-      const fallbackReports = store.getReports();
-      setLiveReports(fallbackReports);
-      setLiveUnits(store.getUnits());
-      setLiveFields(store.getFields());
-      const activeId = reportId || selectedReportId || fallbackReports[0]?.id;
-      if (activeId) {
-        if (!selectedReportId) setSelectedReportId(activeId);
-        setLiveSources(store.getSourcesByReport(activeId));
-        setLiveStats(store.getStatsByReport(activeId));
-      }
+      setDbStatus((prev) => ({ ...prev, connected: false, schemaReady: false, errorMessage: err.message }));
+      setLiveReports([]);
+      setLiveUnits([]);
+      setLiveFields([]);
+      setLiveSources([]);
+      setLiveStats([]);
     } finally {
       setLoading(false);
     }
