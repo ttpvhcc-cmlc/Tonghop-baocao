@@ -966,10 +966,27 @@ export class StorageService {
     if (error) throw new Error(`Không thể lưu số liệu vào Supabase: ${error.message}`);
 
     const savedRows = (saved || []) as ReportFieldStatistic[];
-    this.inMemoryCache.stats = [
-      ...this.inMemoryCache.stats.filter((s) => !(s.report_id === reportId && s.source_id === sourceId)),
-      ...savedRows,
-    ];
+
+    const { data: existingSourceRows, error: existingSourceRowsError } = await supabase
+      .from('report_field_statistics')
+      .select('id')
+      .eq('report_id', reportId)
+      .eq('source_id', sourceId);
+    if (existingSourceRowsError) throw new Error(`Không thể kiểm tra các dòng số liệu cũ trên Supabase: ${existingSourceRowsError.message}`);
+
+    const savedIds = new Set(savedRows.map((r) => r.id));
+    const staleIds = (existingSourceRows || [])
+      .map((r: any) => r.id)
+      .filter((id: string) => !savedIds.has(id));
+    if (staleIds.length > 0) {
+      const { error: staleDeleteError } = await supabase
+        .from('report_field_statistics')
+        .delete()
+        .in('id', staleIds);
+      if (staleDeleteError) throw new Error(`Không thể xóa các dòng số liệu cũ trên Supabase: ${staleDeleteError.message}`);
+    }
+
+    await this.fetchStatsByReport(reportId);
     this.notify();
   }
 
@@ -1019,10 +1036,26 @@ export class StorageService {
     if (error) throw new Error(`Không thể cập nhật số liệu trên Supabase: ${error.message}`);
 
     const savedRows = (saved || []) as ReportFieldStatistic[];
-    this.inMemoryCache.stats = [
-      ...this.inMemoryCache.stats.filter((s) => s.report_id !== reportId),
-      ...savedRows,
-    ];
+
+    const { data: existingReportRows, error: existingReportRowsError } = await supabase
+      .from('report_field_statistics')
+      .select('id')
+      .eq('report_id', reportId);
+    if (existingReportRowsError) throw new Error(`Không thể kiểm tra các dòng số liệu cũ trên Supabase: ${existingReportRowsError.message}`);
+
+    const submittedIds = new Set(savedRows.map((r) => r.id));
+    const staleIds = (existingReportRows || [])
+      .map((r: any) => r.id)
+      .filter((id: string) => !submittedIds.has(id));
+    if (staleIds.length > 0) {
+      const { error: staleDeleteError } = await supabase
+        .from('report_field_statistics')
+        .delete()
+        .in('id', staleIds);
+      if (staleDeleteError) throw new Error(`Không thể xóa các dòng số liệu cũ trên Supabase: ${staleDeleteError.message}`);
+    }
+
+    await this.fetchStatsByReport(reportId);
     this.notify();
   }
 
