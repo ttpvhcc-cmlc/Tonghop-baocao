@@ -394,7 +394,7 @@ export const ReportDetailPage: React.FC = () => {
         report_id: reportState.id,
         section: 'Nhận xét, đánh giá',
         content: analysisContent,
-        scope_type: 'report',
+        scope_type: 'overview',
         title: analysisTitle,
         generated_text: analysisContent,
         generated_by: aiSourceType,
