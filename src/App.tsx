@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from './layouts/AppLayout';
 import { DashboardPage } from './pages/DashboardPage';
@@ -16,8 +16,15 @@ import { IndicatorsAdminPage } from './pages/admin/IndicatorsAdminPage';
 import { UsersAdminPage } from './pages/admin/UsersAdminPage';
 import { AuditLogsPage } from './pages/admin/AuditLogsPage';
 import { SupabaseAdminPage } from './pages/admin/SupabaseAdminPage';
+import { store } from './services/store';
 
 export default function App() {
+  useEffect(() => {
+    void store.loadAuthenticatedUser().catch((error) => {
+      console.warn('Supabase Auth initialization failed:', error);
+    });
+  }, []);
+
   return (
     <HashRouter>
       <Routes>

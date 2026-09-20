@@ -107,6 +107,17 @@ const SEED_CURRENT_USER: Profile = {
   updated_at: '2026-01-01T08:00:00Z',
 };
 
+const GUEST_USER: Profile = {
+  id: 'guest',
+  full_name: 'Chưa đăng nhập',
+  email: undefined,
+  role: 'viewer',
+  unit_id: null,
+  active: false,
+  created_at: '1970-01-01T00:00:00Z',
+  updated_at: '1970-01-01T00:00:00Z',
+};
+
 const SEED_USERS: Profile[] = [
   SEED_CURRENT_USER,
   {
@@ -505,7 +516,7 @@ export class StorageService {
       analyses: deduplicateById(this.getLocal(STORAGE_KEYS.ANALYSES, SEED_ANALYSES)),
       snapshots: deduplicateById(this.getLocal(STORAGE_KEYS.SNAPSHOTS, [])),
       auditLogs: deduplicateById(this.getLocal(STORAGE_KEYS.AUDIT_LOGS, [])),
-      currentUser: this.getLocal(STORAGE_KEYS.CURRENT_USER, SEED_CURRENT_USER),
+      currentUser: GUEST_USER,
       users: deduplicateById(this.getLocal(STORAGE_KEYS.USERS, SEED_USERS)),
     };
 
@@ -703,24 +714,17 @@ export class StorageService {
       this.isSchemaReady = true;
       this.syncError = null;
 
-      // If units exist in Supabase, load them
-      if (unitsData && unitsData.length > 0) {
-        this.inMemoryCache.units = deduplicateById(unitsData);
-        this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
-      } else {
-        // Seed initial units to Supabase
-        await this.seedSupabaseTables();
-      }
+      // Supabase is the source of truth when the schema is reachable.
+      this.inMemoryCache.units = deduplicateById(unitsData || []);
+      this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
 
       // 3. Fetch fields (Safely merged to NEVER erase procedures, sectors, or mappings)
       const { data: fieldsData } = await supabase
         .from('fields')
         .select('*, units(*)')
         .order('display_order', { ascending: true });
-      if (fieldsData && fieldsData.length > 0) {
-        this.inMemoryCache.fields = this.mergeFieldsSafely(this.inMemoryCache.fields, fieldsData);
-        this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
-      }
+      this.inMemoryCache.fields = deduplicateById(fieldsData || []);
+      this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
 
       // 4. Fetch reports (Merge Supabase reports with local reports)
       const { data: reportsData } = await supabase
@@ -738,30 +742,24 @@ export class StorageService {
             report_code: code,
           };
         });
-        this.inMemoryCache.reports = deduplicateById([...normalizedReports, ...this.inMemoryCache.reports]);
+        this.inMemoryCache.reports = deduplicateById(normalizedReports);
         this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
       }
 
       // 5. Fetch sources (Merge safely)
       const { data: sourcesData } = await supabase.from('report_sources').select('*');
-      if (sourcesData && sourcesData.length > 0) {
-        this.inMemoryCache.sources = deduplicateById([...sourcesData, ...this.inMemoryCache.sources]);
-        this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-      }
+      this.inMemoryCache.sources = deduplicateById(sourcesData || []);
+      this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
 
       // 6. Fetch stats (Merge safely, NEVER wipe out local stats when Supabase table is empty)
       const { data: statsData } = await supabase.from('report_field_statistics').select('*');
-      if (statsData && statsData.length > 0) {
-        this.inMemoryCache.stats = deduplicateById([...statsData, ...this.inMemoryCache.stats]);
-        this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-      }
+      this.inMemoryCache.stats = deduplicateById(statsData || []);
+      this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
 
       // 7. Fetch indicators
       const { data: indicatorsData } = await supabase.from('indicator_definitions').select('*');
-      if (indicatorsData && indicatorsData.length > 0) {
-        this.inMemoryCache.indicators = deduplicateById([...indicatorsData, ...this.inMemoryCache.indicators]);
-        this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
-      }
+      this.inMemoryCache.indicators = deduplicateById(indicatorsData || []);
+      this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
 
       this.lastSyncTime = new Date().toISOString();
       this.notify();
@@ -791,11 +789,88 @@ export class StorageService {
     return this.inMemoryCache.currentUser;
   }
 
+  public isAuthenticated(): boolean {
+    return this.inMemoryCache.currentUser.id !== 'guest' && Boolean(this.inMemoryCache.currentUser.user_id);
+  }
+
+  public async loadAuthenticatedUser(): Promise<Profile | null> {
+    if (!supabase) {
+      this.inMemoryCache.currentUser = GUEST_USER;
+      this.notify();
+      return null;
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    const session = sessionData.session;
+    if (!session?.user) {
+      this.inMemoryCache.currentUser = GUEST_USER;
+      this.notify();
+      return null;
+    }
+
+    const userId = session.user.id;
+    const { data: existingProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileError) throw profileError;
+
+    let profile = existingProfile as Profile | null;
+    if (!profile) {
+      const now = new Date().toISOString();
+      const { data: createdProfile, error: createProfileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          user_id: userId,
+          email: session.user.email || undefined,
+          full_name: session.user.user_metadata?.full_name || session.user.email || 'Người dùng',
+          role: 'viewer',
+          unit_id: null,
+          active: true,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('*')
+        .single();
+      if (createProfileError) throw createProfileError;
+      profile = createdProfile as Profile;
+    }
+
+    this.inMemoryCache.currentUser = {
+      ...profile,
+      user_id: userId,
+      email: profile.email || session.user.email || undefined,
+    };
+    this.setLocal(STORAGE_KEYS.CURRENT_USER, this.inMemoryCache.currentUser);
+    this.notify();
+    return this.inMemoryCache.currentUser;
+  }
+
+  public async signOut(): Promise<void> {
+    if (supabase) {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    }
+    this.inMemoryCache.currentUser = GUEST_USER;
+    try { localStorage.removeItem(STORAGE_KEYS.CURRENT_USER); } catch {}
+    this.notify();
+  }
+
+  private assertRole(allowed: UserRole[], action: string): void {
+    const user = this.getCurrentUser();
+    if (!this.isAuthenticated()) throw new Error(`Cần đăng nhập tài khoản Supabase để ${action}.`);
+    if (!allowed.includes(user.role)) throw new Error(`Tài khoản hiện tại (${user.role}) không có quyền ${action}.`);
+  }
+
   public getUsers(): Profile[] {
     return deduplicateById(this.inMemoryCache.users);
   }
 
-  public saveUser(user: { id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean }): Profile {
+  public saveUser(user: {
+    this.assertRole(['admin'], 'quản lý hồ sơ người dùng'); id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean }): Profile {
     const id = user.id || generateUUID();
     const existing = this.inMemoryCache.users.find((u) => u.id === id);
     const now = new Date().toISOString();
@@ -889,7 +964,8 @@ export class StorageService {
     return this.getUnits();
   }
 
-  public saveUnit(unit: Omit<Unit, 'id'> & { id?: string }): Unit {
+  public saveUnit(unit: Omit<Unit, 'id'> & {
+    this.assertRole(['admin'], 'quản lý đơn vị'); id?: string }): Unit {
     const codeClean = (unit.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã đơn vị không được để trống.');
@@ -983,7 +1059,8 @@ export class StorageService {
     return this.getFields();
   }
 
-  public saveField(field: Omit<Field, 'id'> & { id?: string }): Field {
+  public saveField(field: Omit<Field, 'id'> & {
+    this.assertRole(['admin'], 'quản lý lĩnh vực'); id?: string }): Field {
     const codeClean = (field.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã lĩnh vực không được để trống.');
@@ -1046,6 +1123,7 @@ export class StorageService {
   }
 
   public saveFieldsBulk(fieldsToUpdate: Field[]): void {
+    this.assertRole(['admin'], 'cập nhật danh mục lĩnh vực');
     if (fieldsToUpdate.length === 0) return;
 
     // Update or insert into in-memory cache
@@ -1152,7 +1230,8 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.indicators);
   }
 
-  public saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & { id?: string }): IndicatorDefinition {
+  public saveIndicator(indicator: Omit<IndicatorDefinition, 'id'> & {
+    this.assertRole(['admin'], 'quản lý chỉ số'); id?: string }): IndicatorDefinition {
     const codeClean = (indicator.code || '').trim().toUpperCase();
     if (!codeClean) {
       throw new Error('Mã chỉ tiêu không được để trống.');
@@ -1261,6 +1340,7 @@ export class StorageService {
   }
 
   public createReport(data: {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'tạo kỳ báo cáo');
     report_code: string;
     report_name: string;
     report_type: Report['report_type'];
@@ -1332,6 +1412,7 @@ export class StorageService {
   }
 
   public updateReportStatus(reportId: string, status: Report['status'], notes?: string): Report {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'chuyển trạng thái báo cáo');
     const reports = this.getReports();
     const idx = reports.findIndex((r) => r.id === reportId);
     if (idx === -1) throw new Error('Không tìm thấy báo cáo');
@@ -1378,6 +1459,7 @@ export class StorageService {
   }
 
   public updateReport(reportId: string, data: Partial<Report>): Report {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'chỉnh sửa báo cáo');
     const reports = this.getReports();
     const idx = reports.findIndex((r) => r.id === reportId);
     if (idx === -1) throw new Error('Không tìm thấy báo cáo');
@@ -1438,6 +1520,7 @@ export class StorageService {
   }
 
   public async deleteReport(reportId: string): Promise<boolean> {
+    this.assertRole(['admin'], 'xóa báo cáo');
     const rep = this.inMemoryCache.reports.find((r) => r.id === reportId || r.report_code === reportId);
     const targetId = rep ? rep.id : reportId;
 
@@ -1482,6 +1565,7 @@ export class StorageService {
 
   // --- Report Sources & Statistics ---
   public addReportSource(reportId: string, sourceName: string, originalFilename?: string): ReportSource {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'nhập nguồn dữ liệu');
     const user = this.getCurrentUser();
     const id = generateUUID();
     const newSource: ReportSource = {
@@ -1543,91 +1627,11 @@ export class StorageService {
   }
 
   public getSourcesByReport(reportId: string): ReportSource[] {
-    const list = this.inMemoryCache.sources.filter((s) => s.report_id === reportId);
-    if (list.length > 0) return deduplicateById(list);
-
-    // Fallback: Check if report_code matches any known report in SEED_REPORTS
-    const rep = this.getReportById(reportId);
-    if (rep) {
-      const repCode = rep.report_code.replace(/^IMP_/, '');
-      const matchedSeedRep = SEED_REPORTS.find(r => r.report_code === repCode || r.report_code === rep.report_code);
-      if (matchedSeedRep) {
-        const seedSourcesForRep = SEED_SOURCES.filter(s => s.report_id === matchedSeedRep.id);
-        if (seedSourcesForRep.length > 0) {
-          const remapped = seedSourcesForRep.map(s => ({ ...s, report_id: reportId }));
-          this.inMemoryCache.sources = deduplicateById([...this.inMemoryCache.sources, ...remapped]);
-          this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-          return remapped;
-        }
-      }
-    }
-
-    // Default 2 standard system sources
-    const defaultSources: ReportSource[] = [
-      {
-        id: `e0000000-0000-0000-0000-${reportId.slice(-10)}01`,
-        report_id: reportId,
-        source_type: 'system',
-        source_name: 'Trên Hệ thống các Bộ',
-        original_filename: 'du_lieu_bo.xlsx',
-        uploaded_by: 'Hệ thống',
-        uploaded_at: new Date().toISOString(),
-        import_status: 'completed',
-      },
-      {
-        id: `e0000000-0000-0000-0000-${reportId.slice(-10)}02`,
-        report_id: reportId,
-        source_type: 'system',
-        source_name: 'Trên Hệ thống thành phố',
-        original_filename: 'du_lieu_tp.xlsx',
-        uploaded_by: 'Hệ thống',
-        uploaded_at: new Date().toISOString(),
-        import_status: 'completed',
-      },
-    ];
-    this.inMemoryCache.sources = deduplicateById([...this.inMemoryCache.sources, ...defaultSources]);
-    this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-    return defaultSources;
+    return deduplicateById(this.inMemoryCache.sources.filter((s) => s.report_id === reportId));
   }
 
   public getStatsByReport(reportId: string): ReportFieldStatistic[] {
-    const list = this.inMemoryCache.stats.filter((s) => s.report_id === reportId);
-    if (list.length > 0) return deduplicateById(list);
-
-    // Fallback: Check if report_code matches
-    const rep = this.getReportById(reportId);
-    if (rep) {
-      const repCode = rep.report_code.replace(/^IMP_/, '');
-      const matchedSeedRep = SEED_REPORTS.find(r => r.report_code === repCode || r.report_code === rep.report_code);
-      if (matchedSeedRep) {
-        const seedStatsForRep = SEED_STATS.filter(s => s.report_id === matchedSeedRep.id);
-        if (seedStatsForRep.length > 0) {
-          const remapped = seedStatsForRep.map((s, idx) => ({
-            ...s,
-            id: `f0000000-${reportId.slice(0, 4)}-${s.id.slice(14, 23)}-${(idx + 1).toString().padStart(12, '0')}`,
-            report_id: reportId,
-          }));
-          this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
-          this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-          return remapped;
-        }
-      }
-    }
-
-    // Comprehensive 15,601 fallback with guaranteed unique IDs
-    const defaultSeed = SEED_STATS.filter(s => s.report_id === 'd0000000-0000-0000-0000-000000000000');
-    if (defaultSeed.length > 0) {
-      const remapped = defaultSeed.map((s, idx) => ({
-        ...s,
-        id: `f0000000-${reportId.slice(0, 4)}-1000-${(idx + 1).toString().padStart(12, '0')}`,
-        report_id: reportId,
-      }));
-      this.inMemoryCache.stats = deduplicateById([...this.inMemoryCache.stats, ...remapped]);
-      this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-      return remapped;
-    }
-
-    return [];
+    return deduplicateById(this.inMemoryCache.stats.filter((s) => s.report_id === reportId));
   }
 
   public async fetchStatsByReport(reportId: string): Promise<ReportFieldStatistic[]> {
@@ -1650,6 +1654,7 @@ export class StorageService {
     sourceId: string, 
     rows: Array<Omit<ReportFieldStatistic, 'id' | 'report_id' | 'source_id'>>
   ): void {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'lưu số liệu thống kê');
     const report = this.getReportById(reportId);
     if (report?.status === 'locked') {
       throw new Error('Báo cáo đã bị khóa. Không được phép chỉnh sửa hoặc nhập đè dữ liệu.');
@@ -1724,6 +1729,7 @@ export class StorageService {
   }
 
   public updateReportStatsList(reportId: string, updatedStats: ReportFieldStatistic[]): void {
+    this.assertRole(['admin', 'analyst', 'data_entry'], 'chỉnh sửa số liệu thống kê');
     const report = this.getReportById(reportId);
     if (report?.status === 'locked') {
       throw new Error('Báo cáo đã bị khóa. Không được phép chỉnh sửa.');
@@ -1784,6 +1790,7 @@ export class StorageService {
   }
 
   public createReportSnapshot(reportId: string, reason: string): ReportSnapshot {
+    this.assertRole(['admin'], 'tạo snapshot báo cáo');
     const existing = this.inMemoryCache.snapshots.filter((s) => s.report_id === reportId);
     const versionNumber = existing.length + 1;
 
@@ -1835,7 +1842,8 @@ export class StorageService {
     return deduplicateById(this.inMemoryCache.analyses.filter((a) => a.report_id === reportId));
   }
 
-  public saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & { id?: string }): ReportAnalysis {
+  public saveAnalysis(analysis: Omit<ReportAnalysis, 'id' | 'created_at' | 'updated_at'> & {
+    this.assertRole(['admin', 'analyst'], 'lưu phân tích'); id?: string }): ReportAnalysis {
     const now = new Date().toISOString();
     const id = analysis.id || generateUUID();
 
@@ -1941,7 +1949,8 @@ export class StorageService {
    */
   public async pushAllDataToSupabase(
     onProgress?: (msg: string, percent: number) => void
-  ): Promise<{ success: boolean; message: string; details?: any }> {
+  ): Promise<{
+    this.assertRole(['admin'], 'đồng bộ dữ liệu lên Supabase'); success: boolean; message: string; details?: any }> {
     if (!supabase) {
       return { success: false, message: 'Chưa cấu hình Supabase Client.' };
     }
