@@ -55,10 +55,10 @@ export const UnitsAdminPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      store.saveUnit({
+      await store.saveUnit({
         id: editingUnit?.id,
         ...formData,
       });
