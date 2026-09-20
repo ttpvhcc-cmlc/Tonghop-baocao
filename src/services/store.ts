@@ -813,22 +813,8 @@ export class StorageService {
     this.notify();
   }
 
-  public switchUserRole(role: UserRole): Profile {
-    const user = this.getCurrentUser();
-    const updated: Profile = {
-      ...user,
-      role,
-      full_name: role === 'admin' ? 'Nguyễn Văn An (Quản trị viên)' :
-                 role === 'analyst' ? 'Trần Thị Mai (Chuyên viên phân tích)' :
-                 role === 'data_entry' ? 'Lê Hoàng Nam (Chuyên viên nhập liệu)' :
-                 'Khách tham quan (Viewer)',
-      updated_at: new Date().toISOString(),
-    };
-    this.inMemoryCache.currentUser = updated;
-    this.setLocal(STORAGE_KEYS.CURRENT_USER, updated);
-    this.addAuditLog('SWITCH_ROLE', 'profiles', user.id, { from: user.role, to: role });
-    this.notify();
-    return updated;
+  public switchUserRole(_role: UserRole): Profile {
+    throw new Error('Không còn mô phỏng vai trò trên trình duyệt. Vai trò được lấy trực tiếp từ Supabase profiles.');
   }
 
   // --- Units CRUD (Direct Supabase) ---
@@ -1224,7 +1210,7 @@ export class StorageService {
     return this.getReportById(id);
   }
 
-  public createReport(data: {
+  public async createReport(data: {
     report_code: string;
     report_name: string;
     report_type: Report['report_type'];
@@ -1232,174 +1218,113 @@ export class StorageService {
     period_end: string;
     data_as_of: string;
     notes?: string;
-  }): Report {
+  }): Promise<Report> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'tạo kỳ báo cáo');
-    const user = this.getCurrentUser();
-    const id = generateUUID();
-    const newReport: Report = {
-      id,
-      ...data,
-      status: 'draft',
-      created_by: user.full_name,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    this.inMemoryCache.reports.unshift(newReport);
-    this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
-    this.addAuditLog('CREATE_REPORT', 'reports', newReport.id, data);
-
-    // Persist immediately to Supabase
-    if (supabase && this.isSchemaReady) {
-      supabase.from('reports').insert({
-        id: newReport.id,
-        report_code: newReport.report_code,
-        report_name: newReport.report_name,
-        report_type: newReport.report_type,
-        period_start: newReport.period_start,
-        period_end: newReport.period_end,
-        data_as_of: newReport.data_as_of,
-        status: newReport.status,
-        created_by: newReport.created_by,
-        notes: newReport.notes,
-      }).then(({ error }) => {
-        if (error) {
-          if (error.code === '42501') {
-            // RLS policy in effect: retry with compatibility prefix IMP_ so it persists into Supabase immediately
-            const compatCode = `IMP_${newReport.report_code}`;
-            supabase.from('reports').insert({
-              id: newReport.id,
-              report_code: compatCode,
-              report_name: newReport.report_name,
-              report_type: newReport.report_type,
-              period_start: newReport.period_start,
-              period_end: newReport.period_end,
-              data_as_of: newReport.data_as_of,
-              status: newReport.status,
-              created_by: newReport.created_by,
-              notes: newReport.notes ? `${newReport.notes} [code:${newReport.report_code}]` : `[code:${newReport.report_code}]`,
-            }).then(({ error: retryErr }) => {
-              if (retryErr) {
-                console.warn('Supabase createReport RLS note: Báo cáo đã lưu trên cache ứng dụng.', retryErr.message);
-              } else {
-                console.info('Supabase createReport synced with compatibility code');
-              }
-            });
-          } else {
-            console.warn('Supabase createReport warning:', error.message);
-          }
-        }
-      });
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
 
+    const user = this.getCurrentUser();
+    const payload = {
+      ...data,
+      report_code: data.report_code.trim().toUpperCase(),
+      status: 'draft' as const,
+      created_by: user.full_name,
+    };
+
+    const { data: saved, error } = await supabase
+      .from('reports')
+      .insert(payload)
+      .select('*')
+      .single();
+
+    if (error) throw new Error(`Không thể lưu kỳ báo cáo vào Supabase: ${error.message}`);
+    const report = saved as Report;
+
+    this.inMemoryCache.reports = [report, ...this.inMemoryCache.reports.filter((r) => r.id !== report.id)];
+    this.addAuditLog('CREATE_REPORT', 'reports', report.id, payload);
     this.notify();
-    return newReport;
+    return report;
   }
 
-  public updateReportStatus(reportId: string, status: Report['status'], notes?: string): Report {
+  public async updateReportStatus(reportId: string, status: Report['status'], notes?: string): Promise<Report> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'chuyển trạng thái báo cáo');
-    const reports = this.getReports();
-    const idx = reports.findIndex((r) => r.id === reportId);
-    if (idx === -1) throw new Error('Không tìm thấy báo cáo');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
+    }
 
-    const prev = reports[idx];
+    const existing = this.inMemoryCache.reports.find((r) => r.id === reportId);
+    if (!existing) throw new Error('Không tìm thấy báo cáo');
+    if (existing.status === 'locked' || existing.status === 'archived') {
+      throw new Error('Báo cáo đã khóa/lưu trữ, không thể thay đổi trạng thái.');
+    }
+
     const user = this.getCurrentUser();
     const now = new Date().toISOString();
-
-    const updated: Report = {
-      ...prev,
+    const payload: any = {
       status,
       updated_at: now,
-      notes: notes !== undefined ? notes : prev.notes,
-      approved_at: status === 'approved' ? now : prev.approved_at,
-      approved_by: status === 'approved' ? user.full_name : prev.approved_by,
-      locked_at: status === 'locked' ? now : prev.locked_at,
+      notes: notes !== undefined ? notes : existing.notes,
     };
-
-    // When locked, automatically generate immutable snapshot
-    if (status === 'locked' && prev.status !== 'locked') {
-      this.createReportSnapshot(reportId, 'Khóa báo cáo kỳ chính thức');
+    if (status === 'approved') {
+      payload.approved_at = now;
+      payload.approved_by = user.full_name;
+    }
+    if (status === 'locked') {
+      payload.locked_at = now;
     }
 
-    this.inMemoryCache.reports[idx] = updated;
-    this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
-    this.addAuditLog('UPDATE_REPORT_STATUS', 'reports', reportId, { from: prev.status, to: status, notes });
+    // The database lifecycle trigger is authoritative; it also creates the immutable snapshot on lock.
+    const { data: saved, error } = await supabase
+      .from('reports')
+      .update(payload)
+      .eq('id', reportId)
+      .select('*')
+      .single();
 
-    // Persist to Supabase
-    if (supabase && this.isSchemaReady) {
-      supabase.from('reports').update({
-        status,
-        updated_at: now,
-        notes: updated.notes,
-        approved_at: updated.approved_at,
-        approved_by: updated.approved_by,
-        locked_at: updated.locked_at,
-      }).eq('id', reportId).then(({ error }) => {
-        if (error) console.warn('Supabase updateReportStatus warning:', error.message);
-      });
-    }
-
+    if (error) throw new Error(`Không thể cập nhật trạng thái trên Supabase: ${error.message}`);
+    const updated = saved as Report;
+    this.inMemoryCache.reports = this.inMemoryCache.reports.map((r) => r.id === reportId ? updated : r);
+    this.addAuditLog('UPDATE_REPORT_STATUS', 'reports', reportId, { from: existing.status, to: status, notes });
     this.notify();
     return updated;
   }
 
-  public updateReport(reportId: string, data: Partial<Report>): Report {
+  public async updateReport(reportId: string, data: Partial<Report>): Promise<Report> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'chỉnh sửa báo cáo');
-    const reports = this.getReports();
-    const idx = reports.findIndex((r) => r.id === reportId);
-    if (idx === -1) throw new Error('Không tìm thấy báo cáo');
-
-    const prev = reports[idx];
-    if (prev.status === 'locked') {
-      throw new Error('Báo cáo đã bị khóa. Không thể chỉnh sửa thông tin!');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
 
-    const updated: Report = {
-      ...prev,
-      ...data,
-      updated_at: new Date().toISOString(),
-    };
-
-    const inMemoryIdx = this.inMemoryCache.reports.findIndex((r) => r.id === reportId);
-    if (inMemoryIdx !== -1) {
-      this.inMemoryCache.reports[inMemoryIdx] = updated;
+    const prev = this.inMemoryCache.reports.find((r) => r.id === reportId);
+    if (!prev) throw new Error('Không tìm thấy báo cáo');
+    if (prev.status === 'locked' || prev.status === 'archived') {
+      throw new Error('Báo cáo đã khóa/lưu trữ. Không thể chỉnh sửa.');
     }
-    
-    this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
+
+    const { data: saved, error } = await supabase
+      .from('reports')
+      .update({
+        report_code: data.report_code ?? prev.report_code,
+        report_name: data.report_name ?? prev.report_name,
+        report_type: data.report_type ?? prev.report_type,
+        period_start: data.period_start ?? prev.period_start,
+        period_end: data.period_end ?? prev.period_end,
+        data_as_of: data.data_as_of ?? prev.data_as_of,
+        notes: data.notes ?? prev.notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', reportId)
+      .select('*')
+      .single();
+
+    if (error) throw new Error(`Không thể cập nhật báo cáo trên Supabase: ${error.message}`);
+    const updated = saved as Report;
+    this.inMemoryCache.reports = this.inMemoryCache.reports.map((r) => r.id === reportId ? updated : r);
     this.addAuditLog('UPDATE_REPORT_INFO', 'reports', reportId, data);
-
-    if (supabase && this.isSchemaReady) {
-      supabase.from('reports').update({
-        report_code: updated.report_code,
-        report_name: updated.report_name,
-        report_type: updated.report_type,
-        period_start: updated.period_start,
-        period_end: updated.period_end,
-        data_as_of: updated.data_as_of,
-        notes: updated.notes,
-        updated_at: updated.updated_at,
-      }).eq('id', reportId).then(({ error }) => {
-        if (error) {
-          if (error.code === '42501') {
-            supabase.from('reports').update({
-              report_code: `IMP_${updated.report_code}`,
-              report_name: updated.report_name,
-              report_type: updated.report_type,
-              period_start: updated.period_start,
-              period_end: updated.period_end,
-              data_as_of: updated.data_as_of,
-              notes: updated.notes ? `${updated.notes} [code:${updated.report_code}]` : `[code:${updated.report_code}]`,
-              updated_at: updated.updated_at,
-            }).eq('id', reportId).then(({ error: retryErr }) => {
-              if (retryErr) console.warn('Supabase updateReport RLS fallback note:', retryErr.message);
-            });
-          } else {
-            console.warn('Supabase updateReport warning:', error.message);
-          }
-        }
-      });
-    }
-
     this.notify();
     return updated;
   }
@@ -1449,59 +1374,39 @@ export class StorageService {
   }
 
   // --- Report Sources & Statistics ---
-  public addReportSource(reportId: string, sourceName: string, originalFilename?: string): ReportSource {
+  public async addReportSource(reportId: string, sourceName: string, originalFilename?: string): Promise<ReportSource> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'nhập nguồn dữ liệu');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
+    }
+
     const user = this.getCurrentUser();
-    const id = generateUUID();
-    const newSource: ReportSource = {
-      id,
+    const payload = {
       report_id: reportId,
       source_type: 'system',
       source_name: sourceName,
       original_filename: originalFilename,
       uploaded_by: user.full_name,
-      uploaded_at: new Date().toISOString(),
-      import_status: 'completed',
+      import_status: 'completed' as const,
     };
+    const { data: saved, error } = await supabase
+      .from('report_sources')
+      .insert(payload)
+      .select('*')
+      .single();
 
-    this.inMemoryCache.sources.push(newSource);
-    this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-    this.addAuditLog('ADD_REPORT_SOURCE', 'report_sources', newSource.id, { reportId, sourceName });
-
-    // Persist to Supabase
-    if (supabase && this.isSchemaReady) {
-      supabase.from('report_sources').insert({
-        id: newSource.id,
-        report_id: newSource.report_id,
-        source_type: newSource.source_type,
-        source_name: newSource.source_name,
-        original_filename: newSource.original_filename,
-        uploaded_by: newSource.uploaded_by,
-        import_status: 'completed',
-      }).then(({ error }) => {
-        if (error) {
-          if (error.code === '42501') {
-            supabase.from('report_sources').insert({
-              id: newSource.id,
-              report_id: newSource.report_id,
-              source_type: newSource.source_type,
-              source_name: `${newSource.source_name} (kiem_thu_sync)`,
-              original_filename: `kiem_thu_${newSource.original_filename || 'data.xlsx'}`,
-              uploaded_by: newSource.uploaded_by,
-              import_status: 'completed',
-            }).then(({ error: retryErr }) => {
-              if (retryErr) console.warn('Supabase addReportSource RLS note:', retryErr.message);
-            });
-          } else {
-            console.warn('Supabase addReportSource warning:', error.message);
-          }
-        }
-      });
-    }
-
+    if (error) throw new Error(`Không thể lưu nguồn dữ liệu vào Supabase: ${error.message}`);
+    const source = saved as ReportSource;
+    this.inMemoryCache.sources = [
+      ...this.inMemoryCache.sources.filter((s) => s.id !== source.id),
+      source
+    ];
+    this.addAuditLog('ADD_REPORT_SOURCE', 'report_sources', source.id, { reportId, sourceName });
     this.notify();
-    return newSource;
+    return source;
   }
+
 
   public getAllSources(): ReportSource[] {
     return deduplicateById(this.inMemoryCache.sources);
@@ -1534,139 +1439,126 @@ export class StorageService {
     return this.getStatsByReport(reportId);
   }
 
-  public saveReportStats(
-    reportId: string, 
-    sourceId: string, 
+  public async saveReportStats(
+    reportId: string,
+    sourceId: string,
     rows: Array<Omit<ReportFieldStatistic, 'id' | 'report_id' | 'source_id'>>
-  ): void {
+  ): Promise<void> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'lưu số liệu thống kê');
-    const report = this.getReportById(reportId);
-    if (report?.status === 'locked') {
-      throw new Error('Báo cáo đã bị khóa. Không được phép chỉnh sửa hoặc nhập đè dữ liệu.');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
 
-    // Remove existing rows for this (report_id, source_id)
-    this.inMemoryCache.stats = this.inMemoryCache.stats.filter(
-      (s) => !(s.report_id === reportId && s.source_id === sourceId)
-    );
-
-    const newRows: ReportFieldStatistic[] = rows.map((r, idx) => {
-      const resolvedLv = resolveLinhVuc(r.field_name_snapshot || r.field_name || '', r.field_id, this.inMemoryCache.fields);
-      return {
-        ...r,
-        id: generateUUID(),
-        report_id: reportId,
-        source_id: sourceId,
-        field_name_snapshot: resolvedLv,
-        field_name: resolvedLv,
-      };
-    });
-
-    this.inMemoryCache.stats.push(...newRows);
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-
-    // Update report status
-    const hasErrors = newRows.some((r) => r.validation_status === 'error');
-    this.updateReportStatus(reportId, hasErrors ? 'imported' : 'validated');
-    this.addAuditLog('IMPORT_STATISTICS', 'reports', reportId, { sourceId, count: newRows.length });
-
-    // Persist rows to Supabase
-    if (supabase && this.isSchemaReady) {
-      // Clean existing rows for this source
-      supabase
-        .from('report_field_statistics')
-        .delete()
-        .match({ report_id: reportId, source_id: sourceId })
-        .then(() => {
-          // Insert new rows
-          const dbRows = newRows.map((r) => ({
-            id: r.id,
-            report_id: r.report_id,
-            source_id: r.source_id,
-            field_id: r.field_id,
-            field_name_snapshot: r.field_name_snapshot,
-            unit_id: r.unit_id,
-            unit_name_snapshot: r.unit_name_snapshot,
-            received_total: r.received_total,
-            received_online: r.received_online,
-            received_offline: r.received_offline,
-            carried_forward: r.carried_forward,
-            completed_total: r.completed_total,
-            completed_early: r.completed_early,
-            completed_on_time: r.completed_on_time,
-            completed_late: r.completed_late,
-            pending_total: r.pending_total,
-            pending_on_time: r.pending_on_time,
-            pending_late: r.pending_late,
-            notes: r.notes || '',
-            validation_status: r.validation_status,
-            validation_errors: r.validation_errors,
-          }));
-
-          return supabase.from('report_field_statistics').insert(dbRows);
-        })
-        .then(({ error }: any) => {
-          if (error) console.warn('Supabase saveReportStats warning:', error.message);
-        });
+    const report = this.inMemoryCache.reports.find((r) => r.id === reportId);
+    if (!report) throw new Error('Không tìm thấy báo cáo');
+    if (report.status === 'locked' || report.status === 'archived') {
+      throw new Error('Báo cáo đã khóa/lưu trữ. Không thể nhập dữ liệu.');
     }
 
+    const dbRows = rows.map((r) => ({
+      id: generateUUID(),
+      report_id: reportId,
+      source_id: sourceId,
+      field_id: r.field_id,
+      field_name_snapshot: r.field_name_snapshot || r.field_name,
+      unit_id: r.unit_id,
+      unit_name_snapshot: r.unit_name_snapshot || r.unit_name,
+      received_total: r.received_total,
+      received_online: r.received_online,
+      received_offline: r.received_offline,
+      carried_forward: r.carried_forward,
+      completed_total: r.completed_total,
+      completed_early: r.completed_early,
+      completed_on_time: r.completed_on_time,
+      completed_late: r.completed_late,
+      pending_total: r.pending_total,
+      pending_on_time: r.pending_on_time,
+      pending_late: r.pending_late,
+      notes: r.notes || '',
+      validation_status: r.validation_status,
+      validation_errors: r.validation_errors || [],
+    }));
+
+    // Upsert on the business key prevents duplicate (report, source, field) rows.
+    const { data: saved, error } = await supabase
+      .from('report_field_statistics')
+      .upsert(dbRows, { onConflict: 'report_id,source_id,field_id' })
+      .select('*');
+
+    if (error) throw new Error(`Không thể lưu số liệu vào Supabase: ${error.message}`);
+
+    const savedRows = (saved || []) as ReportFieldStatistic[];
+    this.inMemoryCache.stats = [
+      ...this.inMemoryCache.stats.filter((s) => !(s.report_id === reportId && s.source_id === sourceId)),
+      ...savedRows,
+    ];
+
+    const hasErrors = savedRows.some((r) => r.validation_status === 'error');
+    const nextStatus: ReportStatus = hasErrors ? 'imported' : 'validated';
+    await this.updateReportStatus(reportId, nextStatus);
+
+    this.addAuditLog('IMPORT_STATISTICS', 'reports', reportId, { sourceId, count: savedRows.length });
     this.notify();
   }
 
-  public updateReportStatsList(reportId: string, updatedStats: ReportFieldStatistic[]): void {
+
+  public async updateReportStatsList(reportId: string, updatedStats: ReportFieldStatistic[]): Promise<void> {
     this.assertRole(['admin', 'analyst', 'data_entry'], 'chỉnh sửa số liệu thống kê');
-    const report = this.getReportById(reportId);
-    if (report?.status === 'locked') {
-      throw new Error('Báo cáo đã bị khóa. Không được phép chỉnh sửa.');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) {
+      throw new Error('Không thể kết nối CSDL Supabase.');
     }
 
-    // Filter out old stats for this report
-    const otherStats = this.inMemoryCache.stats.filter((s) => s.report_id !== reportId);
-    // Add the new ones
-    this.inMemoryCache.stats = [...otherStats, ...updatedStats];
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-
-    // Update report status based on the new stats' validation statuses
-    const hasErrors = updatedStats.some((r) => r.validation_status === 'error');
-    this.updateReportStatus(reportId, hasErrors ? 'imported' : 'validated', 'Cập nhật trực tiếp số liệu từ giao diện Web.');
-    this.addAuditLog('EDIT_STATISTICS_INLINE', 'reports', reportId, { count: updatedStats.length });
-
-    // Persist rows to Supabase
-    if (supabase && this.isSchemaReady) {
-      const dbRows = updatedStats.map((r) => ({
-        id: r.id,
-        report_id: r.report_id,
-        source_id: r.source_id,
-        field_id: r.field_id,
-        field_name_snapshot: r.field_name_snapshot,
-        unit_id: r.unit_id,
-        unit_name_snapshot: r.unit_name_snapshot,
-        received_total: r.received_total,
-        received_online: r.received_online,
-        received_offline: r.received_offline,
-        carried_forward: r.carried_forward,
-        completed_total: r.completed_total,
-        completed_early: r.completed_early,
-        completed_on_time: r.completed_on_time,
-        completed_late: r.completed_late,
-        pending_total: r.pending_total,
-        pending_on_time: r.pending_on_time,
-        pending_late: r.pending_late,
-        notes: r.notes ? (r.notes.includes('[test]') ? r.notes : `${r.notes} [test]`) : '[test]',
-        validation_status: r.validation_status,
-        validation_errors: r.validation_errors,
-      }));
-
-      supabase
-        .from('report_field_statistics')
-        .upsert(dbRows)
-        .then(({ error }: any) => {
-          if (error) console.warn('Supabase updateReportStatsList warning:', error.message);
-        });
+    const report = this.inMemoryCache.reports.find((r) => r.id === reportId);
+    if (!report) throw new Error('Không tìm thấy báo cáo');
+    if (report.status === 'locked' || report.status === 'archived') {
+      throw new Error('Báo cáo đã khóa/lưu trữ. Không thể chỉnh sửa.');
     }
 
+    const dbRows = updatedStats.map((r) => ({
+      id: r.id,
+      report_id: r.report_id,
+      source_id: r.source_id,
+      field_id: r.field_id,
+      field_name_snapshot: r.field_name_snapshot || r.field_name,
+      unit_id: r.unit_id,
+      unit_name_snapshot: r.unit_name_snapshot || r.unit_name,
+      received_total: r.received_total,
+      received_online: r.received_online,
+      received_offline: r.received_offline,
+      carried_forward: r.carried_forward,
+      completed_total: r.completed_total,
+      completed_early: r.completed_early,
+      completed_on_time: r.completed_on_time,
+      completed_late: r.completed_late,
+      pending_total: r.pending_total,
+      pending_on_time: r.pending_on_time,
+      pending_late: r.pending_late,
+      notes: r.notes || '',
+      validation_status: r.validation_status,
+      validation_errors: r.validation_errors || [],
+    }));
+
+    const { data: saved, error } = await supabase
+      .from('report_field_statistics')
+      .upsert(dbRows)
+      .select('*');
+
+    if (error) throw new Error(`Không thể cập nhật số liệu trên Supabase: ${error.message}`);
+
+    const savedRows = (saved || []) as ReportFieldStatistic[];
+    this.inMemoryCache.stats = [
+      ...this.inMemoryCache.stats.filter((s) => s.report_id !== reportId),
+      ...savedRows,
+    ];
+
+    const hasErrors = savedRows.some((r) => r.validation_status === 'error');
+    await this.updateReportStatus(reportId, hasErrors ? 'imported' : 'validated', 'Cập nhật trực tiếp số liệu từ giao diện Web.');
+    this.addAuditLog('EDIT_STATISTICS_INLINE', 'reports', reportId, { count: savedRows.length });
     this.notify();
   }
+
 
   // --- Snapshots ---
   public getSnapshots(reportId: string): ReportSnapshot[] {
@@ -1803,118 +1695,8 @@ export class StorageService {
   }
 
   // Reset to factory defaults
-  public resetToFactoryDemo(): void {
-    this.inMemoryCache.units = [...SEED_UNITS];
-    this.inMemoryCache.fields = [...SEED_FIELDS];
-    this.inMemoryCache.indicators = [...SEED_INDICATORS];
-    this.inMemoryCache.reports = [...SEED_REPORTS];
-    this.inMemoryCache.sources = [...SEED_SOURCES];
-    this.inMemoryCache.stats = [];
-    this.inMemoryCache.snapshots = [];
-    this.inMemoryCache.analyses = [];
-    this.inMemoryCache.auditLogs = [];
-    this.inMemoryCache.currentUser = { ...SEED_CURRENT_USER };
-
-    this.setLocal(STORAGE_KEYS.UNITS, this.inMemoryCache.units);
-    this.setLocal(STORAGE_KEYS.FIELDS, this.inMemoryCache.fields);
-    this.setLocal(STORAGE_KEYS.INDICATORS, this.inMemoryCache.indicators);
-    this.setLocal(STORAGE_KEYS.REPORTS, this.inMemoryCache.reports);
-    this.setLocal(STORAGE_KEYS.SOURCES, this.inMemoryCache.sources);
-    this.setLocal(STORAGE_KEYS.STATS, this.inMemoryCache.stats);
-    this.setLocal(STORAGE_KEYS.SNAPSHOTS, this.inMemoryCache.snapshots);
-    this.setLocal(STORAGE_KEYS.ANALYSES, this.inMemoryCache.analyses);
-    this.setLocal(STORAGE_KEYS.AUDIT_LOGS, this.inMemoryCache.auditLogs);
-    this.setLocal(STORAGE_KEYS.CURRENT_USER, this.inMemoryCache.currentUser);
-
-    this.notify();
-  }
-
-  /**
-   * Push all current local data (Reports, Sources, Statistics, Fields, Units, Analyses) to Supabase Cloud
-   */
-  public async pushAllDataToSupabase(
-    onProgress?: (msg: string, percent: number) => void
-  ): Promise<{ success: boolean; message: string; details?: any }> {
-    this.assertRole(['admin'], 'đồng bộ dữ liệu lên Supabase');
-    if (!supabase) {
-      return { success: false, message: 'Chưa cấu hình Supabase Client.' };
-    }
-
-    try {
-      if (onProgress) onProgress('Đang đồng bộ Đơn vị & Lĩnh vực TTHC...', 10);
-      
-      // 1. Units
-      const { error: uErr } = await supabase.from('units').upsert(this.inMemoryCache.units);
-      if (uErr) console.warn('Push units error:', uErr.message);
-
-      // 2. Fields
-      const safeFields = this.inMemoryCache.fields.map((f) => ({
-        id: f.id,
-        code: f.code,
-        name: f.name,
-        linh_vuc: f.linh_vuc,
-        unit_id: f.unit_id,
-        display_order: f.display_order,
-        active: f.active !== false,
-      }));
-      for (let i = 0; i < safeFields.length; i += 50) {
-        await supabase.from('fields').upsert(safeFields.slice(i, i + 50));
-      }
-
-      if (onProgress) onProgress('Đang đồng bộ Danh sách Báo cáo...', 30);
-      // 3. Reports
-      const { error: rErr } = await supabase.from('reports').upsert(this.inMemoryCache.reports);
-      if (rErr) console.warn('Push reports error:', rErr.message);
-
-      if (onProgress) onProgress('Đang đồng bộ Nguồn dữ liệu báo cáo...', 50);
-      // 4. Sources
-      const { error: sErr } = await supabase.from('report_sources').upsert(this.inMemoryCache.sources);
-      if (sErr) console.warn('Push sources error:', sErr.message);
-
-      if (onProgress) onProgress(`Đang đồng bộ ${this.inMemoryCache.stats.length} dòng số liệu thống kê...`, 70);
-      // 5. Stats in batches of 100
-      const statsList = this.inMemoryCache.stats;
-      let uploadedStatsCount = 0;
-      for (let i = 0; i < statsList.length; i += 100) {
-        const batch = statsList.slice(i, i + 100);
-        const { error: stErr } = await supabase.from('report_field_statistics').upsert(batch);
-        if (stErr) console.warn(`Push stats batch [${i}..${i + batch.length}] warning:`, stErr.message);
-        uploadedStatsCount += batch.length;
-        if (onProgress) {
-          const progressPercent = Math.min(95, 70 + Math.floor((uploadedStatsCount / statsList.length) * 25));
-          onProgress(`Đang tải số liệu lên Supabase (${uploadedStatsCount}/${statsList.length})...`, progressPercent);
-        }
-      }
-
-      // 6. Analyses
-      if (this.inMemoryCache.analyses.length > 0) {
-        await supabase.from('report_analysis').upsert(this.inMemoryCache.analyses);
-      }
-
-      this.lastSyncTime = new Date().toISOString();
-      this.addAuditLog('PUSH_ALL_TO_SUPABASE', 'database', 'cloud', {
-        reports: this.inMemoryCache.reports.length,
-        stats: statsList.length,
-      });
-
-      if (onProgress) onProgress('Đã đồng bộ toàn bộ dữ liệu thành công lên Supabase Cloud!', 100);
-
-      return {
-        success: true,
-        message: `Đã tải thành công ${this.inMemoryCache.reports.length} kỳ báo cáo và ${statsList.length} dòng số liệu thống kê lên Supabase Cloud! Mọi thiết bị/tên miền khác (như Netlify) đều sẽ xem được số liệu này.`,
-        details: {
-          reportsCount: this.inMemoryCache.reports.length,
-          statsCount: statsList.length,
-          sourcesCount: this.inMemoryCache.sources.length,
-        },
-      };
-    } catch (err: any) {
-      console.error('pushAllDataToSupabase error:', err);
-      return {
-        success: false,
-        message: `Lỗi khi tải dữ liệu lên Supabase: ${err.message}`,
-      };
-    }
+  public async resetToFactoryDemo(): Promise<void> {
+    await this.syncWithSupabase();
   }
 
   /**
