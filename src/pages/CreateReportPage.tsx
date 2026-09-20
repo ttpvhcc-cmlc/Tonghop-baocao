@@ -263,7 +263,7 @@ export const CreateReportPage: React.FC = () => {
         let unitName = row.unitName || 'Chưa gán đơn vị';
 
         if (!fieldId) {
-          throw new Error(`Lĩnh vực "\${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
+          throw new Error(`Lĩnh vực "${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
         }
 
         return {
@@ -316,6 +316,12 @@ export const CreateReportPage: React.FC = () => {
 
         await store.saveReportStats(createdReport.id, src.id, statRows);
         totalSaved += statRows.length;
+      }
+
+      const hasErrors = preparedRows.some((r) => r.validationStatus === 'error');
+      await store.updateReportStatus(createdReport.id, 'imported');
+      if (!hasErrors) {
+        await store.updateReportStatus(createdReport.id, 'validated');
       }
 
       setImportSuccessMessage(
