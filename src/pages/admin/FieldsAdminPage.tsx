@@ -193,23 +193,18 @@ export const FieldsAdminPage: React.FC = () => {
     await handleAssignSectorUnit(sectorName, toUnitId);
   };
 
-  // 5. Excel Import Handler (Strict DB-Only Master Resolution)
+  // 5. Excel Import Handler (2-Stage Workflow: Import Catalog first, assign Units later)
   const handleImportProcedures = async (
     rows: ParsedProcedureRow[],
     _mode: 'upsert' | 'replace'
   ) => {
     try {
-      // Step A: Validate that every single row has a resolved unit from Master Supabase
-      const unmappedRows = rows.filter((r) => !r.matched_unit_id || !r.isMapped);
-      if (unmappedRows.length > 0) {
-        throw new Error(
-          `Không thể Import: Còn ${unmappedRows.length} thủ tục chưa có Đơn vị từ Master Supabase (Ví dụ: ${unmappedRows.slice(0, 3).map((r) => r.code).join(', ')}). Vui lòng phân công Đơn vị trong Master trước.`
-        );
-      }
-
-      // Step B: Build field objects (strictly excluding any test code)
+      // Step A: Build field objects (strictly excluding any test code)
       const existingFieldsMap = new Map(fields.map((f) => [f.code.trim().toLowerCase(), f]));
       const fieldsToSave: Field[] = [];
+      let newCount = 0;
+      let updatedCount = 0;
+      let unassignedCount = 0;
 
       rows.forEach((row, idx) => {
         // Exclude test procedure codes
@@ -218,13 +213,24 @@ export const FieldsAdminPage: React.FC = () => {
         }
 
         const existing = existingFieldsMap.get(row.code.trim().toLowerCase());
+        const resolvedUnitId = row.matched_unit_id || (existing ? existing.unit_id : null) || null;
+
+        if (existing) {
+          updatedCount++;
+        } else {
+          newCount++;
+        }
+
+        if (!resolvedUnitId) {
+          unassignedCount++;
+        }
 
         const fieldItem: Field = {
           id: existing ? existing.id : '',
           code: row.code.trim(),
           name: row.name.trim(),
           linh_vuc: row.linh_vuc?.trim() || 'Chưa phân loại',
-          unit_id: row.matched_unit_id!,
+          unit_id: resolvedUnitId,
           display_order: existing ? existing.display_order : idx + 1,
           active: true,
           co_quan_cong_bo: row.co_quan_cong_bo?.trim() || undefined,
@@ -252,11 +258,19 @@ export const FieldsAdminPage: React.FC = () => {
       setFields(verifiedFields);
       setNotification({
         type: 'success',
-        message: `Đã lưu thành công ${verifiedFields.length} thủ tục vào Supabase theo đúng Đơn vị Master.`,
+        message: `Đã lưu thành công ${fieldsToSave.length} thủ tục vào CSDL Supabase (${newCount} mới, ${updatedCount} cập nhật, ${unassignedCount} chưa phân công Đơn vị).`,
       });
 
-      // Switch to grouped tab to let user see result
-      setActiveTab('grouped');
+      const summary = {
+        total: fieldsToSave.length,
+        newCount,
+        updatedCount,
+        unassignedCount,
+        skippedCount: rows.length - fieldsToSave.length,
+        errorCount: 0,
+      };
+
+      return summary;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi khi nhập dữ liệu từ file Excel';
       setNotification({ type: 'error', message: msg });
@@ -550,6 +564,7 @@ export const FieldsAdminPage: React.FC = () => {
           fields={fields}
           units={units}
           onImportProcedures={handleImportProcedures}
+          onNavigateToGrouped={() => setActiveTab('grouped')}
         />
       )}
 

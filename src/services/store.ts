@@ -505,13 +505,11 @@ export class StorageService {
     if (duplicateFieldError) throw new Error(`Không thể kiểm tra mã lĩnh vực trên Supabase: ${duplicateFieldError.message}`);
     if (duplicateField) throw new Error(`Mã lĩnh vực "${codeClean}" đã tồn tại trên hệ thống.`);
 
-    if (!field.unit_id) throw new Error(`Lĩnh vực "${field.name}" phải được gán đúng đơn vị trong Master.`);
-
     const payload = {
       id,
       code: codeClean,
       name: field.name,
-      unit_id: field.unit_id,
+      unit_id: field.unit_id || null,
       display_order: field.display_order || 1,
       active: field.active !== false,
       co_quan_cong_bo: field.co_quan_cong_bo || null,
@@ -543,12 +541,11 @@ export class StorageService {
     if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
     const rows = fieldsToUpdate.map((field) => {
-      if (!field.unit_id) throw new Error(`Lĩnh vực "${field.name}" chưa được gán đơn vị.`);
       return {
         id: field.id || generateUUID(),
         code: field.code.trim(),
         name: field.name.trim(),
-        unit_id: field.unit_id,
+        unit_id: field.unit_id || null,
         display_order: field.display_order || 1,
         active: field.active !== false,
         co_quan_cong_bo: field.co_quan_cong_bo || null,
@@ -960,29 +957,34 @@ export class StorageService {
       throw new Error('Báo cáo đã khóa/lưu trữ. Không thể nhập dữ liệu.');
     }
 
-    const dbRows = rows.map((r) => ({
-      id: generateUUID(),
-      report_id: reportId,
-      source_id: sourceId,
-      field_id: r.field_id,
-      field_name_snapshot: r.field_name_snapshot || r.field_name,
-      unit_id: r.unit_id,
-      unit_name_snapshot: r.unit_name_snapshot || r.unit_name,
-      received_total: r.received_total,
-      received_online: r.received_online,
-      received_offline: r.received_offline,
-      carried_forward: r.carried_forward,
-      completed_total: r.completed_total,
-      completed_early: r.completed_early,
-      completed_on_time: r.completed_on_time,
-      completed_late: r.completed_late,
-      pending_total: r.pending_total,
-      pending_on_time: r.pending_on_time,
-      pending_late: r.pending_late,
-      notes: r.notes || '',
-      validation_status: r.validation_status,
-      validation_errors: r.validation_errors || [],
-    }));
+    const dbRows = rows.map((r) => {
+      if (!r.unit_id) {
+        throw new Error(`Thủ tục/Lĩnh vực "${r.field_name_snapshot || r.field_name}" chưa được phân công Đơn vị giải quyết.`);
+      }
+      return {
+        id: generateUUID(),
+        report_id: reportId,
+        source_id: sourceId,
+        field_id: r.field_id,
+        field_name_snapshot: r.field_name_snapshot || r.field_name,
+        unit_id: r.unit_id,
+        unit_name_snapshot: r.unit_name_snapshot || r.unit_name,
+        received_total: r.received_total,
+        received_online: r.received_online,
+        received_offline: r.received_offline,
+        carried_forward: r.carried_forward,
+        completed_total: r.completed_total,
+        completed_early: r.completed_early,
+        completed_on_time: r.completed_on_time,
+        completed_late: r.completed_late,
+        pending_total: r.pending_total,
+        pending_on_time: r.pending_on_time,
+        pending_late: r.pending_late,
+        notes: r.notes || '',
+        validation_status: r.validation_status,
+        validation_errors: r.validation_errors || [],
+      };
+    });
 
     // Upsert on the business key prevents duplicate (report, source, field) rows.
     const { data: saved, error } = await supabase

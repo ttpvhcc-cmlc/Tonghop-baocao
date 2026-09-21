@@ -32,15 +32,15 @@ export interface Unit {
   updated_at?: string;
 }
 
-// 3. fields (Each FIELD belongs to exactly ONE UNIT)
+// 3. fields (Each FIELD belongs to at most ONE UNIT, nullable before assignment)
 export interface Field {
   id: string;
   code: string;
   name: string;
-  unit_id: string;
+  unit_id?: string | null;
   display_order: number;
   active: boolean;
-  unit?: Unit;
+  unit?: Unit | null;
   created_at?: string;
   updated_at?: string;
 

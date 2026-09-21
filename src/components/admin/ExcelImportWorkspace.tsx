@@ -11,8 +11,9 @@ import {
   ChevronDown,
   Info,
   Check,
-  XCircle,
   AlertTriangle,
+  Layers,
+  ArrowRight,
 } from 'lucide-react';
 import type { Field, Unit } from '../../types/database';
 import {
@@ -20,7 +21,17 @@ import {
   exportCatalogToExcel,
   downloadSampleExcelTemplate,
   type ParsedProcedureRow,
+  type ExcelProcedureParseResult,
 } from '../../utils/excelProcedureHelper';
+
+export interface ImportSummaryResult {
+  total: number;
+  newCount: number;
+  updatedCount: number;
+  unassignedCount: number;
+  skippedCount: number;
+  errorCount: number;
+}
 
 interface ExcelImportWorkspaceProps {
   fields: Field[];
@@ -28,43 +39,51 @@ interface ExcelImportWorkspaceProps {
   onImportProcedures: (
     rows: ParsedProcedureRow[],
     mode: 'upsert' | 'replace'
-  ) => Promise<void> | void;
+  ) => Promise<ImportSummaryResult>;
+  onNavigateToGrouped?: () => void;
 }
 
 export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
   fields,
   units,
   onImportProcedures,
+  onNavigateToGrouped,
 }) => {
   const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [parsedRows, setParsedRows] = useState<ParsedProcedureRow[]>([]);
+  const [parseResult, setParseResult] = useState<ExcelProcedureParseResult | null>(null);
   const [importMode, setImportMode] = useState<'upsert' | 'replace'>('upsert');
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [collapsedPreviewSectors, setCollapsedPreviewSectors] = useState<Record<string, boolean>>({});
+  const [importSuccessResult, setImportSuccessResult] = useState<ImportSummaryResult | null>(null);
 
-  // Parse an uploaded file
+  // Parse uploaded file
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setErrorMessage(null);
+    setImportSuccessResult(null);
     setExcelFile(file);
     setIsProcessing(true);
 
     try {
       const buffer = await file.arrayBuffer();
       const result = parseProceduresExcel(buffer, fields, units);
-      setParsedRows(result.rows);
+      setParseResult(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi khi đọc file Excel';
       setErrorMessage(msg);
-      setParsedRows([]);
+      setParseResult(null);
     } finally {
       setIsProcessing(false);
       e.target.value = '';
     }
   };
+
+  const parsedRows = parseResult?.rows || [];
+  const conflicts = parseResult?.conflicts || [];
+  const hasConflicts = conflicts.length > 0;
 
   // Group preview rows by sector
   const previewGroupedData = useMemo(() => {
@@ -97,27 +116,6 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
     });
   }, [parsedRows]);
 
-  // Import stats & unmapped detection
-  const stats = useMemo(() => {
-    const total = parsedRows.length;
-    const existing = parsedRows.filter((r) => r.isExisting).length;
-    const newItems = total - existing;
-    const mappedCount = parsedRows.filter((r) => r.isMapped).length;
-    const unmappedRows = parsedRows.filter((r) => !r.isMapped);
-    const unmappedCount = unmappedRows.length;
-    const hasUnmapped = unmappedCount > 0;
-
-    return {
-      total,
-      existing,
-      newItems,
-      mappedCount,
-      unmappedRows,
-      unmappedCount,
-      hasUnmapped,
-    };
-  }, [parsedRows]);
-
   const toggleSectorPreview = (sec: string) => {
     setCollapsedPreviewSectors((prev) => ({
       ...prev,
@@ -125,12 +123,12 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
     }));
   };
 
-  // Commit import (only allowed when all rows have mapped units)
+  // Commit import (Allowed in 2-stage workflow even if some rows are unassigned)
   const handleCommit = async () => {
     if (parsedRows.length === 0) return;
-    if (stats.hasUnmapped) {
+    if (hasConflicts) {
       setErrorMessage(
-        `Không thể Import: Còn ${stats.unmappedCount} thủ tục chưa xác định được Đơn vị từ Master Supabase. Vui lòng phân công Đơn vị trong Master trước.`
+        `Không thể Import: Phát hiện ${conflicts.length} mã TTHC có thông tin mâu thuẫn trong file. Vui lòng chuẩn hóa file Excel trước khi tiếp tục.`
       );
       return;
     }
@@ -138,10 +136,11 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
     setIsProcessing(true);
     setErrorMessage(null);
     try {
-      await onImportProcedures(parsedRows, importMode);
-      // Reset after success
+      const res = await onImportProcedures(parsedRows, importMode);
+      setImportSuccessResult(res);
+      // Reset raw state after successful import
       setExcelFile(null);
-      setParsedRows([]);
+      setParseResult(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi khi nhập dữ liệu vào Supabase';
       setErrorMessage(msg);
@@ -158,10 +157,10 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Đồng bộ & Nhập danh mục Thủ tục hành chính từ tệp Excel
+              Đồng bộ & Nhập danh mục Thủ tục hành chính từ tệp Excel (Quy trình 2 giai đoạn)
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Dữ liệu Excel cung cấp thông tin TTHC (Mã, Tên, Lĩnh vực, Thuộc tính). Đơn vị thực hiện được Resolve tuyệt đối từ CSDL Master Supabase.
+              Giai đoạn 1: Nhập toàn bộ danh mục TTHC từ Excel. Giai đoạn 2: Phân công Đơn vị giải quyết trực tiếp trên giao diện quản trị theo từng Lĩnh vực hoặc từng TTHC.
             </p>
           </div>
 
@@ -170,7 +169,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => downloadSampleExcelTemplate()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
               title="Tải tệp Excel mẫu chuẩn với 11 cột để nhập dữ liệu"
             >
               <Download className="w-3.5 h-3.5 text-slate-600" />
@@ -181,7 +180,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => exportCatalogToExcel(fields, units)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
               title="Xuất toàn bộ danh mục TTHC hiện tại ra file Excel"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
@@ -190,20 +189,91 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Master Resolution Principle Guide */}
+        {/* 2-Stage Architecture Principle Guide */}
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs">
           <div className="font-semibold text-slate-800 mb-2 flex items-center gap-1.5">
             <Info className="w-4 h-4 text-blue-600" />
-            Nguyên tắc xác định Đơn vị (Sole Source of Truth: Supabase Master):
+            Quy trình quản lý danh mục TTHC 2 giai đoạn:
           </div>
-          <p className="text-[11px] text-slate-600 leading-relaxed">
-            Hệ thống tra cứu Đơn vị giải quyết dựa trên danh mục Master trên Supabase theo thứ tự: (1) Mã TTHC đã tồn tại và đã gán đơn vị; (2) Lĩnh vực tương ứng đã được phân công Đơn vị trong Master. Nếu chưa có mapping trong Supabase, hệ thống sẽ yêu cầu thiết lập trước và <strong>khóa nút Import</strong> để bảo toàn tính toàn vẹn dữ liệu.
-          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-slate-600 leading-relaxed">
+            <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px]">1</span>
+                Giai đoạn 1: Import Danh mục TTHC
+              </span>
+              <p>
+                Nhập danh mục từ Excel để ghi nhận Mã TTHC, Tên, Lĩnh vực và các thuộc tính công bố. Thủ tục mới có thể ở trạng thái <em>&quot;Chưa phân công Đơn vị&quot;</em> (unit_id = NULL).
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px]">2</span>
+                Giai đoạn 2: Phân công Đơn vị trên Web UI
+              </span>
+              <p>
+                Quản trị viên phân công Đơn vị cho từng Lĩnh vực hoặc từng TTHC trên màn hình Quản lý Danh mục. Khi nhập báo cáo số liệu, hệ thống bắt buộc TTHC phải có Đơn vị.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* SUCCESS RESULT SUMMARY MODAL / BANNER */}
+      {importSuccessResult && (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-5 shadow-xs space-y-4 animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <h4 className="text-sm font-bold text-emerald-950">
+                Nhập danh mục TTHC thành công vào CSDL Supabase!
+              </h4>
+              <p className="text-xs text-emerald-800">
+                Toàn bộ dữ liệu đã được lưu trữ trực tiếp trên Supabase và đồng bộ chính xác.
+              </p>
+            </div>
+            {onNavigateToGrouped && importSuccessResult.unassignedCount > 0 && (
+              <button
+                type="button"
+                onClick={onNavigateToGrouped}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer shadow-xs"
+              >
+                <span>Đến bảng phân công Đơn vị</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-slate-500 font-medium block">Tổng số import</span>
+              <span className="text-base font-bold font-mono text-slate-900">{importSuccessResult.total}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-emerald-600 font-medium block">Thủ tục mới</span>
+              <span className="text-base font-bold font-mono text-emerald-700">+{importSuccessResult.newCount}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-blue-600 font-medium block">Cập nhật thông tin</span>
+              <span className="text-base font-bold font-mono text-blue-700">{importSuccessResult.updatedCount}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-amber-700 font-medium block">Chưa phân công UNIT</span>
+              <span className="text-base font-bold font-mono text-amber-700">{importSuccessResult.unassignedCount}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-slate-500 font-medium block">Bỏ qua (test/trùng)</span>
+              <span className="text-base font-bold font-mono text-slate-600">{importSuccessResult.skippedCount}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-emerald-200">
+              <span className="text-[11px] text-slate-500 font-medium block">Số lỗi</span>
+              <span className="text-base font-bold font-mono text-slate-900">{importSuccessResult.errorCount}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* DRAG & DROP UPLOAD BOX */}
-      {parsedRows.length === 0 && (
+      {!parseResult && (
         <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-white hover:bg-blue-50/30 transition-all relative group cursor-pointer shadow-xs">
           <input
             type="file"
@@ -224,7 +294,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
               </p>
             </div>
             <span className="inline-block px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[11px] font-medium">
-              Tự động đối soát và map với danh mục Master Supabase
+              Kiểm tra trùng lặp, loại trừ mã test và sẵn sàng phân công Đơn vị
             </span>
           </div>
         </div>
@@ -235,14 +305,14 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5 shadow-xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <strong className="block font-bold">Thông báo:</strong>
+            <strong className="block font-bold">Thông báo lỗi:</strong>
             <p>{errorMessage}</p>
           </div>
         </div>
       )}
 
       {/* PARSED DATA PREVIEW & GROUPED TABLE */}
-      {parsedRows.length > 0 && (
+      {parseResult && parsedRows.length > 0 && (
         <div className="space-y-4 animate-in fade-in">
           {/* STATS & CONFIG BAR */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
@@ -253,18 +323,42 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                   {excelFile ? excelFile.name : 'Dữ liệu thủ tục đã phân tích'}
                 </h4>
               </div>
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs">
                 <span className="text-slate-600 font-semibold">
-                  Tổng số: <strong className="text-blue-600 font-mono font-bold">{stats.total}</strong> thủ tục
+                  Tổng số: <strong className="text-blue-600 font-mono font-bold">{parseResult.totalRowsCount}</strong> thủ tục
                 </span>
                 <span className="text-slate-300">|</span>
                 <span className="text-emerald-700 font-medium">
-                  Đã mapping: <strong className="font-mono text-emerald-700 font-bold">{stats.mappedCount}</strong>
+                  Mới: <strong className="font-mono font-bold">{parseResult.newCount}</strong>
                 </span>
                 <span className="text-slate-300">|</span>
-                <span className={stats.unmappedCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-500 font-medium'}>
-                  Chưa mapping: <strong className="font-mono">{stats.unmappedCount}</strong>
+                <span className="text-blue-700 font-medium">
+                  Cập nhật: <strong className="font-mono font-bold">{parseResult.updatedCount}</strong>
                 </span>
+                <span className="text-slate-300">|</span>
+                <span className="text-emerald-700 font-medium">
+                  Đã có Đơn vị (Master): <strong className="font-mono font-bold">{parseResult.assignedUnitCount}</strong>
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className={parseResult.unassignedUnitCount > 0 ? 'text-amber-700 font-medium' : 'text-slate-500 font-medium'}>
+                  Chưa phân công: <strong className="font-mono font-bold">{parseResult.unassignedUnitCount}</strong>
+                </span>
+                {parseResult.skippedTestCount > 0 && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-slate-500 text-[11px]">
+                      Bỏ qua {parseResult.skippedTestCount} mã test
+                    </span>
+                  </>
+                )}
+                {parseResult.duplicateRowsCount > 0 && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-slate-500 text-[11px]">
+                      Gộp {parseResult.duplicateRowsCount} dòng trùng lặp
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -274,7 +368,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setImportMode('upsert')}
-                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer ${
                     importMode === 'upsert'
                       ? 'bg-white text-blue-700 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-800'
@@ -286,14 +380,14 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setImportMode('replace')}
-                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors cursor-pointer ${
                     importMode === 'replace'
                       ? 'bg-rose-50 text-rose-700 shadow-2xs border border-rose-200'
                       : 'text-slate-600 hover:text-slate-800'
                   }`}
-                  title="Ghi đè toàn bộ danh mục"
+                  title="Ghi đè danh mục"
                 >
-                  Ghi đè toàn bộ
+                  Ghi đè danh mục
                 </button>
               </div>
 
@@ -302,28 +396,28 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                 type="button"
                 onClick={() => {
                   setExcelFile(null);
-                  setParsedRows([]);
+                  setParseResult(null);
                   setErrorMessage(null);
                 }}
-                className="px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                className="px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               >
                 Hủy bỏ
               </button>
 
-              {/* Execute Import (Disabled if unmapped rows exist) */}
+              {/* Execute Import (Allowed in 2-stage workflow, only blocked on contradictory conflicts) */}
               <button
                 type="button"
-                disabled={isProcessing || stats.hasUnmapped || parsedRows.length === 0}
+                disabled={isProcessing || hasConflicts || parsedRows.length === 0}
                 onClick={handleCommit}
                 className={`inline-flex items-center gap-2 px-5 py-2 text-xs font-bold rounded-lg shadow-sm transition-all ${
-                  stats.hasUnmapped
+                  hasConflicts
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                     : 'text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
                 }`}
                 title={
-                  stats.hasUnmapped
-                    ? `Không thể Import: Còn ${stats.unmappedCount} thủ tục chưa có Đơn vị từ Master Supabase`
-                    : `Xác nhận Lưu ${stats.total} thủ tục vào CSDL Supabase`
+                  hasConflicts
+                    ? 'Không thể Import do có mã TTHC mâu thuẫn nội dung trong file'
+                    : `Xác nhận Lưu ${parseResult.totalRowsCount} thủ tục vào CSDL Supabase`
                 }
               >
                 {isProcessing ? (
@@ -334,41 +428,56 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Xác nhận Lưu {stats.total} thủ tục</span>
+                    <span>Xác nhận Lưu {parseResult.totalRowsCount} thủ tục</span>
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {/* UNMAPPED WARNING ALERT */}
-          {stats.hasUnmapped && (
+          {/* DUPLICATE CONFLICT WARNING ALERT (BLOCKING) */}
+          {hasConflicts && (
             <div className="bg-rose-50 border border-rose-300 rounded-xl p-4 text-xs text-rose-950 flex items-start gap-3 shadow-xs">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div className="space-y-2 flex-1">
                 <div>
                   <h4 className="font-bold text-sm text-rose-900">
-                    Phát hiện {stats.unmappedCount} thủ tục chưa xác định được Đơn vị từ Master Supabase (Khóa chức năng Import)
+                    Phát hiện {conflicts.length} mã TTHC có thông tin mâu thuẫn trong file Excel (Chặn Import)
                   </h4>
                   <p className="text-rose-800 text-[11px] mt-0.5">
-                    Hệ thống không cho phép ghi nhận một phần dữ liệu hoặc tự động suy đoán đơn vị. Vui lòng cập nhật phân công Đơn vị cho các Lĩnh vực sau trong Master Supabase trước khi Import:
+                    Cùng một mã TTHC không được có tên thủ tục hoặc lĩnh vực khác nhau trong cùng một tệp. Vui lòng sửa lại tệp Excel:
                   </p>
                 </div>
 
-                {/* List of distinct unmapped sectors / codes */}
-                <div className="bg-white/80 border border-rose-200 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1.5">
-                  {Array.from(new Set(stats.unmappedRows.map((r) => r.linh_vuc || 'Chưa phân loại'))).map((sec) => {
-                    const count = stats.unmappedRows.filter((r) => (r.linh_vuc || 'Chưa phân loại') === sec).length;
-                    return (
-                      <div key={sec} className="flex items-center justify-between text-[11px] py-0.5 border-b border-rose-100 last:border-b-0">
-                        <span className="font-bold text-rose-900">• Lĩnh vực: {sec}</span>
-                        <span className="text-rose-700 bg-rose-100 px-2 py-0.5 rounded font-mono font-semibold">
-                          {count} thủ tục chưa gán Đơn vị
-                        </span>
+                <div className="bg-white/90 border border-rose-200 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+                  {conflicts.map((c) => (
+                    <div key={c.code} className="text-[11px] border-b border-rose-100 last:border-b-0 pb-2">
+                      <div className="font-bold text-rose-900">Mã TTHC: {c.code}</div>
+                      <div className="pl-2 space-y-0.5 text-slate-700 mt-1">
+                        {c.instances.map((inst, idx) => (
+                          <div key={idx} className="text-[10px]">
+                            • Dòng Excel {inst.rowNum}: &quot;{inst.name}&quot; (Lĩnh vực: {inst.linh_vuc})
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* UNASSIGNED NOTICE (NON-BLOCKING, EXPLAINS 2-STAGE FLOW) */}
+          {parseResult.unassignedUnitCount > 0 && !hasConflicts && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5 shadow-xs">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-[11px] space-y-0.5">
+                <span className="font-bold text-amber-950">
+                  Thông tin quy trình: Có {parseResult.unassignedUnitCount} thủ tục mới chưa có Đơn vị trong Master Supabase.
+                </span>
+                <p className="text-amber-800">
+                  Các thủ tục này sẽ được nhập vào CSDL với trạng thái <em>&quot;Chưa phân công&quot;</em>. Bạn có thể bấm <strong>&quot;Xác nhận Lưu&quot;</strong> để nhập ngay, sau đó phân công Đơn vị trên màn hình Quản lý danh mục.
+                </p>
               </div>
             </div>
           )}
@@ -376,11 +485,12 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
           {/* GROUPED PREVIEW TABLE (READ-ONLY DISPLAY OF RESOLVED MASTER UNIT) */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
             <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-800">
-                Bảng phân tích xem trước (Đơn vị được tra cứu từ Master Supabase):
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-blue-600" />
+                Xem trước danh mục phân theo Lĩnh vực:
               </span>
               <span className="text-slate-500 text-[11px]">
-                {stats.mappedCount}/{stats.total} thủ tục đã sẵn sàng import
+                {parseResult.assignedUnitCount}/{parseResult.totalRowsCount} thủ tục đã có Đơn vị từ Master
               </span>
             </div>
 
@@ -400,8 +510,8 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                     <th className="p-2.5 w-56 bg-slate-100 border-l border-slate-200">
                       Đơn vị (Master Supabase)
                     </th>
-                    <th className="p-2.5 w-28 text-center border-l border-slate-200">
-                      Trạng thái
+                    <th className="p-2.5 w-32 text-center border-l border-slate-200">
+                      Phân công Đơn vị
                     </th>
                   </tr>
                 </thead>
@@ -419,7 +529,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                               <button
                                 type="button"
                                 onClick={() => toggleSectorPreview(group.sectorName)}
-                                className="p-1 text-slate-500 hover:text-slate-800 rounded"
+                                className="p-1 text-slate-500 hover:text-slate-800 rounded cursor-pointer"
                               >
                                 {isCollapsed ? (
                                   <ChevronRight className="w-4 h-4" />
@@ -453,7 +563,9 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                                 )}
                               </span>
                             ) : (
-                              <span className="text-rose-600 font-semibold">Chưa xác định đơn vị</span>
+                              <span className="text-amber-700 font-medium text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                Chưa phân công
+                              </span>
                             )}
                           </td>
 
@@ -462,12 +574,11 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                             {group.unmappedCount === 0 ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                                 <Check className="w-3 h-3" />
-                                Đã mapping
+                                Đã có Đơn vị
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
-                                <XCircle className="w-3 h-3" />
-                                Chưa mapping
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                                Sẽ phân công sau
                               </span>
                             )}
                           </td>
@@ -517,19 +628,20 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                                       )}
                                     </div>
                                   ) : (
-                                    <span className="text-rose-600 font-medium text-[11px]">Chưa xác định đơn vị</span>
+                                    <span className="text-amber-700 font-medium text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                      Chưa phân công
+                                    </span>
                                   )}
                                 </td>
                                 <td className="p-2.5 border-l border-slate-200 text-center">
                                   {row.isMapped ? (
                                     <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                                       <Check className="w-3 h-3 text-emerald-700" />
-                                      Đã mapping
+                                      Đã có Đơn vị
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
-                                      <XCircle className="w-3 h-3 text-rose-700" />
-                                      Chưa mapping
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                                      Chưa phân công
                                     </span>
                                   )}
                                 </td>

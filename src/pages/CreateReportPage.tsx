@@ -255,16 +255,25 @@ export const CreateReportPage: React.FC = () => {
     if (!createdReport || !parseResult) return;
 
     try {
-      // Ensure all rows are mapped to a field (or auto-create the field if missing)
+      // Ensure all rows are mapped to a field and have a unit assigned
+      const allFields = store.getFields();
+      const allUnits = store.getUnits();
       const preparedRows = parseResult.draftRows.map((row) => {
-        let fieldId = row.matchedFieldId;
-        let fieldName = row.matchedFieldName || row.rawFieldName;
-        let unitId = row.unitId || '';
-        let unitName = row.unitName || 'Chưa gán đơn vị';
+        const fieldId = row.matchedFieldId;
+        const fieldName = row.matchedFieldName || row.rawFieldName;
 
         if (!fieldId) {
           throw new Error(`Lĩnh vực "${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
         }
+
+        const targetField = allFields.find((f) => f.id === fieldId);
+        if (!targetField || !targetField.unit_id) {
+          throw new Error(`Thủ tục/Lĩnh vực "${fieldName || row.rawFieldName}" chưa được phân công Đơn vị giải quyết. Vui lòng phân công Đơn vị trong Quản trị Danh mục trước khi nhập số liệu báo cáo.`);
+        }
+
+        const assignedUnit = allUnits.find((u) => u.id === targetField.unit_id);
+        const unitId = targetField.unit_id;
+        const unitName = assignedUnit?.name || row.unitName || 'Đơn vị';
 
         return {
           ...row,

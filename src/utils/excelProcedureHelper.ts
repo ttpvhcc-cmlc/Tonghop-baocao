@@ -13,11 +13,31 @@ export interface ParsedProcedureRow {
   muc_do_cung_cap: string;
   phi_le_phi: string;
   raw_unit_name: string;
-  matched_unit_id?: string;
+  matched_unit_id?: string | null;
   matched_unit_name?: string;
   matched_unit_code?: string;
   isMapped: boolean;
   isExisting?: boolean;
+  fileRowNum?: number;
+}
+
+export interface CodeConflict {
+  code: string;
+  instances: { rowNum: number; name: string; linh_vuc: string }[];
+  reason: string;
+}
+
+export interface ExcelProcedureParseResult {
+  rows: ParsedProcedureRow[];
+  headers: string[];
+  totalRowsCount: number;
+  newCount: number;
+  updatedCount: number;
+  assignedUnitCount: number;
+  unassignedUnitCount: number;
+  skippedTestCount: number;
+  duplicateRowsCount: number;
+  conflicts: CodeConflict[];
 }
 
 /**
@@ -44,14 +64,14 @@ export function isTestProcedureCode(code: string): boolean {
  * Resolves UNIT strictly from Master Supabase data:
  * 1. If FIELD already exists in Supabase and has a valid unit_id -> use that unit_id.
  * 2. If FIELD is new, check if its Lĩnh vực matches an existing Master Field in Supabase that has a valid unit_id.
- * 3. Otherwise, returns undefined (unmapped). NO fuzzy matching, NO auto-guessing, NO auto-creating units.
+ * 3. Otherwise, returns null (unassigned). NO fuzzy matching, NO auto-guessing, NO auto-creating units.
  */
 export function resolveUnitFromMaster(
   code: string,
   linhVuc: string,
   existingFields: Field[],
   units: Unit[]
-): { unitId?: string; unitName?: string; unitCode?: string; isMapped: boolean } {
+): { unitId: string | null; unitName?: string; unitCode?: string; isMapped: boolean } {
   const validUnitsMap = new Map<string, Unit>(units.map((u) => [u.id, u]));
   const cleanCode = normalizeKey(code);
   const cleanSector = normalizeKey(linhVuc);
@@ -77,9 +97,9 @@ export function resolveUnitFromMaster(
     );
     if (sectorFields.length > 0) {
       // Find the unit assigned to this sector in Master
-      const unitId = sectorFields[0].unit_id!;
-      const u = validUnitsMap.get(unitId);
-      if (u) {
+      const unitId = sectorFields[0].unit_id;
+      if (unitId && validUnitsMap.has(unitId)) {
+        const u = validUnitsMap.get(unitId)!;
         return {
           unitId: u.id,
           unitName: u.name,
@@ -91,7 +111,7 @@ export function resolveUnitFromMaster(
   }
 
   return {
-    unitId: undefined,
+    unitId: null,
     unitName: undefined,
     unitCode: undefined,
     isMapped: false,
@@ -99,21 +119,16 @@ export function resolveUnitFromMaster(
 }
 
 /**
- * Parse Excel ArrayBuffer into structured procedure rows.
- * Excel only provides TTHC data (Code, Name, Sector, description).
- * UNIT is strictly resolved from Master Supabase tables (fields & units).
+ * Parse Excel ArrayBuffer into structured procedure rows with 2-stage workflow support:
+ * - Excel only provides TTHC data (Code, Name, Sector, description).
+ * - UNIT is resolved from Master Supabase if already exists; otherwise unit_id is null.
+ * - Duplicate codes with conflicting content are flagged to block import.
  */
 export function parseProceduresExcel(
   fileBuffer: ArrayBuffer,
   existingFields: Field[],
   units: Unit[]
-): {
-  rows: ParsedProcedureRow[];
-  headers: string[];
-  unmappedRows: ParsedProcedureRow[];
-  mappedCount: number;
-  unmappedCount: number;
-} {
+): ExcelProcedureParseResult {
   const workbook = XLSX.read(fileBuffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheetName];
@@ -178,8 +193,12 @@ export function parseProceduresExcel(
   const unitIdx = unitColIdx !== -1 ? unitColIdx : findCol(['đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị'], 10);
 
   const existingCodesMap = new Map(existingFields.map((f) => [normalizeKey(f.code), f]));
-  const parsedRows: ParsedProcedureRow[] = [];
-  const unmappedRows: ParsedProcedureRow[] = [];
+
+  // Track codes seen inside this file to detect conflicts or duplicates
+  const codeTracker = new Map<string, { rowNum: number; name: string; linh_vuc: string; item: ParsedProcedureRow }[]>();
+
+  let skippedTestCount = 0;
+  let duplicateRowsCount = 0;
 
   for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
     const row = rawRows[i] as unknown[];
@@ -189,22 +208,27 @@ export function parseProceduresExcel(
     const name = String(row[nameIdx] ?? '').trim();
     const linh_vuc = String(row[sectorIdx] ?? '').trim();
 
-    // Skip empty lines
+    // Skip completely empty lines
     if (!code && !name) continue;
     if (!name && code) continue;
 
-    // Filter out test codes (Requirement G)
-    if (isTestProcedureCode(code)) continue;
+    // Filter out test codes
+    if (isTestProcedureCode(code)) {
+      skippedTestCount++;
+      continue;
+    }
 
     const rawUnit = String(row[unitIdx] ?? '').trim();
+    const cleanCode = code || `TTHC-${i}`;
+    const codeKey = normalizeKey(cleanCode);
 
     // Resolve UNIT strictly from Master Supabase
-    const masterUnit = resolveUnitFromMaster(code, linh_vuc, existingFields, units);
-    const isExisting = existingCodesMap.has(normalizeKey(code));
+    const masterUnit = resolveUnitFromMaster(cleanCode, linh_vuc, existingFields, units);
+    const isExisting = existingCodesMap.has(codeKey);
 
     const parsedItem: ParsedProcedureRow = {
-      stt: row[sttIdx] ? String(row[sttIdx]).trim() : parsedRows.length + 1,
-      code: code || `TTHC-${parsedRows.length + 1}`,
+      stt: row[sttIdx] ? String(row[sttIdx]).trim() : i - headerRowIndex,
+      code: cleanCode,
       name: name,
       linh_vuc: linh_vuc || 'Chưa phân loại',
       co_quan_cong_bo: String(row[cqcbIdx] ?? '').trim(),
@@ -219,20 +243,87 @@ export function parseProceduresExcel(
       matched_unit_code: masterUnit.unitCode,
       isMapped: masterUnit.isMapped,
       isExisting,
+      fileRowNum: i + 1,
     };
 
-    parsedRows.push(parsedItem);
-    if (!masterUnit.isMapped) {
-      unmappedRows.push(parsedItem);
+    const prevInstances = codeTracker.get(codeKey) || [];
+    prevInstances.push({
+      rowNum: i + 1,
+      name: name.trim(),
+      linh_vuc: (linh_vuc || 'Chưa phân loại').trim(),
+      item: parsedItem,
+    });
+    codeTracker.set(codeKey, prevInstances);
+  }
+
+  // Analyze conflicts and deduplicate identical rows
+  const parsedRows: ParsedProcedureRow[] = [];
+  const conflicts: CodeConflict[] = [];
+
+  for (const [codeKey, instances] of codeTracker.entries()) {
+    if (instances.length === 1) {
+      parsedRows.push(instances[0].item);
+      continue;
+    }
+
+    // Check if duplicate entries are contradictory or identical
+    const first = instances[0];
+    const hasConflict = instances.some(
+      (inst) =>
+        normalizeKey(inst.name) !== normalizeKey(first.name) ||
+        normalizeKey(inst.linh_vuc) !== normalizeKey(first.linh_vuc)
+    );
+
+    if (hasConflict) {
+      conflicts.push({
+        code: instances[0].item.code,
+        instances: instances.map((inst) => ({
+          rowNum: inst.rowNum,
+          name: inst.name,
+          linh_vuc: inst.linh_vuc,
+        })),
+        reason: `Mã TTHC "${instances[0].item.code}" xuất hiện ${instances.length} lần trong file với tên thủ tục hoặc lĩnh vực mâu thuẫn nhau.`,
+      });
+    } else {
+      // Identical rows: keep the first one and count duplicates
+      duplicateRowsCount += instances.length - 1;
+      parsedRows.push(instances[0].item);
     }
   }
+
+  // Sort rows by stt / row number
+  parsedRows.sort((a, b) => (Number(a.fileRowNum) || 0) - (Number(b.fileRowNum) || 0));
+
+  let newCount = 0;
+  let updatedCount = 0;
+  let assignedUnitCount = 0;
+  let unassignedUnitCount = 0;
+
+  parsedRows.forEach((r) => {
+    if (r.isExisting) {
+      updatedCount++;
+    } else {
+      newCount++;
+    }
+
+    if (r.matched_unit_id && r.isMapped) {
+      assignedUnitCount++;
+    } else {
+      unassignedUnitCount++;
+    }
+  });
 
   return {
     rows: parsedRows,
     headers: rawHeaders,
-    unmappedRows,
-    mappedCount: parsedRows.length - unmappedRows.length,
-    unmappedCount: unmappedRows.length,
+    totalRowsCount: parsedRows.length,
+    newCount,
+    updatedCount,
+    assignedUnitCount,
+    unassignedUnitCount,
+    skippedTestCount,
+    duplicateRowsCount,
+    conflicts,
   };
 }
 
