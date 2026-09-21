@@ -23,7 +23,7 @@ import { ExcelImportWorkspace } from '../../components/admin/ExcelImportWorkspac
 import {
   exportCatalogToExcel,
   downloadSampleExcelTemplate,
-  matchUnitByNameOrCode,
+  isTestProcedureCode,
   type ParsedProcedureRow,
 } from '../../utils/excelProcedureHelper';
 
@@ -193,32 +193,28 @@ export const FieldsAdminPage: React.FC = () => {
     await handleAssignSectorUnit(sectorName, toUnitId);
   };
 
-  // 5. Excel Import Handler
+  // 5. Excel Import Handler (Strict DB-Only Master Resolution)
   const handleImportProcedures = async (
     rows: ParsedProcedureRow[],
-    mode: 'upsert' | 'replace',
-    newUnitsToCreate: string[]
+    _mode: 'upsert' | 'replace'
   ) => {
     try {
-      // Step A: Units are mastered in Supabase. Do not create units implicitly during field import.
-      const currentUnits = [...store.getUnits()];
-      const unknownUnits = newUnitsToCreate
-        .map((name) => name.trim())
-        .filter((name) => name && !matchUnitByNameOrCode(name, currentUnits));
-      if (unknownUnits.length > 0) {
-        throw new Error(`File Excel chứa Đơn vị chưa có trong Master Supabase: ${unknownUnits.join(', ')}. Hãy cập nhật Master Đơn vị trước khi nhập.`);
+      // Step A: Validate that every single row has a resolved unit from Master Supabase
+      const unmappedRows = rows.filter((r) => !r.matched_unit_id || !r.isMapped);
+      if (unmappedRows.length > 0) {
+        throw new Error(
+          `Không thể Import: Còn ${unmappedRows.length} thủ tục chưa có Đơn vị từ Master Supabase (Ví dụ: ${unmappedRows.slice(0, 3).map((r) => r.code).join(', ')}). Vui lòng phân công Đơn vị trong Master trước.`
+        );
       }
 
-      // Step B: Build field objects
+      // Step B: Build field objects (strictly excluding any test code)
       const existingFieldsMap = new Map(fields.map((f) => [f.code.trim().toLowerCase(), f]));
       const fieldsToSave: Field[] = [];
 
       rows.forEach((row, idx) => {
-        // Resolve unit_id
-        let unitId = row.matched_unit_id;
-        if (!unitId && row.raw_unit_name) {
-          const matched = matchUnitByNameOrCode(row.raw_unit_name, currentUnits);
-          if (matched) unitId = matched.id;
+        // Exclude test procedure codes
+        if (isTestProcedureCode(row.code)) {
+          return;
         }
 
         const existing = existingFieldsMap.get(row.code.trim().toLowerCase());
@@ -228,7 +224,7 @@ export const FieldsAdminPage: React.FC = () => {
           code: row.code.trim(),
           name: row.name.trim(),
           linh_vuc: row.linh_vuc?.trim() || 'Chưa phân loại',
-          unit_id: unitId || existing?.unit_id || '',
+          unit_id: row.matched_unit_id!,
           display_order: existing ? existing.display_order : idx + 1,
           active: true,
           co_quan_cong_bo: row.co_quan_cong_bo?.trim() || undefined,
@@ -243,6 +239,10 @@ export const FieldsAdminPage: React.FC = () => {
         fieldsToSave.push(fieldItem);
       });
 
+      if (fieldsToSave.length === 0) {
+        throw new Error('Không có dòng dữ liệu hợp lệ để lưu.');
+      }
+
       const savedFields = await store.saveFieldsBulk(fieldsToSave);
       const verifiedFields = await store.fetchFields();
       if (savedFields.length !== fieldsToSave.length) {
@@ -252,7 +252,7 @@ export const FieldsAdminPage: React.FC = () => {
       setFields(verifiedFields);
       setNotification({
         type: 'success',
-        message: `Đã lưu ${verifiedFields.length} thủ tục vào Supabase. Có thể tải lại trình duyệt để kiểm tra dữ liệu.`,
+        message: `Đã lưu thành công ${verifiedFields.length} thủ tục vào Supabase theo đúng Đơn vị Master.`,
       });
 
       // Switch to grouped tab to let user see result
@@ -260,6 +260,7 @@ export const FieldsAdminPage: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi khi nhập dữ liệu từ file Excel';
       setNotification({ type: 'error', message: msg });
+      throw err;
     }
   };
 

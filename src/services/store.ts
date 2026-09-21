@@ -14,6 +14,7 @@ import {
 } from '../types/database';
 import { supabase, isSupabaseConfigured, supabaseUrl } from '../lib/supabase';
 import { resolveLinhVuc } from '../utils/fieldResolver';
+import { isTestProcedureCode } from '../utils/excelProcedureHelper';
 
 // No business data is seeded in the client runtime. Supabase is the sole persistence source.
 
@@ -184,7 +185,9 @@ export class StorageService {
         .select('*, units(*)')
         .order('display_order', { ascending: true });
       if (fieldsError) throw fieldsError;
-      this.inMemoryCache.fields = deduplicateById(fieldsData || []);
+      this.inMemoryCache.fields = deduplicateById(
+        (fieldsData || []).filter((f: Field) => !isTestProcedureCode(f.code))
+      );
 
       // 4. Fetch reports (Merge Supabase reports with local reports)
       const { data: reportsData } = await supabase
@@ -481,7 +484,9 @@ export class StorageService {
       .select('*, units(*)')
       .order('display_order', { ascending: true });
     if (error) throw new Error(`Không thể tải danh mục lĩnh vực từ Supabase: ${error.message}`);
-    this.inMemoryCache.fields = deduplicateById(data || []);
+    this.inMemoryCache.fields = deduplicateById(
+      (data || []).filter((f: Field) => !isTestProcedureCode(f.code))
+    );
     this.notify();
     return this.getFields();
   }

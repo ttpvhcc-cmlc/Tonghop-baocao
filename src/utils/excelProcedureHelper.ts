@@ -14,55 +14,95 @@ export interface ParsedProcedureRow {
   phi_le_phi: string;
   raw_unit_name: string;
   matched_unit_id?: string;
+  matched_unit_name?: string;
+  matched_unit_code?: string;
+  isMapped: boolean;
   isExisting?: boolean;
 }
 
-// Normalize Vietnamese strings for matching
-export function normalizeVi(str: string): string {
-  return (str || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/\s+/g, ' ');
+/**
+ * Normalizes string for exact matching (trim and lowercase)
+ */
+export function normalizeKey(str: string): string {
+  return (str || '').trim().toLowerCase();
 }
 
-// Find existing unit by name or code
-export function matchUnitByNameOrCode(rawName: string, units: Unit[]): Unit | undefined {
-  if (!rawName) return undefined;
-  const clean = normalizeVi(rawName);
-
-  // Exact code match
-  const byCode = units.find(u => normalizeVi(u.code) === clean);
-  if (byCode) return byCode;
-
-  // Exact name match
-  const byName = units.find(u => normalizeVi(u.name) === clean);
-  if (byName) return byName;
-
-  // Synonym / abbreviation mappings for common district/commune units
-  if (clean.includes('van phong') || clean === 'vp') {
-    const vp = units.find(u => normalizeVi(u.code) === 'vp' || normalizeVi(u.name).includes('van phong'));
-    if (vp) return vp;
-  }
-  if (clean.includes('kinh te') || clean === 'pkt') {
-    const pkt = units.find(u => normalizeVi(u.code) === 'pkt' || normalizeVi(u.name).includes('kinh te'));
-    if (pkt) return pkt;
-  }
-  if (clean.includes('van hoa') || clean.includes('vhxh') || clean.includes('pvhxh')) {
-    const pvhxh = units.find(u => normalizeVi(u.code) === 'pvhxh' || normalizeVi(u.name).includes('vhxh') || normalizeVi(u.name).includes('van hoa'));
-    if (pvhxh) return pvhxh;
-  }
-
-  // Partial match
-  return units.find(u => {
-    const uNorm = normalizeVi(u.name);
-    return uNorm.includes(clean) || clean.includes(uNorm);
-  });
+/**
+ * Checks if a procedure code is a test code that should be excluded
+ */
+export function isTestProcedureCode(code: string): boolean {
+  const clean = (code || '').trim().toUpperCase();
+  return (
+    clean === 'IMP_F_1789834010478' ||
+    clean.startsWith('IMP_F_') ||
+    clean.startsWith('TEST_') ||
+    clean.startsWith('DEMO_')
+  );
 }
 
-// Parse Excel ArrayBuffer or file into structured rows
+/**
+ * Resolves UNIT strictly from Master Supabase data:
+ * 1. If FIELD already exists in Supabase and has a valid unit_id -> use that unit_id.
+ * 2. If FIELD is new, check if its Lĩnh vực matches an existing Master Field in Supabase that has a valid unit_id.
+ * 3. Otherwise, returns undefined (unmapped). NO fuzzy matching, NO auto-guessing, NO auto-creating units.
+ */
+export function resolveUnitFromMaster(
+  code: string,
+  linhVuc: string,
+  existingFields: Field[],
+  units: Unit[]
+): { unitId?: string; unitName?: string; unitCode?: string; isMapped: boolean } {
+  const validUnitsMap = new Map<string, Unit>(units.map((u) => [u.id, u]));
+  const cleanCode = normalizeKey(code);
+  const cleanSector = normalizeKey(linhVuc);
+
+  // Rule 1: Check existing field in Supabase by exact code
+  if (cleanCode) {
+    const existing = existingFields.find((f) => normalizeKey(f.code) === cleanCode);
+    if (existing && existing.unit_id && validUnitsMap.has(existing.unit_id)) {
+      const u = validUnitsMap.get(existing.unit_id)!;
+      return {
+        unitId: u.id,
+        unitName: u.name,
+        unitCode: u.code,
+        isMapped: true,
+      };
+    }
+  }
+
+  // Rule 2: Check Master Supabase fields with the exact same Lĩnh vực that have a unit_id assigned
+  if (cleanSector && cleanSector !== 'chua phan loai' && cleanSector !== 'chưa phân loại') {
+    const sectorFields = existingFields.filter(
+      (f) => normalizeKey(f.linh_vuc || '') === cleanSector && f.unit_id && validUnitsMap.has(f.unit_id)
+    );
+    if (sectorFields.length > 0) {
+      // Find the unit assigned to this sector in Master
+      const unitId = sectorFields[0].unit_id!;
+      const u = validUnitsMap.get(unitId);
+      if (u) {
+        return {
+          unitId: u.id,
+          unitName: u.name,
+          unitCode: u.code,
+          isMapped: true,
+        };
+      }
+    }
+  }
+
+  return {
+    unitId: undefined,
+    unitName: undefined,
+    unitCode: undefined,
+    isMapped: false,
+  };
+}
+
+/**
+ * Parse Excel ArrayBuffer into structured procedure rows.
+ * Excel only provides TTHC data (Code, Name, Sector, description).
+ * UNIT is strictly resolved from Master Supabase tables (fields & units).
+ */
 export function parseProceduresExcel(
   fileBuffer: ArrayBuffer,
   existingFields: Field[],
@@ -70,7 +110,9 @@ export function parseProceduresExcel(
 ): {
   rows: ParsedProcedureRow[];
   headers: string[];
-  detectedNewUnits: string[];
+  unmappedRows: ParsedProcedureRow[];
+  mappedCount: number;
+  unmappedCount: number;
 } {
   const workbook = XLSX.read(fileBuffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
@@ -90,12 +132,18 @@ export function parseProceduresExcel(
 
   for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
     const row = rawRows[i] as unknown[];
-    const strRow = row.map(c => String(c || '').toLowerCase().trim());
+    const strRow = row.map((c) => String(c || '').toLowerCase().trim());
 
-    const cIdx = strRow.findIndex(c => c.includes('mã tthc') || c.includes('ma tthc') || c.includes('mã thủ tục') || c === 'mã');
-    const nIdx = strRow.findIndex(c => c.includes('tên thủ tục') || c.includes('ten thu tuc') || c.includes('tên tthc') || c === 'tên');
-    const sIdx = strRow.findIndex(c => c.includes('lĩnh vực') || c.includes('linh vuc'));
-    const uIdx = strRow.findIndex(c => c.includes('đơn vị thực hiện') || c.includes('đơn vị') || c.includes('don vi') || c.includes('phụ trách') || c.includes('chủ trì'));
+    const cIdx = strRow.findIndex(
+      (c) => c.includes('mã tthc') || c.includes('ma tthc') || c.includes('mã thủ tục') || c === 'mã'
+    );
+    const nIdx = strRow.findIndex(
+      (c) => c.includes('tên thủ tục') || c.includes('ten thu tuc') || c.includes('tên tthc') || c === 'tên'
+    );
+    const sIdx = strRow.findIndex((c) => c.includes('lĩnh vực') || c.includes('linh vuc'));
+    const uIdx = strRow.findIndex(
+      (c) => c.includes('đơn vị thực hiện') || c.includes('đơn vị') || c.includes('don vi') || c.includes('phụ trách') || c.includes('chủ trì')
+    );
 
     if (cIdx !== -1 && (nIdx !== -1 || sIdx !== -1)) {
       headerRowIndex = i;
@@ -107,13 +155,12 @@ export function parseProceduresExcel(
     }
   }
 
-  const rawHeaders = (rawRows[headerRowIndex] as unknown[] || []).map(h => String(h || '').trim());
+  const rawHeaders = ((rawRows[headerRowIndex] as unknown[]) || []).map((h) => String(h || '').trim());
 
-  // Determine column positions with fallbacks
   const findCol = (keywords: string[], fallbackIdx: number): number => {
-    const idx = rawHeaders.findIndex(h => {
+    const idx = rawHeaders.findIndex((h) => {
       const lower = h.toLowerCase();
-      return keywords.some(k => lower.includes(k));
+      return keywords.some((k) => lower.includes(k));
     });
     return idx !== -1 ? idx : fallbackIdx;
   };
@@ -128,11 +175,11 @@ export function parseProceduresExcel(
   const capIdx = findCol(['cấp thực hiện', 'cấp'], 7);
   const mucDoIdx = findCol(['mức độ', 'mức độ cung cấp', 'dvc'], 8);
   const phiIdx = findCol(['phí', 'lệ phí'], 9);
-  const unitIdx = unitColIdx !== -1 ? unitColIdx : findCol(['đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị chủ trì', 'đơn vị'], 10);
+  const unitIdx = unitColIdx !== -1 ? unitColIdx : findCol(['đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị'], 10);
 
-  const existingCodesMap = new Map(existingFields.map(f => [f.code.trim().toLowerCase(), f]));
-  const detectedNewUnitsSet = new Set<string>();
+  const existingCodesMap = new Map(existingFields.map((f) => [normalizeKey(f.code), f]));
   const parsedRows: ParsedProcedureRow[] = [];
+  const unmappedRows: ParsedProcedureRow[] = [];
 
   for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
     const row = rawRows[i] as unknown[];
@@ -142,20 +189,20 @@ export function parseProceduresExcel(
     const name = String(row[nameIdx] ?? '').trim();
     const linh_vuc = String(row[sectorIdx] ?? '').trim();
 
-    // Skip empty lines or sub-headers with no code and name
+    // Skip empty lines
     if (!code && !name) continue;
-    if (!name && code) continue; // dangling code without name
+    if (!name && code) continue;
+
+    // Filter out test codes (Requirement G)
+    if (isTestProcedureCode(code)) continue;
 
     const rawUnit = String(row[unitIdx] ?? '').trim();
-    const matchedUnit = matchUnitByNameOrCode(rawUnit, units);
 
-    if (rawUnit && !matchedUnit) {
-      detectedNewUnitsSet.add(rawUnit);
-    }
+    // Resolve UNIT strictly from Master Supabase
+    const masterUnit = resolveUnitFromMaster(code, linh_vuc, existingFields, units);
+    const isExisting = existingCodesMap.has(normalizeKey(code));
 
-    const isExisting = existingCodesMap.has(code.toLowerCase());
-
-    parsedRows.push({
+    const parsedItem: ParsedProcedureRow = {
       stt: row[sttIdx] ? String(row[sttIdx]).trim() : parsedRows.length + 1,
       code: code || `TTHC-${parsedRows.length + 1}`,
       name: name,
@@ -167,21 +214,33 @@ export function parseProceduresExcel(
       muc_do_cung_cap: String(row[mucDoIdx] ?? '').trim(),
       phi_le_phi: String(row[phiIdx] ?? '').trim(),
       raw_unit_name: rawUnit,
-      matched_unit_id: matchedUnit?.id,
+      matched_unit_id: masterUnit.unitId,
+      matched_unit_name: masterUnit.unitName,
+      matched_unit_code: masterUnit.unitCode,
+      isMapped: masterUnit.isMapped,
       isExisting,
-    });
+    };
+
+    parsedRows.push(parsedItem);
+    if (!masterUnit.isMapped) {
+      unmappedRows.push(parsedItem);
+    }
   }
 
   return {
     rows: parsedRows,
     headers: rawHeaders,
-    detectedNewUnits: Array.from(detectedNewUnitsSet),
+    unmappedRows,
+    mappedCount: parsedRows.length - unmappedRows.length,
+    unmappedCount: unmappedRows.length,
   };
 }
 
-// Export current catalog to Excel with all 11 columns
+/**
+ * Export current catalog to Excel with all 11 columns
+ */
 export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 'DanhMuc_LinhVuc_TTHC.xlsx') {
-  const unitsMap = new Map(units.map(u => [u.id, u.name]));
+  const unitsMap = new Map(units.map((u) => [u.id, u.name]));
 
   const headers = [
     'STT',
@@ -197,13 +256,15 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     'Đơn vị thực hiện',
   ];
 
-  // Sort by Lĩnh vực, then display_order
-  const sorted = [...fields].sort((a, b) => {
-    const secA = (a.linh_vuc || 'Chưa phân loại').toLowerCase();
-    const secB = (b.linh_vuc || 'Chưa phân loại').toLowerCase();
-    if (secA !== secB) return secA.localeCompare(secB, 'vi');
-    return (a.display_order || 0) - (b.display_order || 0);
-  });
+  // Filter out any test codes and sort
+  const sorted = [...fields]
+    .filter((f) => !isTestProcedureCode(f.code))
+    .sort((a, b) => {
+      const secA = (a.linh_vuc || 'Chưa phân loại').toLowerCase();
+      const secB = (b.linh_vuc || 'Chưa phân loại').toLowerCase();
+      if (secA !== secB) return secA.localeCompare(secB, 'vi');
+      return (a.display_order || 0) - (b.display_order || 0);
+    });
 
   const dataRows = sorted.map((f, idx) => [
     idx + 1,
@@ -222,19 +283,18 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
   const worksheetData = [headers, ...dataRows];
   const ws = XLSX.utils.aoa_to_sheet(worksheetData);
 
-  // Set column widths
   ws['!cols'] = [
-    { wch: 6 },  // STT
-    { wch: 14 }, // Mã TTHC
-    { wch: 45 }, // Tên Thủ tục
-    { wch: 28 }, // Lĩnh vực
-    { wch: 25 }, // Cơ quan công bố
-    { wch: 18 }, // Loại TTHC
-    { wch: 30 }, // Cơ quan thực hiện
-    { wch: 14 }, // Cấp thực hiện
-    { wch: 18 }, // Mức độ cung cấp
-    { wch: 16 }, // Phí - lệ phí
-    { wch: 24 }, // Đơn vị thực hiện
+    { wch: 6 },
+    { wch: 14 },
+    { wch: 45 },
+    { wch: 28 },
+    { wch: 25 },
+    { wch: 18 },
+    { wch: 30 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 24 },
   ];
 
   const wb = XLSX.utils.book_new();
@@ -242,7 +302,9 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
   XLSX.writeFile(wb, fileName);
 }
 
-// Download blank template Excel file with official columns for importing procedures
+/**
+ * Download blank template Excel file with official columns for importing procedures
+ */
 export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.xlsx') {
   const headers = [
     'STT',
