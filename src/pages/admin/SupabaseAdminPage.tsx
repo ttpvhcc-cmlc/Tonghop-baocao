@@ -96,6 +96,28 @@ ALTER TABLE public.report_analysis ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.report_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
+-- system_config (Cấu hình hệ thống, thương hiệu, logo, menu & RBAC dùng chung)
+CREATE TABLE IF NOT EXISTS public.system_config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  config JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.system_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "system_config_select_policy" ON public.system_config;
+CREATE POLICY "system_config_select_policy" ON public.system_config
+  FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "system_config_insert_policy" ON public.system_config;
+CREATE POLICY "system_config_insert_policy" ON public.system_config
+  FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "system_config_update_policy" ON public.system_config;
+CREATE POLICY "system_config_update_policy" ON public.system_config
+  FOR UPDATE USING (true)
+  WITH CHECK (true);
+
 -- Units
 DROP POLICY IF EXISTS "units_select_policy" ON public.units;
 CREATE POLICY "units_select_policy" ON public.units

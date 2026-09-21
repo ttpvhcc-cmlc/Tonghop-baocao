@@ -681,7 +681,7 @@ export const ReportDetailPage: React.FC = () => {
                   <tr>
                     <th className="p-2.5 text-center w-12">STT</th>
                     <th className="p-2.5 min-w-[130px]">Đơn vị</th>
-                    <th className="p-2.5 min-w-[180px]">Lĩnh vực giải quyết</th>
+                    <th className="p-2.5 min-w-[180px]">Lĩnh vực</th>
                     <th className="p-2.5 text-right bg-blue-50/50">Tổng TN (3)</th>
                     <th className="p-2.5 text-right">Trực tuyến (4)</th>
                     <th className="p-2.5 text-right">Trực tiếp (5)</th>
@@ -761,11 +761,25 @@ export const ReportDetailPage: React.FC = () => {
                           {/* STATISTICAL ROWS FOR THIS GROUP */}
                           {!isCollapsed &&
                             group.items.map((s, idx) => {
+                              const allFields = store.getFields();
                               const resolvedSector = resolveLinhVuc(
                                 s.field_name_snapshot || s.field_name || '',
                                 s.field_id,
-                                store.getFields()
+                                allFields
                               );
+                              const rawSnap = (s.field_name_snapshot || s.field_name || '').trim();
+                              const isLongProcedure =
+                                rawSnap.length > 50 ||
+                                rawSnap.includes('di sản') ||
+                                rawSnap.includes('giám sát') ||
+                                rawSnap.includes('hỏa táng') ||
+                                rawSnap.includes('quyền sử dụng đất');
+                              const displayName =
+                                !isLongProcedure && rawSnap
+                                  ? rawSnap
+                                  : resolvedSector !== 'Chưa phân loại'
+                                  ? resolvedSector
+                                  : rawSnap || 'Lĩnh vực TTHC';
 
                               const onTimeRate =
                                 s.completed_total > 0
@@ -786,8 +800,8 @@ export const ReportDetailPage: React.FC = () => {
                                     {s.unit_name_snapshot || 'Chưa gán đơn vị'}
                                   </td>
                                   <td className="p-2.5 font-sans font-bold text-slate-900">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-slate-900">{resolvedSector}</span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-slate-900 text-xs font-bold">{displayName}</span>
                                       {hasWarn && (
                                         <span title={s.validation_errors?.map((e: any) => e.message).join('\n')}>
                                           {s.validation_status === 'error' ? (

@@ -132,6 +132,7 @@ export const REQUIRED_TABLES = [
   'report_analysis',
   'report_snapshots',
   'audit_logs',
+  'system_config',
 ] as const;
 
 export async function verifyDatabaseSchema(): Promise<VerificationStepResult> {

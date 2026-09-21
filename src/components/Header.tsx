@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { store } from '../services/store';
+import { store, SystemConfig } from '../services/store';
 import { UserRole, Profile } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { generateSampleExcelBuffer } from '../features/import/excelParser';
@@ -25,11 +25,17 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
 }) => {
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
   const [showAuthMenu, setShowAuthMenu] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refresh = () => setConfig(store.getSystemConfig());
+    return store.subscribe(refresh);
+  }, []);
 
   const handleDownloadSample = () => {
     try {
@@ -86,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="flex flex-col">
           <span className="text-xs font-extrabold text-blue-600 uppercase tracking-wider">
-            CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC
+            {config.headerTitle || 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC'}
           </span>
         </div>
       </div>

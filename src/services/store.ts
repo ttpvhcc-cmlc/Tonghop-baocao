@@ -18,6 +18,190 @@ import { isTestProcedureCode } from '../utils/excelProcedureHelper';
 
 // No business data is seeded in the client runtime. Supabase is the sole persistence source.
 
+export interface SystemMenuLabels {
+  dashboard: string;
+  reports: string;
+  archive: string;
+  new_report: string;
+  import: string;
+  analysis_group: string;
+  analysis_units: string;
+  analysis_fields: string;
+  analysis_compare: string;
+  catalog_group: string;
+  catalog_units: string;
+  catalog_fields: string;
+  catalog_indicators: string;
+  system_group: string;
+  system_users: string;
+  system_config: string;
+  system_audit: string;
+  system_supabase: string;
+}
+
+export interface SystemPageTitles {
+  dashboardTitle: string;
+  dashboardSubtitle: string;
+  reportsListTitle: string;
+  reportsListSubtitle: string;
+  importTitle: string;
+  importSubtitle: string;
+  analysisTitle: string;
+  analysisSubtitle: string;
+  compareTitle: string;
+  compareSubtitle: string;
+}
+
+export interface RolePermissionRule {
+  role: string;
+  roleName: string;
+  description: string;
+  permissions: {
+    view_dashboard: boolean;
+    view_reports: boolean;
+    create_reports: boolean;
+    edit_reports: boolean;
+    delete_reports: boolean;
+    import_excel: boolean;
+    lock_snapshot: boolean;
+    manage_catalogs: boolean;
+    manage_users: boolean;
+    manage_system_config: boolean;
+    view_audit_logs: boolean;
+  };
+}
+
+export interface SystemConfig {
+  systemName: string;
+  subTitle: string;
+  logoType: 'icon' | 'custom_url';
+  logoIcon: string;
+  logoUrl?: string;
+  themeColor: 'blue' | 'indigo' | 'emerald' | 'violet' | 'rose' | 'slate' | 'amber' | 'teal';
+  sidebarTheme: 'dark' | 'slate' | 'navy' | 'light';
+  headerTitle: string;
+  menuLabels: SystemMenuLabels;
+  pageTitles: SystemPageTitles;
+  rolePermissions: RolePermissionRule[];
+}
+
+export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
+  systemName: 'HỆ THỐNG BÁO CÁO',
+  subTitle: 'Văn phòng UBND / TT HCC',
+  logoType: 'icon',
+  logoIcon: 'ShieldCheck',
+  logoUrl: '',
+  themeColor: 'blue',
+  sidebarTheme: 'dark',
+  headerTitle: 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC',
+  menuLabels: {
+    dashboard: 'Tổng quan',
+    reports: 'Kỳ báo cáo',
+    archive: 'Kho lưu trữ',
+    new_report: 'Tạo kỳ báo cáo mới',
+    import: 'Nhập dữ liệu Excel',
+    analysis_group: 'Phân tích dữ liệu',
+    analysis_units: 'Theo Đơn vị',
+    analysis_fields: 'Theo Lĩnh vực',
+    analysis_compare: 'So sánh nhiều kỳ',
+    catalog_group: 'Danh mục quản trị',
+    catalog_units: 'Đơn vị giải quyết',
+    catalog_fields: 'Lĩnh vực & Mapping',
+    catalog_indicators: 'Chỉ tiêu & Công thức',
+    system_group: 'Hệ thống & Kiểm soát',
+    system_users: 'Phân quyền người dùng',
+    system_config: 'Thiết lập Hệ thống & Giao diện',
+    system_audit: 'Nhật ký hệ thống (Audit)',
+    system_supabase: 'Kiểm thử Supabase',
+  },
+  pageTitles: {
+    dashboardTitle: 'Tổng quan Báo cáo Thống kê TTHC',
+    dashboardSubtitle: 'Theo dõi chỉ tiêu tiếp nhận, giải quyết và tỷ lệ dịch vụ công trực tuyến',
+    reportsListTitle: 'Danh sách Kỳ Báo cáo Thống kê',
+    reportsListSubtitle: 'Quản lý tập trung các kỳ báo cáo tình hình giải quyết thủ tục hành chính',
+    importTitle: 'Nhập Dữ liệu Báo cáo Excel',
+    importSubtitle: 'Trích xuất và chuẩn hóa tự động số liệu từ biểu mẫu Excel báo cáo',
+    analysisTitle: 'Phân tích & Dự báo Số liệu',
+    analysisSubtitle: 'Đánh giá chi tiết hiệu quả giải quyết TTHC theo đơn vị và lĩnh vực',
+    compareTitle: 'So sánh Biến động qua các Kỳ',
+    compareSubtitle: 'Theo dõi xu hướng tăng giảm chỉ tiêu giữa các kỳ báo cáo',
+  },
+  rolePermissions: [
+    {
+      role: 'admin',
+      roleName: 'Quản trị viên hệ thống (Admin)',
+      description: 'Toàn quyền cấu hình tên hệ thống, logo, menu, phân quyền, khóa snapshot và danh mục.',
+      permissions: {
+        view_dashboard: true,
+        view_reports: true,
+        create_reports: true,
+        edit_reports: true,
+        delete_reports: true,
+        import_excel: true,
+        lock_snapshot: true,
+        manage_catalogs: true,
+        manage_users: true,
+        manage_system_config: true,
+        view_audit_logs: true,
+      },
+    },
+    {
+      role: 'analyst',
+      roleName: 'Chuyên viên phân tích (Analyst)',
+      description: 'Quyền xem tổng quan, phân tích nâng cao, xuất báo cáo, nhập liệu Excel.',
+      permissions: {
+        view_dashboard: true,
+        view_reports: true,
+        create_reports: true,
+        edit_reports: true,
+        delete_reports: false,
+        import_excel: true,
+        lock_snapshot: false,
+        manage_catalogs: false,
+        manage_users: false,
+        manage_system_config: false,
+        view_audit_logs: true,
+      },
+    },
+    {
+      role: 'data_entry',
+      roleName: 'Chuyên viên nhập liệu (Data Entry)',
+      description: 'Quyền tạo mới kỳ báo cáo và nhập file Excel từ các đơn vị.',
+      permissions: {
+        view_dashboard: true,
+        view_reports: true,
+        create_reports: true,
+        edit_reports: true,
+        delete_reports: false,
+        import_excel: true,
+        lock_snapshot: false,
+        manage_catalogs: false,
+        manage_users: false,
+        manage_system_config: false,
+        view_audit_logs: false,
+      },
+    },
+    {
+      role: 'viewer',
+      roleName: 'Người xem (Viewer / Lãnh đạo)',
+      description: 'Quyền tra cứu, theo dõi dashboard và tải xuất dữ liệu (Chỉ đọc).',
+      permissions: {
+        view_dashboard: true,
+        view_reports: true,
+        create_reports: false,
+        edit_reports: false,
+        delete_reports: false,
+        import_excel: false,
+        lock_snapshot: false,
+        manage_catalogs: false,
+        manage_users: false,
+        manage_system_config: false,
+        view_audit_logs: false,
+      },
+    },
+  ],
+};
+
 const GUEST_USER: Profile = {
   id: 'guest',
   email: undefined,
@@ -70,6 +254,7 @@ export class StorageService {
     auditLogs: AuditLog[];
     currentUser: Profile;
     users: Profile[];
+    systemConfig: SystemConfig;
   };
 
   private listeners: Set<Listener> = new Set();
@@ -87,6 +272,29 @@ export class StorageService {
     };
   }
 
+  private loadStoredSystemConfig(): SystemConfig {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('tthc_system_config');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return {
+            ...DEFAULT_SYSTEM_CONFIG,
+            ...parsed,
+            menuLabels: { ...DEFAULT_SYSTEM_CONFIG.menuLabels, ...(parsed.menuLabels || {}) },
+            pageTitles: { ...DEFAULT_SYSTEM_CONFIG.pageTitles, ...(parsed.pageTitles || {}) },
+            rolePermissions: Array.isArray(parsed.rolePermissions) && parsed.rolePermissions.length > 0
+              ? parsed.rolePermissions
+              : DEFAULT_SYSTEM_CONFIG.rolePermissions,
+          };
+        }
+      } catch (e) {
+        console.warn('Unable to load stored system config:', e);
+      }
+    }
+    return DEFAULT_SYSTEM_CONFIG;
+  }
+
   constructor() {
     this.inMemoryCache = {
       units: [],
@@ -101,6 +309,7 @@ export class StorageService {
       auditLogs: [],
       currentUser: GUEST_USER,
       users: [],
+      systemConfig: this.loadStoredSystemConfig(),
     };
 
     if (typeof window !== 'undefined') {
@@ -243,6 +452,33 @@ export class StorageService {
       this.inMemoryCache.reportIndicators = deduplicateById(reportIndicatorsData || []);
       this.inMemoryCache.analyses = deduplicateById(analysesData || []);
       this.inMemoryCache.snapshots = deduplicateById(snapshotsData || []);
+
+      // 9. Fetch system_config from Supabase (Centralized Config for All Users)
+      try {
+        const { data: cfgRow } = await supabase.from('system_config').select('*').eq('id', 'default').maybeSingle();
+        if (cfgRow && cfgRow.config) {
+          const raw = typeof cfgRow.config === 'string' ? JSON.parse(cfgRow.config) : cfgRow.config;
+          const mergedConfig: SystemConfig = {
+            ...DEFAULT_SYSTEM_CONFIG,
+            ...raw,
+            menuLabels: { ...DEFAULT_SYSTEM_CONFIG.menuLabels, ...(raw.menuLabels || {}) },
+            pageTitles: { ...DEFAULT_SYSTEM_CONFIG.pageTitles, ...(raw.pageTitles || {}) },
+            rolePermissions: Array.isArray(raw.rolePermissions) && raw.rolePermissions.length > 0
+              ? raw.rolePermissions
+              : DEFAULT_SYSTEM_CONFIG.rolePermissions,
+          };
+          this.inMemoryCache.systemConfig = mergedConfig;
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('tthc_system_config', JSON.stringify(mergedConfig));
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+      } catch (cfgErr) {
+        console.warn('Note on fetching system_config from Supabase:', cfgErr);
+      }
 
       this.lastSyncTime = new Date().toISOString();
       this.notify();
@@ -560,9 +796,18 @@ export class StorageService {
       };
     });
 
+    // Deduplicate rows by code to prevent ON CONFLICT DO UPDATE duplicate error
+    const uniqueRowsMap = new Map<string, (typeof rows)[0]>();
+    for (const row of rows) {
+      if (!uniqueRowsMap.has(row.code)) {
+        uniqueRowsMap.set(row.code, row);
+      }
+    }
+    const uniqueRows = Array.from(uniqueRowsMap.values());
+
     const { data: saved, error } = await supabase
       .from('fields')
-      .upsert(rows, { onConflict: 'code' })
+      .upsert(uniqueRows, { onConflict: 'code' })
       .select('*');
 
     if (error) throw new Error(`Không thể lưu danh mục TTHC vào Supabase: ${error.message}`);
@@ -996,10 +1241,55 @@ export class StorageService {
       };
     });
 
+    // Deduplicate / aggregate dbRows by field_id to prevent Postgres upsert error:
+    // "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    const dbRowsMap = new Map<string, (typeof dbRows)[0]>();
+
+    for (const row of dbRows) {
+      const existing = dbRowsMap.get(row.field_id);
+      if (!existing) {
+        dbRowsMap.set(row.field_id, {
+          ...row,
+          validation_errors: Array.isArray(row.validation_errors) ? [...row.validation_errors] : [],
+        });
+      } else {
+        existing.received_total = (existing.received_total || 0) + (row.received_total || 0);
+        existing.received_online = (existing.received_online || 0) + (row.received_online || 0);
+        existing.received_offline = (existing.received_offline || 0) + (row.received_offline || 0);
+        existing.carried_forward = (existing.carried_forward || 0) + (row.carried_forward || 0);
+        existing.completed_total = (existing.completed_total || 0) + (row.completed_total || 0);
+        existing.completed_early = (existing.completed_early || 0) + (row.completed_early || 0);
+        existing.completed_on_time = (existing.completed_on_time || 0) + (row.completed_on_time || 0);
+        existing.completed_late = (existing.completed_late || 0) + (row.completed_late || 0);
+        existing.pending_total = (existing.pending_total || 0) + (row.pending_total || 0);
+        existing.pending_on_time = (existing.pending_on_time || 0) + (row.pending_on_time || 0);
+        existing.pending_late = (existing.pending_late || 0) + (row.pending_late || 0);
+
+        if (row.notes && !existing.notes.includes(row.notes)) {
+          existing.notes = existing.notes ? `${existing.notes}; ${row.notes}` : row.notes;
+        }
+
+        if (row.validation_status === 'error' || existing.validation_status === 'error') {
+          existing.validation_status = 'error';
+        } else if (row.validation_status === 'warning' || existing.validation_status === 'warning') {
+          existing.validation_status = 'warning';
+        }
+
+        if (Array.isArray(row.validation_errors) && row.validation_errors.length > 0) {
+          existing.validation_errors = [
+            ...(existing.validation_errors || []),
+            ...row.validation_errors,
+          ];
+        }
+      }
+    }
+
+    const uniqueDbRows = Array.from(dbRowsMap.values());
+
     // Upsert on the business key prevents duplicate (report, source, field) rows.
     const { data: saved, error } = await supabase
       .from('report_field_statistics')
-      .upsert(dbRows, { onConflict: 'report_id,source_id,field_id' })
+      .upsert(uniqueDbRows, { onConflict: 'report_id,source_id,field_id' })
       .select('*');
 
     if (error) throw new Error(`Không thể lưu số liệu vào Supabase: ${error.message}`);
@@ -1394,7 +1684,72 @@ export class StorageService {
     };
   }
 
+  public getSystemConfig(): SystemConfig {
+    return { ...this.inMemoryCache.systemConfig };
+  }
 
+  public async saveSystemConfig(newConfig: SystemConfig): Promise<{ success: boolean; message?: string }> {
+    this.inMemoryCache.systemConfig = { ...newConfig };
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('tthc_system_config', JSON.stringify(newConfig));
+      } catch (e) {
+        console.warn('Failed to save system config to localStorage:', e);
+      }
+    }
+    this.notify();
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const payload = {
+          id: 'default',
+          config: newConfig,
+          updated_at: new Date().toISOString(),
+        };
+        const { error } = await supabase.from('system_config').upsert(payload, { onConflict: 'id' });
+        if (error) {
+          console.warn('Unable to persist system_config to Supabase:', error.message);
+          return { success: true, message: `Đã lưu vào bộ nhớ cục bộ. Lưu ý Supabase: ${error.message}` };
+        }
+        return { success: true, message: 'Đã lưu cấu hình và đồng bộ thành công lên CSDL Supabase cho toàn bộ người dùng.' };
+      } catch (e: any) {
+        console.warn('Failed upserting system_config to Supabase:', e?.message || e);
+        return { success: true, message: 'Đã lưu cấu hình vào bộ nhớ trình duyệt.' };
+      }
+    }
+
+    return { success: true, message: 'Đã lưu cấu hình vào bộ nhớ trình duyệt.' };
+  }
+
+  public async resetSystemConfig(): Promise<{ success: boolean; message?: string }> {
+    this.inMemoryCache.systemConfig = { ...DEFAULT_SYSTEM_CONFIG };
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('tthc_system_config');
+      } catch (e) {
+        console.warn('Failed to clear system config in localStorage:', e);
+      }
+    }
+    this.notify();
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const payload = {
+          id: 'default',
+          config: DEFAULT_SYSTEM_CONFIG,
+          updated_at: new Date().toISOString(),
+        };
+        const { error } = await supabase.from('system_config').upsert(payload, { onConflict: 'id' });
+        if (error) {
+          console.warn('Unable to reset system_config on Supabase:', error.message);
+        }
+      } catch (e: any) {
+        console.warn('Failed resetting system_config on Supabase:', e?.message || e);
+      }
+    }
+
+    return { success: true, message: 'Đã khôi phục cài đặt mặc định ban đầu.' };
+  }
 }
 
 export const store = new StorageService();

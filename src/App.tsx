@@ -14,6 +14,7 @@ import { UnitsAdminPage } from './pages/admin/UnitsAdminPage';
 import { FieldsAdminPage } from './pages/admin/FieldsAdminPage';
 import { IndicatorsAdminPage } from './pages/admin/IndicatorsAdminPage';
 import { UsersAdminPage } from './pages/admin/UsersAdminPage';
+import { SystemSettingsPage } from './pages/admin/SystemSettingsPage';
 import { AuditLogsPage } from './pages/admin/AuditLogsPage';
 import { SupabaseAdminPage } from './pages/admin/SupabaseAdminPage';
 import { store } from './services/store';
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="analysis/compare" element={<CompareAnalysisPage />} />
 
           {/* Danh mục & Quản trị */}
+          <Route path="admin/settings" element={<SystemSettingsPage />} />
           <Route path="admin/units" element={<UnitsAdminPage />} />
           <Route path="admin/fields" element={<FieldsAdminPage />} />
           <Route path="admin/indicators" element={<IndicatorsAdminPage />} />

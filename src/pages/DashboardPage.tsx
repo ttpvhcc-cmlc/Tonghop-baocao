@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { store } from '../services/store';
 import { formatNumber, formatPercent, getStatusBadge } from '../utils/format';
+import { resolveLinhVuc } from '../utils/fieldResolver';
 import {
   calcCompletionRate,
   calcOnTimeRate,
@@ -119,15 +120,37 @@ export const DashboardPage: React.FC = () => {
     return liveReports.find((r) => r.id === selectedReportId) || liveReports[0] || null;
   }, [liveReports, selectedReportId]);
 
+  // Unique sectors for Lĩnh vực TTHC dropdown
+  const sectorOptions = useMemo(() => {
+    const set = new Set<string>();
+    liveFields.forEach((f) => {
+      const sec = (f.linh_vuc || '').trim();
+      if (sec && sec !== 'Chưa phân loại') set.add(sec);
+    });
+    liveStats.forEach((s) => {
+      const sec = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, liveFields);
+      if (sec && sec !== 'Chưa phân loại') set.add(sec);
+      const raw = (s.field_name_snapshot || s.field_name || '').trim();
+      if (raw && raw.length <= 50 && !raw.includes('di sản') && !raw.includes('giám sát') && !raw.includes('hỏa táng')) {
+        set.add(raw);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [liveFields, liveStats]);
+
   // Filtered stats based on active dropdowns
   const filteredStats = useMemo(() => {
     return liveStats.filter((s) => {
       if (selectedUnitId !== 'ALL' && s.unit_id !== selectedUnitId) return false;
       if (selectedSourceId !== 'ALL' && s.source_id !== selectedSourceId) return false;
-      if (selectedFieldId !== 'ALL' && s.field_id !== selectedFieldId) return false;
+      if (selectedFieldId !== 'ALL') {
+        const sec = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, liveFields);
+        const raw = (s.field_name_snapshot || s.field_name || '').trim();
+        if (sec !== selectedFieldId && raw !== selectedFieldId && s.field_id !== selectedFieldId) return false;
+      }
       return true;
     });
-  }, [liveStats, selectedUnitId, selectedSourceId, selectedFieldId]);
+  }, [liveStats, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
 
   // Aggregated 8 KPIs
   const totals = useMemo(() => {
@@ -205,9 +228,22 @@ export const DashboardPage: React.FC = () => {
         const rec = repStats.reduce((acc, curr) => acc + curr.received_total, 0);
         const comp = repStats.reduce((acc, curr) => acc + curr.completed_total, 0);
         const pend = repStats.reduce((acc, curr) => acc + curr.pending_total, 0);
+
+        // Date chốt báo cáo: data_as_of -> period_end -> period_start
+        const dateStr = rep.data_as_of || rep.period_end || rep.period_start || '';
+        let closingDateFormatted = dateStr;
+        if (dateStr && dateStr.includes('-')) {
+          const cleanDate = dateStr.split('T')[0];
+          const parts = cleanDate.split('-');
+          if (parts.length === 3) {
+            closingDateFormatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
+          }
+        }
+
         return {
           code: rep.report_code,
-          name: rep.period_start.slice(0, 7),
+          name: closingDateFormatted || rep.report_name,
+          reportName: rep.report_name,
           received: rec,
           resolved: comp,
           pending: pend,
@@ -373,10 +409,10 @@ export const DashboardPage: React.FC = () => {
                 onChange={(e) => setSelectedFieldId(e.target.value)}
                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="ALL">Tất cả lĩnh vực</option>
-                {liveFields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name} ({f.code})
+                <option value="ALL">Tất cả lĩnh vực ({sectorOptions.length})</option>
+                {sectorOptions.map((sec) => (
+                  <option key={sec} value={sec}>
+                    {sec}
                   </option>
                 ))}
               </select>
@@ -558,19 +594,19 @@ export const DashboardPage: React.FC = () => {
 
       {/* 4. Dedicated Analytics Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Chart 1: Monthly volume trend */}
+        {/* Chart 1: Volume trend by closing date */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                1. Diễn biến khối lượng theo tháng
+                1. Diễn biến khối lượng theo ngày chốt báo cáo
               </h3>
               <p className="text-[11px] text-slate-400">
-                Xu hướng tiếp nhận, giải quyết và hồ sơ tồn đọng qua các kỳ
+                Xu hướng tiếp nhận, giải quyết và hồ sơ tồn đọng theo mốc thời gian chốt số liệu
               </p>
             </div>
             <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md">
-              Chuỗi thời gian
+              Ngày chốt báo cáo
             </span>
           </div>
           <div className="h-72">
@@ -579,7 +615,13 @@ export const DashboardPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(val) => formatNumber(Number(val))} />
+                <Tooltip
+                  formatter={(val) => formatNumber(Number(val))}
+                  labelFormatter={(label, items) => {
+                    const repName = items && items[0]?.payload?.reportName;
+                    return `Ngày chốt số liệu: ${label}${repName ? ` (${repName})` : ''}`;
+                  }}
+                />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line type="monotone" dataKey="received" name="Tổng tiếp nhận" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4 }} />
                 <Line type="monotone" dataKey="resolved" name="Đã giải quyết" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4 }} />
@@ -743,11 +785,30 @@ export const DashboardPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 font-medium">
               {filteredStats.map((row) => {
                 const val = validateRowFormulas(row);
+                const sectorName = resolveLinhVuc(
+                  row.field_name_snapshot || row.field_name || '',
+                  row.field_id,
+                  liveFields
+                );
+                const rawSnap = (row.field_name_snapshot || row.field_name || '').trim();
+                const isLongProcedure =
+                  rawSnap.length > 50 ||
+                  rawSnap.includes('di sản') ||
+                  rawSnap.includes('giám sát') ||
+                  rawSnap.includes('hỏa táng') ||
+                  rawSnap.includes('quyền sử dụng đất');
+                const displayName =
+                  !isLongProcedure && rawSnap
+                    ? rawSnap
+                    : sectorName !== 'Chưa phân loại'
+                    ? sectorName
+                    : rawSnap || 'Lĩnh vực TTHC';
+
                 return (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="px-3 py-2.5">
-                      <div className="font-semibold text-slate-900">{row.field_name_snapshot}</div>
-                      <div className="text-[10px] text-slate-400">{row.unit_name_snapshot}</div>
+                      <div className="font-bold text-slate-900 text-xs leading-snug">{displayName}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{row.unit_name_snapshot || 'Đơn vị'}</div>
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">
                       {liveSources.find((s) => s.id === row.source_id)?.source_name || 'Hệ thống'}

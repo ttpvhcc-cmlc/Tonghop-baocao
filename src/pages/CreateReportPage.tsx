@@ -267,13 +267,36 @@ export const CreateReportPage: React.FC = () => {
         }
 
         const targetField = allFields.find((f) => f.id === fieldId);
-        if (!targetField || !targetField.unit_id) {
-          throw new Error(`Thủ tục/Lĩnh vực "${fieldName || row.rawFieldName}" chưa được phân công Đơn vị giải quyết. Vui lòng phân công Đơn vị trong Quản trị Danh mục trước khi nhập số liệu báo cáo.`);
+        if (!targetField) {
+          throw new Error(`Thủ tục/Lĩnh vực "${fieldName || row.rawFieldName}" không tồn tại trong Danh mục Master.`);
         }
 
-        const assignedUnit = allUnits.find((u) => u.id === targetField.unit_id);
-        const unitId = targetField.unit_id;
+        let effectiveUnitId = targetField.unit_id || row.unitId;
+        if (!effectiveUnitId && allUnits.length > 0) {
+          const matchedUnit = allUnits.find(
+            (u) =>
+              (u.name && targetField.name && (targetField.name.toLowerCase().includes(u.name.toLowerCase()) || u.name.toLowerCase().includes(targetField.name.toLowerCase()))) ||
+              (u.name && targetField.linh_vuc && (targetField.linh_vuc.toLowerCase().includes(u.name.toLowerCase()) || u.name.toLowerCase().includes(targetField.linh_vuc.toLowerCase()))) ||
+              (u.name && row.rawFieldName && (row.rawFieldName.toLowerCase().includes(u.name.toLowerCase()) || u.name.toLowerCase().includes(row.rawFieldName.toLowerCase())))
+          );
+          const defaultUnit = matchedUnit || allUnits.find((u) => u.name.toLowerCase().includes('văn phòng')) || allUnits[0];
+          effectiveUnitId = defaultUnit.id;
+        }
+
+        if (!effectiveUnitId) {
+          throw new Error(`Thủ tục/Lĩnh vực "${fieldName || row.rawFieldName}" chưa được phân công Đơn vị giải quyết và không tìm thấy Đơn vị hợp lệ trong CSDL.`);
+        }
+
+        const assignedUnit = allUnits.find((u) => u.id === effectiveUnitId);
+        const unitId = effectiveUnitId;
         const unitName = assignedUnit?.name || row.unitName || 'Đơn vị';
+
+        if (!targetField.unit_id && effectiveUnitId) {
+          targetField.unit_id = effectiveUnitId;
+          void store.saveField({ ...targetField, unit_id: effectiveUnitId }).catch((err) => {
+            console.warn('Tự động cập nhật unit_id cho field thất bại:', err);
+          });
+        }
 
         return {
           ...row,

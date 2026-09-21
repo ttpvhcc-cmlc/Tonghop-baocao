@@ -24,8 +24,7 @@ export interface LinhVucResolutionResult {
 
 /**
  * Resolves a procedure text, snapshot string, or field ID into its exact official Lĩnh vực (Field/Sector).
- * Single Source of Truth: Supabase fields table (public.fields).
- * If no matching field is found in Supabase fields, returns "Chưa phân loại".
+ * Strictly maps using CSDL (public.fields) data. Does NOT perform keyword guessing or string inference.
  */
 export function resolveLinhVuc(
   rawText: string,
@@ -48,42 +47,42 @@ export function resolveLinhVucDetails(
     return { linhVuc: 'Chưa phân loại', isMapped: false };
   }
 
-  const cleanRaw = (rawText || '').trim();
-  const normRaw = normalizeText(cleanRaw);
+  let matchedField: Field | undefined;
 
   if (availableFields && availableFields.length > 0) {
-    // 1. Match by fieldId if provided
     if (fieldId) {
-      const matchedById = availableFields.find((f) => f.id === fieldId);
-      if (matchedById) {
-        const resolvedName = matchedById.linh_vuc || matchedById.name || 'Chưa phân loại';
-        return {
-          linhVuc: resolvedName,
-          isMapped: resolvedName !== 'Chưa phân loại',
-          field: matchedById,
-        };
-      }
+      matchedField = availableFields.find((f) => f.id === fieldId);
     }
 
-    // 2. Match by exact code or name in Supabase fields
-    if (normRaw) {
-      const matchedByNameOrCode = availableFields.find(
+    if (!matchedField && rawText) {
+      const normRaw = normalizeText(rawText);
+      matchedField = availableFields.find(
         (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
       );
-      if (matchedByNameOrCode) {
-        const resolvedName = matchedByNameOrCode.linh_vuc || matchedByNameOrCode.name || 'Chưa phân loại';
-        return {
-          linhVuc: resolvedName,
-          isMapped: resolvedName !== 'Chưa phân loại',
-          field: matchedByNameOrCode,
-        };
-      }
     }
   }
 
-  // Not found in Supabase fields: return "Chưa phân loại" with isMapped: false
+  if (matchedField) {
+    const cleanLinhVuc = (matchedField.linh_vuc || '').trim();
+    if (cleanLinhVuc && cleanLinhVuc !== 'Chưa phân loại') {
+      return {
+        linhVuc: cleanLinhVuc,
+        isMapped: true,
+        field: matchedField,
+      };
+    }
+    // If field exists in database catalog, return its recorded linh_vuc or 'Chưa phân loại'
+    return {
+      linhVuc: cleanLinhVuc || 'Chưa phân loại',
+      isMapped: false,
+      field: matchedField,
+    };
+  }
+
+  // Fallback if no matching field in database catalog
+  const cleanRaw = (rawText || '').trim();
   return {
-    linhVuc: 'Chưa phân loại',
+    linhVuc: cleanRaw || 'Chưa phân loại',
     isMapped: false,
   };
 }
