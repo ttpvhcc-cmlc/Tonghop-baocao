@@ -77,20 +77,34 @@ export interface SystemConfig {
   logoType: 'icon' | 'custom_url';
   logoIcon: string;
   logoUrl?: string;
+  systemNameColor?: string;
+  systemNameFontSize?: string;
+  systemNameFontWeight?: string;
+  subTitleColor?: string;
+  subTitleFontSize?: string;
+  logoSize?: number;
   themeColor: 'blue' | 'indigo' | 'emerald' | 'violet' | 'rose' | 'slate' | 'amber' | 'teal';
   sidebarTheme: 'dark' | 'slate' | 'navy' | 'light';
   headerTitle: string;
   menuLabels: SystemMenuLabels;
   pageTitles: SystemPageTitles;
   rolePermissions: RolePermissionRule[];
+  chartsLayout?: any[];
+  trendHistoryLimit?: number;
 }
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
-  systemName: 'HỆ THỐNG BÁO CÁO',
-  subTitle: 'Văn phòng UBND / TT HCC',
+  systemName: 'HỆ THỐNG TỔNG HỢP ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH',
+  subTitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
   logoType: 'icon',
   logoIcon: 'ShieldCheck',
   logoUrl: '',
+  systemNameColor: '#0f172a',
+  systemNameFontSize: '15px',
+  systemNameFontWeight: 'font-extrabold',
+  subTitleColor: '#475569',
+  subTitleFontSize: '11px',
+  logoSize: 36,
   themeColor: 'blue',
   sidebarTheme: 'dark',
   headerTitle: 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC',
@@ -110,7 +124,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     catalog_indicators: 'Chỉ tiêu & Công thức',
     system_group: 'Hệ thống & Kiểm soát',
     system_users: 'Phân quyền người dùng',
-    system_config: 'Thiết lập Hệ thống & Giao diện',
+    system_config: 'Thiết lập Hệ thống',
     system_audit: 'Nhật ký hệ thống (Audit)',
     system_supabase: 'Kiểm thử Supabase',
   },
@@ -272,29 +286,6 @@ export class StorageService {
     };
   }
 
-  private loadStoredSystemConfig(): SystemConfig {
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem('tthc_system_config');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return {
-            ...DEFAULT_SYSTEM_CONFIG,
-            ...parsed,
-            menuLabels: { ...DEFAULT_SYSTEM_CONFIG.menuLabels, ...(parsed.menuLabels || {}) },
-            pageTitles: { ...DEFAULT_SYSTEM_CONFIG.pageTitles, ...(parsed.pageTitles || {}) },
-            rolePermissions: Array.isArray(parsed.rolePermissions) && parsed.rolePermissions.length > 0
-              ? parsed.rolePermissions
-              : DEFAULT_SYSTEM_CONFIG.rolePermissions,
-          };
-        }
-      } catch (e) {
-        console.warn('Unable to load stored system config:', e);
-      }
-    }
-    return DEFAULT_SYSTEM_CONFIG;
-  }
-
   constructor() {
     this.inMemoryCache = {
       units: [],
@@ -309,7 +300,7 @@ export class StorageService {
       auditLogs: [],
       currentUser: GUEST_USER,
       users: [],
-      systemConfig: this.loadStoredSystemConfig(),
+      systemConfig: DEFAULT_SYSTEM_CONFIG,
     };
 
     if (typeof window !== 'undefined') {
@@ -468,13 +459,6 @@ export class StorageService {
               : DEFAULT_SYSTEM_CONFIG.rolePermissions,
           };
           this.inMemoryCache.systemConfig = mergedConfig;
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem('tthc_system_config', JSON.stringify(mergedConfig));
-            } catch (e) {
-              // ignore
-            }
-          }
         }
       } catch (cfgErr) {
         console.warn('Note on fetching system_config from Supabase:', cfgErr);
@@ -584,6 +568,64 @@ export class StorageService {
 
   public getUsers(): Profile[] {
     return deduplicateById(this.inMemoryCache.users);
+  }
+
+  public async createUser(user: {
+    full_name: string;
+    email: string;
+    role: UserRole;
+    unit_id?: string;
+    password?: string;
+  }): Promise<Profile> {
+    this.assertRole(['admin'], 'tạo người dùng mới');
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
+
+    const emailStr = user.email.trim();
+    const pw = user.password || '12345678@';
+
+    // Sign up via Supabase auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: emailStr,
+      password: pw,
+      options: {
+        data: {
+          full_name: user.full_name.trim(),
+        }
+      }
+    });
+
+    if (authError) {
+      throw new Error(`Lỗi đăng ký tài khoản Supabase Auth: ${authError.message}`);
+    }
+
+    const authUser = authData.user;
+    if (!authUser) {
+      throw new Error('Đăng ký thành công nhưng không trả về thông tin người dùng.');
+    }
+
+    // Now insert into profiles
+    const payload = {
+      id: authUser.id,
+      full_name: user.full_name.trim(),
+      email: emailStr,
+      role: user.role,
+      unit_id: user.unit_id || null,
+      active: true,
+    };
+
+    const { data: saved, error: profileError } = await supabase.from('profiles').upsert(payload).select('*').single();
+    if (profileError) {
+      throw new Error(`Đã tạo tài khoản Auth, nhưng lỗi khi liên kết hồ sơ RBAC: ${profileError.message}`);
+    }
+
+    const result = saved as Profile;
+    this.inMemoryCache.users = [
+      ...this.inMemoryCache.users.filter((u) => u.id !== result.id),
+      result,
+    ];
+    this.notify();
+    return result;
   }
 
   public async saveUser(user: {
@@ -1688,15 +1730,8 @@ export class StorageService {
     return { ...this.inMemoryCache.systemConfig };
   }
 
-  public async saveSystemConfig(newConfig: SystemConfig): Promise<{ success: boolean; message?: string }> {
+  public async saveSystemConfig(newConfig: SystemConfig): Promise<{ success: boolean; isTableMissing?: boolean; message?: string }> {
     this.inMemoryCache.systemConfig = { ...newConfig };
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('tthc_system_config', JSON.stringify(newConfig));
-      } catch (e) {
-        console.warn('Failed to save system config to localStorage:', e);
-      }
-    }
     this.notify();
 
     if (isSupabaseConfigured && supabase) {
@@ -1708,28 +1743,34 @@ export class StorageService {
         };
         const { error } = await supabase.from('system_config').upsert(payload, { onConflict: 'id' });
         if (error) {
-          console.warn('Unable to persist system_config to Supabase:', error.message);
-          return { success: true, message: `Đã lưu vào bộ nhớ cục bộ. Lưu ý Supabase: ${error.message}` };
+          const isTableMissing = error.code === 'PGRST205' || 
+            error.message.includes('schema cache') || 
+            error.message.includes('Could not find') || 
+            error.message.includes('system_config');
+
+          if (isTableMissing) {
+            console.warn('Note: Bảng system_config chưa tồn tại trên Supabase. Vui lòng chạy SQL Migration 006.');
+            return {
+              success: false,
+              isTableMissing: true,
+              message: 'Chưa khởi tạo bảng "system_config" trên CSDL Supabase. Vui lòng vào menu "Quản trị Supabase" để thực thi mã SQL tạo bảng system_config.'
+            };
+          }
+          console.warn('Lỗi khi lưu system_config vào Supabase:', error.message);
+          return { success: false, message: `Lỗi kết nối CSDL Supabase: ${error.message}` };
         }
-        return { success: true, message: 'Đã lưu cấu hình và đồng bộ thành công lên CSDL Supabase cho toàn bộ người dùng.' };
+        return { success: true, message: 'Đã lưu trực tiếp thành công cấu hình vào CSDL Supabase cho toàn bộ hệ thống.' };
       } catch (e: any) {
-        console.warn('Failed upserting system_config to Supabase:', e?.message || e);
-        return { success: true, message: 'Đã lưu cấu hình vào bộ nhớ trình duyệt.' };
+        console.error('Lỗi ngoại lệ khi lưu system_config:', e?.message || e);
+        return { success: false, message: `Lỗi kết nối Supabase: ${e?.message || e}` };
       }
     }
 
-    return { success: true, message: 'Đã lưu cấu hình vào bộ nhớ trình duyệt.' };
+    return { success: false, message: 'Chưa cấu hình Supabase. Vui lòng kiểm tra lại kết nối CSDL.' };
   }
 
-  public async resetSystemConfig(): Promise<{ success: boolean; message?: string }> {
+  public async resetSystemConfig(): Promise<{ success: boolean; isTableMissing?: boolean; message?: string }> {
     this.inMemoryCache.systemConfig = { ...DEFAULT_SYSTEM_CONFIG };
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem('tthc_system_config');
-      } catch (e) {
-        console.warn('Failed to clear system config in localStorage:', e);
-      }
-    }
     this.notify();
 
     if (isSupabaseConfigured && supabase) {
@@ -1741,14 +1782,30 @@ export class StorageService {
         };
         const { error } = await supabase.from('system_config').upsert(payload, { onConflict: 'id' });
         if (error) {
-          console.warn('Unable to reset system_config on Supabase:', error.message);
+          const isTableMissing = error.code === 'PGRST205' || 
+            error.message.includes('schema cache') || 
+            error.message.includes('Could not find') || 
+            error.message.includes('system_config');
+
+          if (isTableMissing) {
+            console.warn('Note: Bảng system_config chưa tồn tại trên Supabase. Vui lòng chạy SQL Migration 006.');
+            return {
+              success: false,
+              isTableMissing: true,
+              message: 'Chưa khởi tạo bảng "system_config" trên CSDL Supabase. Vui lòng vào menu "Quản trị Supabase" để chạy mã SQL tạo bảng.'
+            };
+          }
+          console.warn('Lỗi khi reset system_config trên Supabase:', error.message);
+          return { success: false, message: `Lỗi khôi phục CSDL Supabase: ${error.message}` };
         }
+        return { success: true, message: 'Đã khôi phục cài đặt mặc định trực tiếp trên CSDL Supabase.' };
       } catch (e: any) {
-        console.warn('Failed resetting system_config on Supabase:', e?.message || e);
+        console.error('Lỗi khi reset system_config:', e?.message || e);
+        return { success: false, message: `Lỗi kết nối Supabase: ${e?.message || e}` };
       }
     }
 
-    return { success: true, message: 'Đã khôi phục cài đặt mặc định ban đầu.' };
+    return { success: false, message: 'Chưa cấu hình Supabase.' };
   }
 }
 

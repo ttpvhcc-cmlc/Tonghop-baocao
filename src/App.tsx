@@ -48,7 +48,7 @@ export default function App() {
           <Route path="admin/units" element={<UnitsAdminPage />} />
           <Route path="admin/fields" element={<FieldsAdminPage />} />
           <Route path="admin/indicators" element={<IndicatorsAdminPage />} />
-          <Route path="admin/users" element={<UsersAdminPage />} />
+          <Route path="admin/users" element={<SystemSettingsPage />} />
           <Route path="admin/audit-logs" element={<AuditLogsPage />} />
           <Route path="admin/supabase" element={<SupabaseAdminPage />} />
           <Route path="supabase" element={<SupabaseAdminPage />} />

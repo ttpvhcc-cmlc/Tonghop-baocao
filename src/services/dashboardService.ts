@@ -78,6 +78,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
   currentReport: ReportingPeriod | null;
   sources: ReportSource[];
   statistics: ReportStatistic[];
+  allPeriodStatistics: ReportStatistic[];
   units: Unit[];
   fields: Field[];
   rawCount: number;
@@ -92,6 +93,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       currentReport: null,
       sources: [],
       statistics: [],
+      allPeriodStatistics: [],
       units: [],
       fields: [],
       rawCount: 0,
@@ -116,6 +118,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
           currentReport: null,
           sources: [],
           statistics: [],
+          allPeriodStatistics: [],
           units: [],
           fields: [],
           rawCount: 0,
@@ -149,17 +152,19 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
     // 3. Fetch Sources & Statistics for Active Report
     let sources: ReportSource[] = [];
     let statistics: ReportStatistic[] = [];
+    let allPeriodStatistics: ReportStatistic[] = [];
+
+    // Fetch all period statistics to support multi-report trend lines
+    const allStatsRes = await supabase.from('report_field_statistics').select('*');
+    if (allStatsRes.error) throw allStatsRes.error;
+    allPeriodStatistics = deduplicateById((allStatsRes.data || []) as ReportStatistic[]);
 
     if (activeReport) {
-      const [srcRes, statsRes] = await Promise.all([
-        supabase.from('report_sources').select('*').eq('report_id', activeReport.id),
-        supabase.from('report_field_statistics').select('*').eq('report_id', activeReport.id),
-      ]);
+      const srcRes = await supabase.from('report_sources').select('*').eq('report_id', activeReport.id);
       if (srcRes.error) throw srcRes.error;
-      if (statsRes.error) throw statsRes.error;
 
       sources = deduplicateById(srcRes.data || []);
-      statistics = deduplicateById((statsRes.data || []) as ReportStatistic[]);
+      statistics = allPeriodStatistics.filter((s) => s.report_id === activeReport.id);
     }
 
     return {
@@ -171,6 +176,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       currentReport: activeReport,
       sources,
       statistics,
+      allPeriodStatistics,
       units,
       fields,
       rawCount: statistics.length,
@@ -185,6 +191,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       currentReport: null,
       sources: [],
       statistics: [],
+      allPeriodStatistics: [],
       units: [],
       fields: [],
       rawCount: 0,

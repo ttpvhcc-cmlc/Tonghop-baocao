@@ -217,6 +217,13 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- BẢNG 12: system_config (Cấu hình hệ thống, thương hiệu, logo, menu & RBAC dùng chung)
+CREATE TABLE IF NOT EXISTS public.system_config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  config JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ==============================================================================
 -- 4. HELPER FUNCTIONS & TRIGGER PROCEDURES
 -- ==============================================================================

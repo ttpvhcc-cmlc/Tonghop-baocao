@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
-import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building } from 'lucide-react';
+import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building, UserPlus } from 'lucide-react';
 
 export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
@@ -25,16 +25,27 @@ export const UsersAdminPage: React.FC = () => {
     role: UserRole;
     unit_id: string;
     active: boolean;
+    password?: string;
   }>({
     full_name: '',
     email: '',
     role: 'data_entry',
     unit_id: '',
     active: true,
+    password: '',
   });
 
   const handleOpenCreate = () => {
-    alert('Tài khoản đăng nhập phải được tạo trước tại Supabase Authentication. Màn hình này chỉ quản lý hồ sơ và quyền RBAC.');
+    setEditingUser(null);
+    setFormData({
+      full_name: '',
+      email: '',
+      role: 'data_entry',
+      unit_id: '',
+      active: true,
+      password: '',
+    });
+    setIsModalOpen(true);
   };
 
   const handleOpenEdit = (user: Profile) => {
@@ -45,6 +56,7 @@ export const UsersAdminPage: React.FC = () => {
       role: user.role,
       unit_id: user.unit_id || '',
       active: user.active,
+      password: '',
     });
     setIsModalOpen(true);
   };
@@ -52,10 +64,24 @@ export const UsersAdminPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await store.saveUser({
-        id: editingUser?.id,
-        ...formData,
-      });
+      if (editingUser) {
+        await store.saveUser({
+          id: editingUser.id,
+          full_name: formData.full_name,
+          email: formData.email,
+          role: formData.role,
+          unit_id: formData.unit_id,
+          active: formData.active,
+        });
+      } else {
+        await store.createUser({
+          full_name: formData.full_name,
+          email: formData.email,
+          role: formData.role,
+          unit_id: formData.unit_id,
+          password: formData.password || undefined,
+        });
+      }
       setUsers(store.getUsers());
       setIsModalOpen(false);
     } catch (err: any) {
@@ -146,8 +172,14 @@ export const UsersAdminPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-          Tạo tài khoản đăng nhập tại Supabase Authentication; tại đây chỉ quản lý hồ sơ/RBAC.
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 border border-blue-600 rounded-xl hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            Thêm tài khoản mới
+          </button>
         </div>
       </div>
 
@@ -353,6 +385,23 @@ export const UsersAdminPage: React.FC = () => {
                   className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900"
                 />
               </div>
+
+              {!editingUser && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Mật khẩu đăng nhập <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Nhập ít nhất 6 ký tự..."
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Mật khẩu tối thiểu 6 ký tự dùng để đăng nhập hệ thống.</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">

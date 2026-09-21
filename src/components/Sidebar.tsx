@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { store, SystemConfig } from '../services/store';
+import { Profile, UserRole } from '../types/database';
+import { supabase } from '../lib/supabase';
 import {
   LayoutDashboard,
   FileText,
@@ -13,33 +15,55 @@ import {
   SlidersHorizontal,
   Users,
   History,
-  ShieldCheck,
   ChevronDown,
   Database,
   Archive,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  Landmark,
-  FileSpreadsheet,
-  Award,
+  UserCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
+  currentUser?: Profile;
   isCollapsed: boolean;
   onToggle: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, isCollapsed, onToggle }) => {
   const location = useLocation();
   const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
   const [analysisOpen, setAnalysisOpen] = useState(true);
   const [catalogOpen, setCatalogOpen] = useState(true);
+  const [showAuthMenu, setShowAuthMenu] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const activeUser = propCurrentUser || store.getCurrentUser();
 
   useEffect(() => {
     const refresh = () => setConfig(store.getSystemConfig());
     return store.subscribe(refresh);
   }, []);
+
+  const getRoleBadge = (role: UserRole) => {
+    switch (role) {
+      case 'admin':
+        return { label: 'Quản trị viên (Admin)', bg: 'bg-rose-500/20 text-rose-300 border-rose-500/30' };
+      case 'analyst':
+        return { label: 'Chuyên viên phân tích', bg: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
+      case 'data_entry':
+        return { label: 'Chuyên viên nhập liệu', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+      case 'viewer':
+      default:
+        return { label: 'Người xem (Chỉ đọc)', bg: 'bg-slate-700 text-slate-300 border-slate-600' };
+    }
+  };
+
+  const roleInfo = getRoleBadge(activeUser.role);
+  const isAuthenticated = activeUser.id !== 'guest' && activeUser.active === true;
 
   const isAnalysisActive = location.pathname.startsWith('/analysis');
   const isCatalogActive =
@@ -101,36 +125,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
     }`;
 
-  const renderLogoIcon = () => {
-    if (config.logoType === 'custom_url' && config.logoUrl) {
-      return (
-        <img
-          src={config.logoUrl}
-          alt="Logo"
-          className="w-7 h-7 object-contain rounded-lg"
-          onError={(e) => {
-            (e.target as HTMLElement).style.display = 'none';
-          }}
-        />
-      );
-    }
-    switch (config.logoIcon) {
-      case 'Building2':
-        return <Building2 className="w-5 h-5" />;
-      case 'Landmark':
-        return <Landmark className="w-5 h-5" />;
-      case 'FileSpreadsheet':
-        return <FileSpreadsheet className="w-5 h-5" />;
-      case 'Award':
-        return <Award className="w-5 h-5" />;
-      case 'FolderKanban':
-        return <FolderKanban className="w-5 h-5" />;
-      case 'ShieldCheck':
-      default:
-        return <ShieldCheck className="w-5 h-5" />;
-    }
-  };
-
   const menu = config.menuLabels;
 
   return (
@@ -141,34 +135,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         config.sidebarTheme
       )} flex flex-col shrink-0 border-r select-none transition-all duration-300 ease-in-out relative z-30`}
     >
-      {/* Brand Header */}
-      <div className="p-3.5 border-b border-slate-800 flex items-center justify-between min-h-[64px]">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
-            {renderLogoIcon()}
-          </div>
-          {!isCollapsed && (
-            <div className="min-w-0 transition-opacity duration-200">
-              <h1 className="text-sm font-bold tracking-tight text-white truncate leading-snug">
-                {config.systemName || 'HỆ THỐNG BÁO CÁO'}
-              </h1>
-              <p className="text-[10px] text-slate-400 font-medium truncate">
-                {config.subTitle || 'Văn phòng UBND / TT HCC'}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Toggle Button in Header */}
+      {/* Top Header Bar with NGHIỆP VỤ THỐNG KÊ Title & Collapse Toggle */}
+      <div className="p-3 border-b border-slate-800 flex items-center justify-between shrink-0 h-14">
+        {!isCollapsed && (
+          <span className="text-[11px] font-extrabold text-blue-400 uppercase tracking-wider pl-1">
+            NGHIỆP VỤ THỐNG KÊ
+          </span>
+        )}
         <button
           type="button"
           onClick={onToggle}
-          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none"
-          title={isCollapsed ? 'Mở rộng menu bên trái' : 'Thu gọn menu để tăng diện tích hiển thị dữ liệu'}
+          className={`p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none shrink-0 ${
+            isCollapsed ? 'mx-auto' : ''
+          }`}
+          title={isCollapsed ? "Mở rộng menu" : "Thu gọn menu"}
           id="btn-sidebar-collapse"
         >
           {isCollapsed ? (
-            <PanelLeftOpen className="w-4 h-4 text-blue-400" />
+            <PanelLeftOpen className="w-5 h-5 text-blue-400" />
           ) : (
             <PanelLeftClose className="w-4 h-4 text-slate-400" />
           )}
@@ -177,11 +161,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
 
       {/* Nav List */}
       <nav className="flex-1 p-2.5 space-y-1.5 overflow-y-auto overflow-x-hidden">
-        {!isCollapsed && (
-          <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 px-3 pt-2 pb-1">
-            Nghiệp vụ thống kê
-          </div>
-        )}
 
         {/* 1. Tổng quan */}
         <NavLink to="/dashboard" className={navClass} id="nav-dashboard" title={menu.dashboard}>
@@ -305,15 +284,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
             </div>
           )}
           {/* Cấu hình hệ thống */}
-          <NavLink to="/admin/settings" className={navClass} id="nav-settings" title={menu.system_config}>
+          <NavLink to="/admin/settings" className={navClass} id="nav-settings" title={menu.system_config || 'Thiết lập Hệ thống'}>
             <Settings className="w-4 h-4 text-amber-400 shrink-0" />
-            {!isCollapsed && <span>{menu.system_config}</span>}
-          </NavLink>
-
-          {/* Người dùng */}
-          <NavLink to="/admin/users" className={navClass} id="nav-users" title={menu.system_users}>
-            <Users className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>{menu.system_users}</span>}
+            {!isCollapsed && <span>{menu.system_config || 'Thiết lập Hệ thống'}</span>}
           </NavLink>
 
           {/* Nhật ký hệ thống */}

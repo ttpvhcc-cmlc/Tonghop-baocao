@@ -26,7 +26,7 @@ export const AppLayout: React.FC = () => {
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
       {/* Dynamic Collapsible Sidebar */}
-      <Sidebar isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+      <Sidebar currentUser={currentUser} isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
 
       {/* Main Content Area - Maximized Full-Width Presentation */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

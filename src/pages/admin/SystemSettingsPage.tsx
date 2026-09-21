@@ -15,6 +15,7 @@ import {
   RotateCcw,
   CheckCircle2,
   Users,
+  UserPlus,
   Lock,
   Menu,
   Type,
@@ -24,6 +25,8 @@ import {
   Check,
   X,
   Plus,
+  AlertCircle,
+  UserCheck,
 } from 'lucide-react';
 
 export const SystemSettingsPage: React.FC = () => {
@@ -43,16 +46,19 @@ export const SystemSettingsPage: React.FC = () => {
     role: UserRole;
     unit_id: string;
     active: boolean;
+    password?: string;
   }>({
     full_name: '',
     email: '',
     role: 'data_entry',
     unit_id: '',
     active: true,
+    password: '',
   });
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -66,13 +72,19 @@ export const SystemSettingsPage: React.FC = () => {
 
   const handleSaveConfig = async () => {
     setIsSaving(true);
+    setSaveSuccess(false);
+    setErrorMessage(null);
     try {
       const res = await store.saveSystemConfig(config);
-      setSaveMessage(res.message || 'Đã lưu cấu hình hệ thống.');
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
+      if (res.success) {
+        setSaveMessage(res.message || 'Đã lưu cấu hình hệ thống thành công.');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 5000);
+      } else {
+        setErrorMessage(res.message || 'Không thể lưu cấu hình vào Supabase.');
+      }
     } catch (err: any) {
-      alert('Lỗi khi lưu cấu hình hệ thống: ' + err.message);
+      setErrorMessage('Lỗi hệ thống: ' + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -80,15 +92,21 @@ export const SystemSettingsPage: React.FC = () => {
 
   const handleResetConfig = async () => {
     setIsSaving(true);
+    setSaveSuccess(false);
+    setErrorMessage(null);
     try {
       const res = await store.resetSystemConfig();
       setConfig(store.getSystemConfig());
       setResetModalOpen(false);
-      setSaveMessage(res.message || 'Đã khôi phục cài đặt mặc định.');
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
+      if (res.success) {
+        setSaveMessage(res.message || 'Đã khôi phục cài đặt mặc định.');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 5000);
+      } else {
+        setErrorMessage(res.message || 'Không thể khôi phục cài đặt trên Supabase.');
+      }
     } catch (err: any) {
-      alert('Lỗi khi khôi phục cấu hình: ' + err.message);
+      setErrorMessage('Lỗi hệ thống khi khôi phục: ' + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -109,6 +127,19 @@ export const SystemSettingsPage: React.FC = () => {
     });
   };
 
+  const handleOpenCreateUser = () => {
+    setEditingUser(null);
+    setUserFormData({
+      full_name: '',
+      email: '',
+      role: 'data_entry',
+      unit_id: '',
+      active: true,
+      password: '',
+    });
+    setIsUserModalOpen(true);
+  };
+
   const handleOpenEditUser = (user: Profile) => {
     setEditingUser(user);
     setUserFormData({
@@ -117,6 +148,7 @@ export const SystemSettingsPage: React.FC = () => {
       role: user.role,
       unit_id: user.unit_id || '',
       active: user.active,
+      password: '',
     });
     setIsUserModalOpen(true);
   };
@@ -124,10 +156,24 @@ export const SystemSettingsPage: React.FC = () => {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await store.saveUser({
-        id: editingUser?.id,
-        ...userFormData,
-      });
+      if (editingUser) {
+        await store.saveUser({
+          id: editingUser.id,
+          full_name: userFormData.full_name,
+          email: userFormData.email,
+          role: userFormData.role,
+          unit_id: userFormData.unit_id,
+          active: userFormData.active,
+        });
+      } else {
+        await store.createUser({
+          full_name: userFormData.full_name,
+          email: userFormData.email,
+          role: userFormData.role,
+          unit_id: userFormData.unit_id,
+          password: userFormData.password || undefined,
+        });
+      }
       setUsers(store.getUsers());
       setIsUserModalOpen(false);
     } catch (err: any) {
@@ -186,10 +232,10 @@ export const SystemSettingsPage: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Thiết lập Hệ thống, Giao diện & Phân quyền
+              Thiết lập Hệ thống
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Cấu hình Tên hệ thống, Logo, Màu sắc, Tên Menu, Tiêu đề màn hình, Quản trị Người dùng và Phân quyền RBAC
+              Cấu hình Tên hệ thống, Logo, Màu sắc, Tên Menu, Tiêu đề màn hình, Quản trị Người dùng và Phân quyền Cán bộ
             </p>
           </div>
         </div>
@@ -225,6 +271,21 @@ export const SystemSettingsPage: React.FC = () => {
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-2xl flex items-center gap-3 animate-fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>{saveMessage || 'Đã lưu thành công các thiết lập hệ thống! Giao diện và các menu đã được đồng bộ lên CSDL cho tất cả người dùng.'}</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold rounded-2xl flex items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <a
+            href="/admin/supabase"
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold shrink-0 transition-colors"
+          >
+            Đến Quản trị Supabase
+          </a>
         </div>
       )}
 
@@ -306,43 +367,161 @@ export const SystemSettingsPage: React.FC = () => {
             </h2>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tên Hệ thống (Hiển thị trên Sidebar & Tiêu đề trang)
-                </label>
-                <input
-                  type="text"
-                  value={config.systemName}
-                  onChange={(e) => setConfig({ ...config, systemName: e.target.value })}
-                  placeholder="Ví dụ: HỆ THỐNG BÁO CÁO THỐNG KÊ TTHC"
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              {/* Branding Customization Section */}
+              <div className="space-y-5 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-blue-600" />
+                  Tùy chỉnh Font chữ & Màu sắc Thương hiệu (Vùng khoanh đỏ Header)
+                </h3>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Phụ đề / Cơ quan chủ quản (Dưới tên hệ thống)
-                </label>
-                <input
-                  type="text"
-                  value={config.subTitle}
-                  onChange={(e) => setConfig({ ...config, subTitle: e.target.value })}
-                  placeholder="Ví dụ: Văn phòng UBND tỉnh / Trung tâm Hành chính công"
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                {/* 1. System Name Config */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Tên Hệ thống
+                  </label>
+                  <input
+                    type="text"
+                    value={config.systemName}
+                    onChange={(e) => setConfig({ ...config, systemName: e.target.value })}
+                    placeholder="Ví dụ: HỆ THỐNG TỔNG HỢP ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH"
+                    className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tiêu đề trên Thanh Header chính
-                </label>
-                <input
-                  type="text"
-                  value={config.headerTitle}
-                  onChange={(e) => setConfig({ ...config, headerTitle: e.target.value })}
-                  placeholder="Ví dụ: CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC"
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                    {/* System Name Color */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Màu chữ Tên Hệ thống:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={config.systemNameColor || '#0f172a'}
+                          onChange={(e) => setConfig({ ...config, systemNameColor: e.target.value })}
+                          className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={config.systemNameColor || '#0f172a'}
+                          onChange={(e) => setConfig({ ...config, systemNameColor: e.target.value })}
+                          className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* System Name Font Size */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Kích thước Font chữ:
+                      </label>
+                      <select
+                        value={config.systemNameFontSize || '15px'}
+                        onChange={(e) => setConfig({ ...config, systemNameFontSize: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                      >
+                        <option value="13px">13px (Nhỏ vừa)</option>
+                        <option value="14px">14px (Vừa tiêu chuẩn)</option>
+                        <option value="15px">15px (Nổi bật - Mặc định)</option>
+                        <option value="16px">16px (Lớn)</option>
+                        <option value="18px">18px (Rất lớn)</option>
+                        <option value="20px">20px (Đặc biệt lớn)</option>
+                      </select>
+                    </div>
+
+                    {/* System Name Font Weight */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Độ đậm Font chữ:
+                      </label>
+                      <select
+                        value={config.systemNameFontWeight || 'font-extrabold'}
+                        onChange={(e) => setConfig({ ...config, systemNameFontWeight: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                      >
+                        <option value="font-semibold">Semibold (Đậm vừa)</option>
+                        <option value="font-bold">Bold (Đậm chuẩn)</option>
+                        <option value="font-extrabold">Extrabold (Rất đậm - Nổi bật)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. SubTitle Config */}
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Phụ đề / Cơ quan chủ quản (Dưới tên hệ thống)
+                  </label>
+                  <input
+                    type="text"
+                    value={config.subTitle}
+                    onChange={(e) => setConfig({ ...config, subTitle: e.target.value })}
+                    placeholder="Ví dụ: Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô"
+                    className="w-full px-3.5 py-2.5 text-xs font-medium rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* SubTitle Color */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Màu chữ Phụ đề:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={config.subTitleColor || '#475569'}
+                          onChange={(e) => setConfig({ ...config, subTitleColor: e.target.value })}
+                          className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={config.subTitleColor || '#475569'}
+                          onChange={(e) => setConfig({ ...config, subTitleColor: e.target.value })}
+                          className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* SubTitle Font Size */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Kích thước Font Phụ đề:
+                      </label>
+                      <select
+                        value={config.subTitleFontSize || '11px'}
+                        onChange={(e) => setConfig({ ...config, subTitleFontSize: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                      >
+                        <option value="10px">10px (Nhỏ gọn)</option>
+                        <option value="11px">11px (Mặc định chuẩn)</option>
+                        <option value="12px">12px (Vừa)</option>
+                        <option value="13px">13px (Lớn)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Logo Size Config */}
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Kích thước Khung Logo (Đường kính):
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {[28, 32, 36, 40, 48, 56].map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setConfig({ ...config, logoSize: size })}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                          (config.logoSize || 36) === size
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                            : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {size}px
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Logo Selection */}
@@ -426,26 +605,58 @@ export const SystemSettingsPage: React.FC = () => {
           <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg border border-slate-800 space-y-4 h-fit">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-800 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-blue-400" />
-              Xem trước Thương hiệu Sidebar
+              Xem trước Thương hiệu & Bố trí Giao diện
             </h3>
 
-            <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
-                {config.logoType === 'custom_url' && config.logoUrl ? (
-                  <img src={config.logoUrl} alt="Logo" className="w-7 h-7 object-contain" />
-                ) : (
-                  <ShieldCheck className="w-5 h-5" />
-                )}
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-bold text-white truncate">{config.systemName || 'HỆ THỐNG BÁO CÁO'}</h4>
-                <p className="text-xs text-slate-400 truncate">{config.subTitle || 'Văn phòng UBND'}</p>
+            {/* Header Preview */}
+            <div className="p-3 bg-white text-slate-900 rounded-xl border border-slate-200 shadow-xs">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Xem trước Thanh Header Chính (Vùng khoanh đỏ):</p>
+              <div className="flex items-center gap-2.5 p-2 bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+                <div
+                  className="rounded-lg bg-transparent flex items-center justify-center shrink-0 overflow-hidden"
+                  style={{ width: `${config.logoSize || 36}px`, height: `${config.logoSize || 36}px` }}
+                >
+                  {config.logoType === 'custom_url' && config.logoUrl ? (
+                    <img src={config.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <ShieldCheck className="w-5 h-5 text-blue-600" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h4
+                    className={`truncate leading-tight ${config.systemNameFontWeight || 'font-extrabold'}`}
+                    style={{
+                      color: config.systemNameColor || '#0f172a',
+                      fontSize: config.systemNameFontSize || '14px'
+                    }}
+                  >
+                    {config.systemName || 'HỆ THỐNG'}
+                  </h4>
+                  <p
+                    className="truncate mt-0.5 font-medium"
+                    style={{
+                      color: config.subTitleColor || '#475569',
+                      fontSize: config.subTitleFontSize || '11px'
+                    }}
+                  >
+                    {config.subTitle || 'TTPVHCC'}
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="p-3 bg-white text-slate-900 rounded-xl border border-slate-200">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Xem trước Header:</p>
-              <p className="text-xs font-extrabold text-blue-600 mt-0.5">{config.headerTitle || 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC'}</p>
+            {/* Sidebar Preview */}
+            <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Xem trước Đầu Sidebar (Tài khoản User):</p>
+              <div className="flex items-center gap-2.5 p-2 bg-slate-800/80 rounded-lg border border-slate-700/60">
+                <div className="w-7 h-7 rounded-lg bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 shrink-0">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate leading-tight">{currentUser.email || currentUser.full_name}</p>
+                  <p className="text-[10px] text-slate-400 truncate mt-0.5">Quản trị viên (Admin)</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -771,6 +982,16 @@ export const SystemSettingsPage: React.FC = () => {
                 Chỉnh sửa thông tin tài khoản, gán đơn vị trực thuộc và phân nhóm vai trò
               </p>
             </div>
+            <div>
+              <button
+                type="button"
+                onClick={handleOpenCreateUser}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all cursor-pointer shadow-xs"
+              >
+                <UserPlus className="w-4 h-4" />
+                Thêm tài khoản mới
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-slate-200 rounded-2xl">
@@ -797,7 +1018,7 @@ export const SystemSettingsPage: React.FC = () => {
                           {u.role.toUpperCase()}
                         </span>
                       </td>
-                      <td className="p-3.5 text-slate-600">{userUnit ? userUnit.unit_name : 'Toàn hệ thống'}</td>
+                      <td className="p-3.5 text-slate-600">{userUnit ? userUnit.name : 'Toàn hệ thống'}</td>
                       <td className="p-3.5 text-center">
                         {u.active ? (
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
@@ -828,12 +1049,14 @@ export const SystemSettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Edit User */}
-      {isUserModalOpen && editingUser && (
+      {/* Modal Edit/Create User */}
+      {isUserModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">Sửa thông tin Tài khoản</h3>
+              <h3 className="text-base font-bold text-slate-900">
+                {editingUser ? 'Sửa thông tin Tài khoản' : 'Thêm mới Tài khoản Người dùng'}
+              </h3>
               <button type="button" onClick={() => setIsUserModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
@@ -841,22 +1064,52 @@ export const SystemSettingsPage: React.FC = () => {
 
             <form onSubmit={handleSaveUser} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Họ và Tên:</label>
+                <label className="block font-semibold text-slate-700 mb-1">Họ và Tên <span className="text-rose-500">*</span>:</label>
                 <input
                   type="text"
                   required
                   value={userFormData.full_name}
                   onChange={(e) => setUserFormData({ ...userFormData, full_name: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-slate-900"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Nhóm vai trò (Role):</label>
+                <label className="block font-semibold text-slate-700 mb-1">Email công vụ <span className="text-rose-500">*</span>:</label>
+                <input
+                  type="email"
+                  required
+                  disabled={!!editingUser}
+                  placeholder="Viết liền không dấu, VD: canbo@domain.vn"
+                  value={userFormData.email}
+                  onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+                  className={`w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-slate-900 ${
+                    editingUser ? 'bg-slate-100 cursor-not-allowed opacity-75' : ''
+                  }`}
+                />
+              </div>
+
+              {!editingUser && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Mật khẩu khởi tạo <span className="text-rose-500">*</span>:</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Mật khẩu tối thiểu 6 ký tự..."
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Cấp mật khẩu để cán bộ đăng nhập lần đầu.</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Nhóm vai trò (Role) <span className="text-rose-500">*</span>:</label>
                 <select
                   value={userFormData.role}
                   onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as UserRole })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   <option value="admin">Admin - Quản trị viên</option>
                   <option value="analyst">Analyst - Chuyên viên phân tích</option>
@@ -870,12 +1123,12 @@ export const SystemSettingsPage: React.FC = () => {
                 <select
                   value={userFormData.unit_id}
                   onChange={(e) => setUserFormData({ ...userFormData, unit_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   <option value="">Toàn tỉnh / Không giới hạn</option>
                   {units.map((un) => (
                     <option key={un.id} value={un.id}>
-                      {un.unit_name}
+                      {un.name}
                     </option>
                   ))}
                 </select>
@@ -887,9 +1140,9 @@ export const SystemSettingsPage: React.FC = () => {
                   id="userActive"
                   checked={userFormData.active}
                   onChange={(e) => setUserFormData({ ...userFormData, active: e.target.checked })}
-                  className="rounded-md border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
-                <label htmlFor="userActive" className="font-semibold text-slate-700 cursor-pointer">
+                <label htmlFor="userActive" className="font-semibold text-slate-700 cursor-pointer select-none">
                   Tài khoản đang Hoạt động (Active)
                 </label>
               </div>
@@ -898,15 +1151,15 @@ export const SystemSettingsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsUserModalOpen(false)}
-                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs"
+                  className="px-4 py-2 font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs cursor-pointer"
                 >
-                  Lưu thay đổi
+                  {editingUser ? 'Lưu thay đổi' : 'Thêm tài khoản'}
                 </button>
               </div>
             </form>
