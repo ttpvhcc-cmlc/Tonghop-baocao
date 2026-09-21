@@ -49,6 +49,9 @@ export const ImportPage: React.FC = () => {
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1); // 1: Upload, 2: Mapping & Preview, 3: Success
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [importStatusText, setImportStatusText] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
   const [importSummary, setImportSummary] = useState<{
     totalSaved: number;
     reportCode: string;
@@ -68,28 +71,70 @@ export const ImportPage: React.FC = () => {
   const [newPeriodEnd, setNewPeriodEnd] = useState('2026-03-31');
 
   useEffect(() => {
-    const refreshData = () => {
+    let isMounted = true;
+
+    const loadData = async () => {
+      try {
+        await store.fetchReports();
+        await store.fetchFields();
+        await store.fetchUnits();
+      } catch (err) {
+        console.warn('Lỗi đồng bộ dữ liệu báo cáo:', err);
+      }
+      if (!isMounted) return;
+
       const currentReports = store.getReports();
       setReports(currentReports);
       setUnits(store.getUnits());
       setFields(store.getFields());
-      if (!selectedReportId && currentReports.length > 0) {
-        setSelectedReportId(currentReports[0].id);
+
+      if (currentReports.length > 0) {
+        setSelectedReportId((prev) => {
+          if (prev && currentReports.some((r) => r.id === prev)) {
+            return prev;
+          }
+          return currentReports[0].id;
+        });
       }
     };
-    refreshData();
-    const unsub = store.subscribe(refreshData);
-    return () => unsub();
-  }, [selectedReportId]);
 
-  const selectedReport = useMemo(() => reports.find((r) => r.id === selectedReportId) || reports[0], [reports, selectedReportId]);
-  const isLocked = selectedReport?.status === 'locked';
+    void loadData();
+
+    const unsub = store.subscribe(() => {
+      if (!isMounted) return;
+      const currentReports = store.getReports();
+      setReports(currentReports);
+      setUnits(store.getUnits());
+      setFields(store.getFields());
+
+      if (currentReports.length > 0) {
+        setSelectedReportId((prev) => {
+          if (prev && currentReports.some((r) => r.id === prev)) {
+            return prev;
+          }
+          return currentReports[0].id;
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
+  }, []);
+
+  const selectedReport = useMemo(() => {
+    return reports.find((r) => r.id === selectedReportId) || reports[0];
+  }, [reports, selectedReportId]);
+
+  const isLocked = selectedReport?.status === 'locked' || selectedReport?.status === 'archived';
 
   const handleCreateQuickReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newReportCode.trim() || !newReportName.trim()) return;
 
     try {
+      setImportError(null);
       const created = await store.createReport({
         report_code: newReportCode.trim().toUpperCase(),
         report_name: newReportName.trim(),
@@ -104,12 +149,13 @@ export const ImportPage: React.FC = () => {
       setNewReportCode('');
       setNewReportName('');
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi tạo kỳ báo cáo');
+      setImportError(err.message || 'Lỗi khi tạo kỳ báo cáo');
     }
   };
 
   // Handle File Upload
   const handleFileUpload = (file: File) => {
+    setImportError(null);
     setIsProcessing(true);
     setFileName(file.name);
     const reader = new FileReader();
@@ -129,9 +175,9 @@ export const ImportPage: React.FC = () => {
         const res = parseSheetToDrafts(sheetObj, fields, units, defaultSheet, file.name);
         setParseResult(res);
         setActiveStep(2);
-      } catch (err) {
+      } catch (err: any) {
         console.error('File parsing error:', err);
-        alert('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file!');
+        setImportError(err.message || 'Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file!');
       } finally {
         setIsProcessing(false);
       }
@@ -143,6 +189,7 @@ export const ImportPage: React.FC = () => {
   // Handle Sheet Change
   const handleSheetChange = (sheetName: string) => {
     if (!workbook) return;
+    setImportError(null);
     setSelectedSheet(sheetName);
     const sheetObj = workbook.Sheets[sheetName];
     const res = parseSheetToDrafts(sheetObj, fields, units, sheetName, fileName);
@@ -178,43 +225,91 @@ export const ImportPage: React.FC = () => {
 
   // Confirm Import
   const handleConfirmImport = async () => {
-    if (!selectedReportId || !parseResult) return;
-    if (isLocked) {
-      alert('Báo cáo này đã bị khóa (Locked Snapshot). Không thể nhập đè dữ liệu!');
+    setImportError(null);
+
+    // 1. Validate report selection and Excel parse result explicitly
+    const currentReports = store.getReports();
+    let targetReport = currentReports.find((r) => r.id === selectedReportId);
+
+    if (!selectedReportId || !targetReport) {
+      if (currentReports.length > 0) {
+        targetReport = currentReports[0];
+        setSelectedReportId(targetReport.id);
+      } else {
+        setImportError('Vui lòng chọn hoặc tạo kỳ báo cáo trước khi xác nhận nhập số liệu.');
+        return;
+      }
+    }
+
+    if (!parseResult || !parseResult.draftRows || parseResult.draftRows.length === 0) {
+      setImportError('Chưa có dữ liệu Excel hợp lệ để nhập số liệu. Vui lòng tải lại file Excel.');
       return;
     }
 
+    if (targetReport.status === 'locked' || targetReport.status === 'archived') {
+      setImportError(`Báo cáo "${targetReport.report_code}" đã bị khóa hoặc lưu trữ. Không thể nhập đè dữ liệu!`);
+      return;
+    }
+
+    setIsProcessing(true);
+
     try {
-      // Ensure all rows are mapped to a field and have a unit assigned
+      // BƯỚC 1: Preflight Validation
+      setImportStatusText('Đang kiểm tra dữ liệu...');
+
       const allFields = store.getFields();
       const allUnits = store.getUnits();
+
+      if (allFields.length === 0) {
+        throw new Error('Danh mục Lĩnh vực/Thủ tục (public.fields) đang trống trên hệ thống.');
+      }
+      if (allUnits.length === 0) {
+        throw new Error('Danh mục Đơn vị (public.units) đang trống trên hệ thống.');
+      }
+
+      // Preflight: Validate every draft row against CSDL constraints
       const preparedRows = parseResult.draftRows.map((row) => {
         const fieldId = row.matchedFieldId;
-        const fieldName = resolveLinhVuc(row.matchedFieldName || row.rawFieldName, fieldId, allFields);
-
         if (!fieldId) {
-          throw new Error(`Lĩnh vực "${row.rawFieldName}" chưa được ánh xạ trong Danh mục Master. Vui lòng chọn đúng lĩnh vực trước khi nhập.`);
+          throw new Error(
+            `Dòng ${row.rowNumber} (${row.sourceName} - "${row.rawFieldName}"): Chưa được ánh xạ Lĩnh vực/Thủ tục hợp lệ.`
+          );
         }
 
         const targetField = allFields.find((f) => f.id === fieldId);
-        if (!targetField || !targetField.unit_id) {
-          throw new Error(`Thủ tục/Lĩnh vực "${fieldName || row.rawFieldName}" chưa được phân công Đơn vị giải quyết. Vui lòng phân công Đơn vị trong Quản trị Danh mục trước khi nhập số liệu báo cáo.`);
+        if (!targetField) {
+          throw new Error(
+            `Dòng ${row.rowNumber} ("${row.rawFieldName}"): Lĩnh vực/Thủ tục ID "${fieldId}" không tồn tại trong CSDL (public.fields).`
+          );
+        }
+
+        if (!targetField.unit_id) {
+          throw new Error(
+            `Dòng ${row.rowNumber} ("${targetField.name}"): Thủ tục/Lĩnh vực chưa được phân công Đơn vị giải quyết trong public.fields. Vui lòng phân công Đơn vị trước khi nhập báo cáo.`
+          );
         }
 
         const assignedUnit = allUnits.find((u) => u.id === targetField.unit_id);
-        const unitId = targetField.unit_id;
-        const unitName = assignedUnit?.name || row.unitName || 'Đơn vị';
+        if (!assignedUnit) {
+          throw new Error(
+            `Dòng ${row.rowNumber} ("${targetField.name}"): Đơn vị giải quyết (ID "${targetField.unit_id}") không tồn tại trong CSDL (public.units).`
+          );
+        }
+
+        const fieldName = resolveLinhVuc(row.matchedFieldName || row.rawFieldName, fieldId, allFields);
 
         return {
           ...row,
           matchedFieldId: fieldId,
           matchedFieldName: fieldName,
-          unitId,
-          unitName,
+          unitId: targetField.unit_id,
+          unitName: assignedUnit.name,
         };
       });
 
-      // Group rows by sourceName
+      // BƯỚC 2: Save report source & statistics
+      setImportStatusText('Đang lưu nguồn dữ liệu...');
+
       const sourcesMap = new Map<string, typeof preparedRows>();
       preparedRows.forEach((row) => {
         const group = sourcesMap.get(row.sourceName) || [];
@@ -228,12 +323,13 @@ export const ImportPage: React.FC = () => {
       let totalCompleted = 0;
       let totalPending = 0;
 
+      setImportStatusText('Đang lưu số liệu thống kê...');
+
       for (const [sourceName, rows] of sourcesMap.entries()) {
-        // Create or get source in store
-        const reportSources = store.getSourcesByReport(selectedReportId);
+        const reportSources = store.getSourcesByReport(targetReport.id);
         let src = reportSources.find((s) => s.source_name.toLowerCase() === sourceName.toLowerCase());
         if (!src) {
-          src = await store.addReportSource(selectedReportId, sourceName, fileName);
+          src = await store.addReportSource(targetReport.id, sourceName, fileName);
         }
 
         const statRows = rows.map((r) => {
@@ -264,29 +360,47 @@ export const ImportPage: React.FC = () => {
           };
         });
 
-        await store.saveReportStats(selectedReportId, src.id, statRows);
+        await store.saveReportStats(targetReport.id, src.id, statRows);
         totalSaved += statRows.length;
       }
 
+      // Verify row count from CSDL after saveReportStats
+      const savedStatsInDb = await store.fetchStatsByReport(targetReport.id);
+      if (savedStatsInDb.length < totalSaved) {
+        throw new Error(
+          `Xác nhận lưu CSDL thất bại: Số dòng ghi nhận trong CSDL (${savedStatsInDb.length}) ít hơn số dòng trong file import (${totalSaved}).`
+        );
+      }
+
+      // BƯỚC 3: Recalculate indicators & update status
+      setImportStatusText('Đang tính các chỉ tiêu...');
       const hasErrors = preparedRows.some((r) => r.validationStatus === 'error');
-      await store.recalculateAndPersistReportIndicators(selectedReportId);
-      await store.updateReportStatus(selectedReportId, 'imported');
+      await store.recalculateAndPersistReportIndicators(targetReport.id);
+
+      setImportStatusText('Đang hoàn tất...');
+      await store.updateReportStatus(targetReport.id, 'imported');
       if (!hasErrors) {
-        await store.updateReportStatus(selectedReportId, 'validated');
+        await store.updateReportStatus(targetReport.id, 'validated');
       }
 
       setImportSummary({
         totalSaved,
-        reportCode: selectedReport?.report_code || '',
-        reportName: selectedReport?.report_name || '',
+        reportCode: targetReport.report_code || '',
+        reportName: targetReport.report_name || '',
         totalReceived,
         totalOnline,
         totalCompleted,
         totalPending,
       });
+
+      // ONLY advance to Step 3 if every step above succeeded without error
       setActiveStep(3);
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi nhập dữ liệu');
+      console.error('Lỗi khi nhập dữ liệu Excel:', err);
+      setImportError(err.message || 'Lỗi không xác định khi nhập dữ liệu.');
+    } finally {
+      setIsProcessing(false);
+      setImportStatusText(null);
     }
   };
 
@@ -336,9 +450,12 @@ export const ImportPage: React.FC = () => {
             </label>
             <select
               value={selectedReportId}
-              onChange={(e) => setSelectedReportId(e.target.value)}
-              disabled={activeStep === 2}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-md"
+              onChange={(e) => {
+                setSelectedReportId(e.target.value);
+                setImportError(null);
+              }}
+              disabled={activeStep === 2 || isProcessing}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-md disabled:opacity-60"
             >
               {reports.map((r) => {
                 const count = store.getStatsByReport(r.id).length;
@@ -352,8 +469,12 @@ export const ImportPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setShowCreateReportModal(true)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+              onClick={() => {
+                setShowCreateReportModal(true);
+                setImportError(null);
+              }}
+              disabled={isProcessing}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors disabled:opacity-60"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Tạo kỳ mới</span>
@@ -451,6 +572,28 @@ export const ImportPage: React.FC = () => {
         </div>
       )}
 
+      {/* Global Error Banner */}
+      {importError && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start justify-between gap-3 text-rose-800 text-xs shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-rose-900 block text-xs mb-0.5">
+                Lỗi nhập dữ liệu:
+              </span>
+              <p className="whitespace-pre-line leading-relaxed text-xs">{importError}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportError(null)}
+            className="text-rose-400 hover:text-rose-700 transition-colors shrink-0 p-0.5"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* STEP 1: UPLOAD AREA */}
       {activeStep === 1 && (
         <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-xs text-center">
@@ -528,6 +671,14 @@ export const ImportPage: React.FC = () => {
       {/* STEP 2: MAPPING & PREVIEW */}
       {activeStep === 2 && parseResult && (
         <div className="space-y-4">
+          {/* Progress Processing Banner */}
+          {isProcessing && importStatusText && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-center gap-3 text-blue-800 text-xs shadow-xs animate-pulse">
+              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+              <span className="font-semibold text-blue-900">{importStatusText}</span>
+            </div>
+          )}
+
           {/* Summary & Controls Toolbar */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -542,7 +693,8 @@ export const ImportPage: React.FC = () => {
                   <select
                     value={selectedSheet}
                     onChange={(e) => handleSheetChange(e.target.value)}
-                    className="ml-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-800"
+                    disabled={isProcessing}
+                    className="ml-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-medium text-slate-800 disabled:opacity-60"
                   >
                     {sheetNames.map((s) => (
                       <option key={s} value={s}>
@@ -571,11 +723,13 @@ export const ImportPage: React.FC = () => {
 
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={() => {
                   setActiveStep(1);
                   setParseResult(null);
+                  setImportError(null);
                 }}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-60"
               >
                 Hủy & Tải lại
               </button>
@@ -583,15 +737,24 @@ export const ImportPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleConfirmImport}
-                disabled={isLocked}
+                disabled={isLocked || isProcessing}
                 className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-sm transition-all ${
-                  isLocked
+                  isLocked || isProcessing
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                     : 'bg-emerald-600 text-white hover:bg-emerald-700'
                 }`}
               >
-                <span>Xác nhận nhập số liệu</span>
-                <ArrowRight className="w-4 h-4" />
+                {isProcessing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Đang nhập dữ liệu...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Xác nhận nhập số liệu</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -766,6 +929,7 @@ export const ImportPage: React.FC = () => {
                 setActiveStep(1);
                 setParseResult(null);
                 setImportSummary(null);
+                setImportError(null);
               }}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
             >
