@@ -27,6 +27,12 @@ export interface CodeConflict {
   reason: string;
 }
 
+export interface UnrecognizedUnitError {
+  rawUnit: string;
+  rowNum: number;
+  code: string;
+}
+
 export interface ExcelProcedureParseResult {
   rows: ParsedProcedureRow[];
   headers: string[];
@@ -38,6 +44,7 @@ export interface ExcelProcedureParseResult {
   skippedTestCount: number;
   duplicateRowsCount: number;
   conflicts: CodeConflict[];
+  unrecognizedUnits: UnrecognizedUnitError[];
 }
 
 /**
@@ -61,68 +68,40 @@ export function isTestProcedureCode(code: string): boolean {
 }
 
 /**
- * Resolves UNIT strictly from Master Supabase data:
- * 1. If FIELD already exists in Supabase and has a valid unit_id -> use that unit_id.
- * 2. If FIELD is new, check if its Lĩnh vực matches an existing Master Field in Supabase that has a valid unit_id.
- * 3. Otherwise, returns null (unassigned). NO fuzzy matching, NO auto-guessing, NO auto-creating units.
+ * Matches unit name or code from Excel directly with public.units table:
+ * - If rawUnitName is empty -> returns { unit: null, isProvided: false, isMatched: true }
+ * - If rawUnitName matches units.code or units.name -> returns { unit: matched, isProvided: true, isMatched: true }
+ * - If rawUnitName is provided but not in public.units -> returns { unit: null, isProvided: true, isMatched: false }
  */
-export function resolveUnitFromMaster(
-  code: string,
-  linhVuc: string,
-  existingFields: Field[],
+export function matchUnitFromExcel(
+  rawUnitName: string,
   units: Unit[]
-): { unitId: string | null; unitName?: string; unitCode?: string; isMapped: boolean } {
-  const validUnitsMap = new Map<string, Unit>(units.map((u) => [u.id, u]));
-  const cleanCode = normalizeKey(code);
-  const cleanSector = normalizeKey(linhVuc);
-
-  // Rule 1: Check existing field in Supabase by exact code
-  if (cleanCode) {
-    const existing = existingFields.find((f) => normalizeKey(f.code) === cleanCode);
-    if (existing && existing.unit_id && validUnitsMap.has(existing.unit_id)) {
-      const u = validUnitsMap.get(existing.unit_id)!;
-      return {
-        unitId: u.id,
-        unitName: u.name,
-        unitCode: u.code,
-        isMapped: true,
-      };
-    }
+): { unit: Unit | null; isProvided: boolean; isMatched: boolean } {
+  const clean = (rawUnitName || '').trim();
+  if (!clean) {
+    return { unit: null, isProvided: false, isMatched: true };
   }
-
-  // Rule 2: Check Master Supabase fields with the exact same Lĩnh vực that have a unit_id assigned
-  if (cleanSector && cleanSector !== 'chua phan loai' && cleanSector !== 'chưa phân loại') {
-    const sectorFields = existingFields.filter(
-      (f) => normalizeKey(f.linh_vuc || '') === cleanSector && f.unit_id && validUnitsMap.has(f.unit_id)
-    );
-    if (sectorFields.length > 0) {
-      // Find the unit assigned to this sector in Master
-      const unitId = sectorFields[0].unit_id;
-      if (unitId && validUnitsMap.has(unitId)) {
-        const u = validUnitsMap.get(unitId)!;
-        return {
-          unitId: u.id,
-          unitName: u.name,
-          unitCode: u.code,
-          isMapped: true,
-        };
-      }
-    }
+  const cleanNorm = normalizeKey(clean);
+  const matched = units.find(
+    (u) =>
+      normalizeKey(u.name) === cleanNorm ||
+      normalizeKey(u.code) === cleanNorm
+  );
+  if (matched) {
+    return { unit: matched, isProvided: true, isMatched: true };
   }
-
-  return {
-    unitId: null,
-    unitName: undefined,
-    unitCode: undefined,
-    isMapped: false,
-  };
+  return { unit: null, isProvided: true, isMatched: false };
 }
 
 /**
- * Parse Excel ArrayBuffer into structured procedure rows with 2-stage workflow support:
- * - Excel only provides TTHC data (Code, Name, Sector, description).
- * - UNIT is resolved from Master Supabase if already exists; otherwise unit_id is null.
- * - Duplicate codes with conflicting content are flagged to block import.
+ * Parse Excel ArrayBuffer into structured procedure rows:
+ * 1. Excel column "Đơn vị thực hiện":
+ *    - Lấy giá trị đó đối chiếu chính xác với public.units theo units.code hoặc units.name.
+ *    - Nếu khớp -> fields.unit_id = units.id, Preview hiển thị units.name.
+ *    - Nếu có nhưng không khớp -> Báo lỗi và chặn Import.
+ * 2. Excel không có / để trống:
+ *    - fields.unit_id = null, Preview hiển thị "Chưa phân công".
+ * 3. Loại trừ mã test và kiểm tra xung đột trùng mã trong file.
  */
 export function parseProceduresExcel(
   fileBuffer: ArrayBuffer,
@@ -157,7 +136,13 @@ export function parseProceduresExcel(
     );
     const sIdx = strRow.findIndex((c) => c.includes('lĩnh vực') || c.includes('linh vuc'));
     const uIdx = strRow.findIndex(
-      (c) => c.includes('đơn vị thực hiện') || c.includes('đơn vị') || c.includes('don vi') || c.includes('phụ trách') || c.includes('chủ trì')
+      (c) =>
+        c.includes('đơn vị giải quyết') ||
+        c.includes('đơn vị thực hiện') ||
+        c.includes('đơn vị') ||
+        c.includes('don vi') ||
+        c.includes('phụ trách') ||
+        c.includes('chủ trì')
     );
 
     if (cIdx !== -1 && (nIdx !== -1 || sIdx !== -1)) {
@@ -190,12 +175,16 @@ export function parseProceduresExcel(
   const capIdx = findCol(['cấp thực hiện', 'cấp'], 7);
   const mucDoIdx = findCol(['mức độ', 'mức độ cung cấp', 'dvc'], 8);
   const phiIdx = findCol(['phí', 'lệ phí'], 9);
-  const unitIdx = unitColIdx !== -1 ? unitColIdx : findCol(['đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị'], 10);
+  const unitIdx =
+    unitColIdx !== -1
+      ? unitColIdx
+      : findCol(['đơn vị giải quyết', 'đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị'], 10);
 
   const existingCodesMap = new Map(existingFields.map((f) => [normalizeKey(f.code), f]));
 
   // Track codes seen inside this file to detect conflicts or duplicates
   const codeTracker = new Map<string, { rowNum: number; name: string; linh_vuc: string; item: ParsedProcedureRow }[]>();
+  const unrecognizedUnits: UnrecognizedUnitError[] = [];
 
   let skippedTestCount = 0;
   let duplicateRowsCount = 0;
@@ -218,12 +207,20 @@ export function parseProceduresExcel(
       continue;
     }
 
-    const rawUnit = String(row[unitIdx] ?? '').trim();
+    const rawUnit = unitIdx !== -1 ? String(row[unitIdx] ?? '').trim() : '';
     const cleanCode = code || `TTHC-${i}`;
     const codeKey = normalizeKey(cleanCode);
 
-    // Resolve UNIT strictly from Master Supabase
-    const masterUnit = resolveUnitFromMaster(cleanCode, linh_vuc, existingFields, units);
+    // Match unit from Excel strictly against public.units
+    const matchResult = matchUnitFromExcel(rawUnit, units);
+    if (matchResult.isProvided && !matchResult.isMatched) {
+      unrecognizedUnits.push({
+        rawUnit,
+        rowNum: i + 1,
+        code: cleanCode,
+      });
+    }
+
     const isExisting = existingCodesMap.has(codeKey);
 
     const parsedItem: ParsedProcedureRow = {
@@ -238,10 +235,10 @@ export function parseProceduresExcel(
       muc_do_cung_cap: String(row[mucDoIdx] ?? '').trim(),
       phi_le_phi: String(row[phiIdx] ?? '').trim(),
       raw_unit_name: rawUnit,
-      matched_unit_id: masterUnit.unitId,
-      matched_unit_name: masterUnit.unitName,
-      matched_unit_code: masterUnit.unitCode,
-      isMapped: masterUnit.isMapped,
+      matched_unit_id: matchResult.unit ? matchResult.unit.id : null,
+      matched_unit_name: matchResult.unit ? matchResult.unit.name : undefined,
+      matched_unit_code: matchResult.unit ? matchResult.unit.code : undefined,
+      isMapped: !!matchResult.unit,
       isExisting,
       fileRowNum: i + 1,
     };
@@ -306,7 +303,7 @@ export function parseProceduresExcel(
       newCount++;
     }
 
-    if (r.matched_unit_id && r.isMapped) {
+    if (r.matched_unit_id) {
       assignedUnitCount++;
     } else {
       unassignedUnitCount++;
@@ -324,11 +321,12 @@ export function parseProceduresExcel(
     skippedTestCount,
     duplicateRowsCount,
     conflicts,
+    unrecognizedUnits,
   };
 }
 
 /**
- * Export current catalog to Excel with all 11 columns
+ * Export current catalog to Excel with standard 11 columns
  */
 export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 'DanhMuc_LinhVuc_TTHC.xlsx') {
   const unitsMap = new Map(units.map((u) => [u.id, u.name]));
@@ -344,7 +342,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     'Cấp thực hiện',
     'Mức độ cung cấp',
     'Phí - lệ phí',
-    'Đơn vị thực hiện',
+    'Đơn vị giải quyết',
   ];
 
   // Filter out any test codes and sort
@@ -385,7 +383,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     { wch: 14 },
     { wch: 18 },
     { wch: 16 },
-    { wch: 24 },
+    { wch: 28 },
   ];
 
   const wb = XLSX.utils.book_new();
@@ -408,7 +406,7 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
     'Cấp thực hiện',
     'Mức độ cung cấp',
     'Phí - lệ phí',
-    'Đơn vị thực hiện',
+    'Đơn vị giải quyết',
   ];
 
   const ws = XLSX.utils.aoa_to_sheet([headers]);
@@ -424,7 +422,7 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
     { wch: 14 },
     { wch: 18 },
     { wch: 16 },
-    { wch: 24 },
+    { wch: 28 },
   ];
 
   const wb = XLSX.utils.book_new();
