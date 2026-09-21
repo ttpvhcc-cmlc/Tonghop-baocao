@@ -37,6 +37,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Resend confirmation email states
+  const [resendStatus, setResendStatus] = useState<'idle' | 'busy' | 'success' | 'error'>('idle');
+  const [resendMessage, setResendMessage] = useState('');
+
   useEffect(() => {
     const refresh = () => {
       setConfig(store.getSystemConfig());
@@ -72,6 +76,27 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const handleResendEmail = async () => {
+    if (!email.trim()) {
+      setResendStatus('error');
+      setResendMessage('Vui lòng điền Email trước khi gửi lại link xác thực.');
+      return;
+    }
+    setResendStatus('busy');
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+      });
+      if (error) throw error;
+      setResendStatus('success');
+      setResendMessage('Đã gửi lại link xác thực thành công! Hãy kiểm tra hộp thư của bạn.');
+    } catch (err: any) {
+      setResendStatus('error');
+      setResendMessage(err.message || 'Lỗi gửi lại link xác thực.');
+    }
+  };
+
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) {
@@ -80,6 +105,8 @@ export const Header: React.FC<HeaderProps> = ({
     }
     setLoginBusy(true);
     setLoginError(null);
+    setResendStatus('idle');
+    setResendMessage('');
     try {
       await store.signIn(email, password);
       setEmail('');
@@ -189,8 +216,43 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 
                 {loginError && (
-                  <div className="p-2 bg-rose-50 border border-rose-100 text-[11px] text-rose-600 rounded-lg font-medium leading-relaxed">
-                    {loginError}
+                  <div className="space-y-2">
+                    <div className="p-2.5 bg-rose-50 border border-rose-100 text-[11px] text-rose-600 rounded-xl font-medium leading-relaxed">
+                      {loginError.includes('Email not confirmed') ? (
+                        <div>
+                          <p className="font-bold text-rose-700 mb-1">⚠️ Chưa xác nhận Email</p>
+                          <p className="text-[10px] text-slate-600 leading-normal mb-2">
+                            Tài khoản đã tạo thành công nhưng Supabase Auth yêu cầu xác thực email trước khi đăng nhập.
+                          </p>
+                          <div className="p-2 bg-white/70 rounded-lg border border-rose-100 text-[9.5px] text-slate-700 space-y-1 mb-1">
+                            <p><strong>👉 Cách 1 (Nên dùng):</strong> Vào <strong>Supabase Dashboard</strong> &gt; <strong>Auth</strong> &gt; <strong>Providers</strong> &gt; <strong>Email</strong> &gt; Tắt mục <strong>"Confirm email"</strong> để cho phép đăng nhập ngay.</p>
+                            <p><strong>👉 Cách 2:</strong> Kiểm tra hộp thư của email cán bộ và nhấn vào link kích hoạt gửi từ Supabase.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        loginError
+                      )}
+                    </div>
+
+                    {loginError.includes('Email not confirmed') && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={resendStatus === 'busy'}
+                          onClick={handleResendEmail}
+                          className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-bold rounded-lg text-[10px] transition-colors border border-slate-200 cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          {resendStatus === 'busy' ? 'Đang gửi lại...' : '📬 Gửi lại Link kích hoạt Email'}
+                        </button>
+                        {resendMessage && (
+                          <p className={`text-[9.5px] font-bold text-center mt-1 px-1 leading-tight ${
+                            resendStatus === 'success' ? 'text-emerald-600' : 'text-rose-600'
+                          }`}>
+                            {resendMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
