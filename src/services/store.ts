@@ -391,10 +391,6 @@ export class StorageService {
     this.notify();
   }
 
-  public switchUserRole(_role: UserRole): Profile {
-    throw new Error('Không còn mô phỏng vai trò trên trình duyệt. Vai trò được lấy trực tiếp từ Supabase profiles.');
-  }
-
   // --- Units CRUD (Direct Supabase) ---
   public getUnits(): Unit[] {
     return deduplicateById(this.inMemoryCache.units).sort((a, b) => a.display_order - b.display_order);

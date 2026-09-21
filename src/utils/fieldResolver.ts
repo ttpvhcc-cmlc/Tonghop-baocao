@@ -1,4 +1,3 @@
-import { SAMPLE_PROCEDURES_DATA } from '../data/sampleProcedures';
 import { Field } from '../types/database';
 
 /**
@@ -42,6 +41,7 @@ export function normalizeText(str: string): string {
 
 /**
  * Resolves a procedure text, snapshot string, or field ID into its exact official Lĩnh vực (Field/Sector).
+ * Source of truth: Supabase fields table.
  */
 export function resolveLinhVuc(
   rawText: string,
@@ -51,17 +51,28 @@ export function resolveLinhVuc(
   if (!rawText && !fieldId) return 'Chưa phân loại';
 
   const cleanRaw = (rawText || '').trim();
+  const normRaw = normalizeText(cleanRaw);
 
-  // 1. If availableFields provided, check by ID first
-  if (fieldId && availableFields && availableFields.length > 0) {
-    const matched = availableFields.find((f) => f.id === fieldId);
-    if (matched) {
-      if (matched.linh_vuc && matched.linh_vuc !== 'Chưa phân loại') {
-        return matched.linh_vuc;
+  // 1. If availableFields provided, check by ID or name in Supabase fields
+  if (availableFields && availableFields.length > 0) {
+    if (fieldId) {
+      const matched = availableFields.find((f) => f.id === fieldId);
+      if (matched) {
+        if (matched.linh_vuc && matched.linh_vuc !== 'Chưa phân loại') {
+          return matched.linh_vuc;
+        }
+        if (matched.name && isStandardLinhVuc(matched.name)) {
+          return matched.name;
+        }
       }
-      if (matched.name && isStandardLinhVuc(matched.name)) {
-        return matched.name;
-      }
+    }
+
+    // Match by code or exact name in Supabase fields
+    const matchedByNameOrCode = availableFields.find(
+      (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
+    );
+    if (matchedByNameOrCode) {
+      return matchedByNameOrCode.linh_vuc || matchedByNameOrCode.name || cleanRaw;
     }
   }
 
@@ -72,18 +83,7 @@ export function resolveLinhVuc(
     }
   }
 
-  // 3. Match against SAMPLE_PROCEDURES_DATA by exact or fuzzy name
-  const normRaw = normalizeText(cleanRaw);
-  for (const proc of SAMPLE_PROCEDURES_DATA) {
-    const normProcName = normalizeText(proc.name);
-    if (normRaw === normProcName || normRaw.includes(normProcName) || normProcName.includes(normRaw)) {
-      if (proc.linh_vuc) {
-        return proc.linh_vuc;
-      }
-    }
-  }
-
-  // 4. Keyword heuristics for known TTHC procedures
+  // 3. Keyword heuristics for known TTHC sectors
   if (normRaw.includes('chung thuc') || normRaw.includes('phan chia di san') || normRaw.includes('khai nhan di san') || normRaw.includes('tu choi nhan di san')) {
     return 'Chứng thực';
   }

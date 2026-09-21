@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx';
 import type { Field, Unit } from '../types/database';
-import { SAMPLE_PROCEDURES_DATA, type ProcedureExcelRow } from '../data/sampleProcedures';
 
 export interface ParsedProcedureRow {
   stt?: number | string;
@@ -243,7 +242,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
   XLSX.writeFile(wb, fileName);
 }
 
-// Download formatted sample template Excel file based on user's real data
+// Download blank template Excel file with official columns for importing procedures
 export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.xlsx') {
   const headers = [
     'STT',
@@ -259,21 +258,7 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
     'Đơn vị thực hiện',
   ];
 
-  const dataRows = SAMPLE_PROCEDURES_DATA.map((row, idx) => [
-    idx + 1,
-    row.code,
-    row.name,
-    row.linh_vuc,
-    row.co_quan_cong_bo || '',
-    row.loai_tthc || '',
-    row.co_quan_thuc_hien || '',
-    row.cap_thuc_hien || '',
-    row.muc_do_cung_cap || '',
-    row.phi_le_phi || '',
-    row.don_vi_thuc_hien || '',
-  ]);
-
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+  const ws = XLSX.utils.aoa_to_sheet([headers]);
 
   ws['!cols'] = [
     { wch: 6 },
@@ -290,6 +275,6 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
   ];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Danh mục TTHC Chuẩn');
+  XLSX.utils.book_append_sheet(wb, ws, 'Danh mục TTHC');
   XLSX.writeFile(wb, fileName);
 }

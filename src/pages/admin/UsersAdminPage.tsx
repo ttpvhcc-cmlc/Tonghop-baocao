@@ -33,10 +33,6 @@ export const UsersAdminPage: React.FC = () => {
     active: true,
   });
 
-  const handleSwitch = (_role: UserRole) => {
-    alert('Vai trò được quản lý trực tiếp trong Supabase profiles. Không còn chuyển vai trò giả lập trên trình duyệt.');
-  };
-
   const handleOpenCreate = () => {
     alert('Tài khoản đăng nhập phải được tạo trước tại Supabase Authentication. Màn hình này chỉ quản lý hồ sơ và quyền RBAC.');
   };
@@ -251,52 +247,6 @@ export const UsersAdminPage: React.FC = () => {
               })}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* Role Test Bench */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <h3 className="text-sm font-bold text-slate-900 mb-2">
-          Mô phỏng Vai trò Phiên làm việc (Role Simulation)
-        </h3>
-        <p className="text-xs text-slate-500 mb-4">
-          Nhấp vào vai trò bên dưới để chuyển đổi ngay lập tức phiên làm việc nhằm kiểm thử luồng thao tác:
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {rolesList.map((item) => {
-            const isCurrent = currentUser.role === item.role;
-            return (
-              <div
-                key={item.role}
-                onClick={() => handleSwitch(item.role)}
-                className={`border rounded-xl p-4 cursor-pointer transition-all ${
-                  isCurrent
-                    ? 'border-blue-600 bg-blue-50/40 shadow-xs ring-2 ring-blue-500/20'
-                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${item.badgeColor}`}>
-                    {item.role.toUpperCase()}
-                  </span>
-                  {isCurrent && <UserCheck className="w-4 h-4 text-blue-600" />}
-                </div>
-                <h4 className="text-xs font-bold text-slate-900">{item.title}</h4>
-                <p className="text-[11px] text-slate-500 mt-1 line-clamp-3">{item.description}</p>
-                <button
-                  type="button"
-                  className={`mt-3 w-full py-1 text-[11px] font-bold rounded-md transition-colors ${
-                    isCurrent
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  {isCurrent ? 'Đang kích hoạt' : 'Chuyển sang vai này'}
-                </button>
-              </div>
-            );
-          })}
         </div>
       </div>
 

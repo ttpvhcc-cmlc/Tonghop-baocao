@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../../services/store';
 import { IndicatorDefinition } from '../../types/database';
-import { SlidersHorizontal, Plus, Edit2, Trash2, ShieldCheck, CheckCircle2, X } from 'lucide-react';
+import { SlidersHorizontal, Plus, Edit2, Trash2, ShieldCheck, CheckCircle2, X, Target } from 'lucide-react';
 
 export const IndicatorsAdminPage: React.FC = () => {
   const [indicators, setIndicators] = useState(store.getIndicators());
@@ -137,72 +137,82 @@ export const IndicatorsAdminPage: React.FC = () => {
       </div>
 
       {/* Indicators Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {indicators.map((ind) => {
-          const matchedFormula = FORMULA_REGISTRY.find((f) => f.key === ind.formula_key) || {
-            formula: 'f(x)',
-            desc: ind.description,
-          };
+      {indicators.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center">
+          <Target className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-slate-800">Chưa có chỉ tiêu nào trong CSDL Supabase</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            Hệ thống không tự sinh chỉ tiêu mặc định. Quản trị viên có thể thêm mới chỉ tiêu phân tích bằng nút "Thêm Chỉ tiêu mới" ở trên.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {indicators.map((ind) => {
+            const matchedFormula = FORMULA_REGISTRY.find((f) => f.key === ind.formula_key) || {
+              formula: 'f(x)',
+              desc: ind.description,
+            };
 
-          return (
-            <div
-              key={ind.id}
-              className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    {ind.code}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-slate-500">
-                      Đơn vị: <strong className="text-slate-800">{ind.unit_measure}</strong>
+            return (
+              <div
+                key={ind.id}
+                className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {ind.code}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(ind)}
-                      className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded"
-                      title="Sửa chỉ tiêu"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(ind)}
-                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
-                      title="Xóa chỉ tiêu"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        Đơn vị: <strong className="text-slate-800">{ind.unit_measure}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(ind)}
+                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded"
+                        title="Sửa chỉ tiêu"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(ind)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                        title="Xóa chỉ tiêu"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <h3 className="text-sm font-bold text-slate-900">{ind.name}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{ind.description}</p>
+
+                  <div className="mt-4 p-3 bg-slate-900 rounded-lg text-emerald-400 font-mono text-xs">
+                    <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider mb-1">
+                      Công thức toán học áp dụng:
+                    </div>
+                    {matchedFormula.formula}
                   </div>
                 </div>
 
-                <h3 className="text-sm font-bold text-slate-900">{ind.name}</h3>
-                <p className="text-xs text-slate-500 mt-1">{ind.description}</p>
-
-                <div className="mt-4 p-3 bg-slate-900 rounded-lg text-emerald-400 font-mono text-xs">
-                  <div className="text-[10px] text-slate-400 font-sans uppercase tracking-wider mb-1">
-                    Công thức toán học áp dụng:
-                  </div>
-                  {matchedFormula.formula}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                  <span className="flex items-center gap-1 text-emerald-600 font-semibold font-mono text-[11px]">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    formula_key: {ind.formula_key}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    ind.active ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
+                  }`}>
+                    {ind.active ? 'Đang áp dụng' : 'Tạm dừng'}
+                  </span>
                 </div>
               </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                <span className="flex items-center gap-1 text-emerald-600 font-semibold font-mono text-[11px]">
-                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                  formula_key: {ind.formula_key}
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  ind.active ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
-                }`}>
-                  {ind.active ? 'Đang áp dụng' : 'Tạm dừng'}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Modal CRUD */}
       {isModalOpen && (

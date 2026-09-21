@@ -21,7 +21,6 @@ import {
   type ParsedProcedureRow,
   matchUnitByNameOrCode,
 } from '../../utils/excelProcedureHelper';
-import { SAMPLE_PROCEDURES_DATA } from '../../data/sampleProcedures';
 
 interface ExcelImportWorkspaceProps {
   fields: Field[];
@@ -68,41 +67,6 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
       setIsProcessing(false);
       e.target.value = '';
     }
-  };
-
-  // Load the sample dataset from user's screenshot
-  const handleLoadSampleDataset = () => {
-    setErrorMessage(null);
-    setExcelFile(new File([''], 'Mau_Thu_Tuc_Thuc_Te.xlsx'));
-
-    const existingCodesMap = new Map(fields.map((f) => [f.code.trim().toLowerCase(), f]));
-    const newUnitsSet = new Set<string>();
-
-    const rows: ParsedProcedureRow[] = SAMPLE_PROCEDURES_DATA.map((item, idx) => {
-      const matched = matchUnitByNameOrCode(item.don_vi_thuc_hien || '', units);
-      if (item.don_vi_thuc_hien && !matched) {
-        newUnitsSet.add(item.don_vi_thuc_hien);
-      }
-
-      return {
-        stt: item.stt || idx + 1,
-        code: item.code,
-        name: item.name,
-        linh_vuc: item.linh_vuc,
-        co_quan_cong_bo: item.co_quan_cong_bo || '',
-        loai_tthc: item.loai_tthc || '',
-        co_quan_thuc_hien: item.co_quan_thuc_hien || '',
-        cap_thuc_hien: item.cap_thuc_hien || '',
-        muc_do_cung_cap: item.muc_do_cung_cap || '',
-        phi_le_phi: item.phi_le_phi || '',
-        raw_unit_name: item.don_vi_thuc_hien || '',
-        matched_unit_id: matched?.id,
-        isExisting: existingCodesMap.has(item.code.toLowerCase()),
-      };
-    });
-
-    setParsedRows(rows);
-    setDetectedNewUnits(Array.from(newUnitsSet));
   };
 
   // Update unit for a specific parsed row
@@ -223,17 +187,6 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-slate-600" />
               <span>Tải file mẫu Excel (.xlsx)</span>
-            </button>
-
-            {/* Load Real Sample Dataset */}
-            <button
-              type="button"
-              onClick={handleLoadSampleDataset}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs"
-              title="Nạp nhanh 31 TTHC thực tế từ file ảnh của bạn để xem trước và lưu ngay"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span>Nạp 31 TTHC mẫu thực tế</span>
             </button>
 
             {/* Export Current Catalog */}

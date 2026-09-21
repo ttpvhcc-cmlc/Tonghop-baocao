@@ -66,7 +66,7 @@ export const FieldsAdminPage: React.FC = () => {
     // Initial fetch to make sure fields are up to date
     const current = store.getFields();
     if (current.length === 0) {
-      void store.restoreDefaultProcedures().catch((error) => {
+      void store.fetchFields().catch((error) => {
         setNotification({ type: 'error', message: error.message || 'Không thể tải danh mục từ Supabase.' });
       });
     }
@@ -80,14 +80,14 @@ export const FieldsAdminPage: React.FC = () => {
     return unsub;
   }, []);
 
-  const handleRestoreDefaults = async () => {
+  const handleRefreshFields = async () => {
     try {
-    const restored = await store.restoreDefaultProcedures();
-    setFields(restored);
-    setNotification({
-      type: 'success',
-      message: 'Đã tải lại danh mục Lĩnh vực từ Supabase.',
-    });
+      const refreshed = await store.fetchFields();
+      setFields(refreshed);
+      setNotification({
+        type: 'success',
+        message: 'Đã tải lại danh mục Lĩnh vực từ Supabase.',
+      });
     } catch (error: any) {
       setNotification({ type: 'error', message: error.message || 'Không thể tải danh mục từ Supabase.' });
     }
@@ -399,12 +399,12 @@ export const FieldsAdminPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
-              onClick={handleRestoreDefaults}
+              onClick={handleRefreshFields}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors"
-              title="Khôi phục danh mục 31 thủ tục hành chính chuẩn theo Lĩnh vực & Đơn vị phụ trách"
+              title="Tải lại danh mục Lĩnh vực & Thủ tục hành chính từ Supabase"
             >
               <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
-              <span>Khôi phục 31 TTHC chuẩn</span>
+              <span>Tải lại từ Supabase</span>
             </button>
 
             <button

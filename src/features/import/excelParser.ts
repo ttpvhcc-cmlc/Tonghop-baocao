@@ -156,14 +156,14 @@ export function findBestFieldMatch(rawName: string, fields: Field[], units: Unit
     return { field: bestNameField, unit, score: bestNameScore };
   }
 
-  // 3. Smart fallback: Try to match the unit name directly from the raw name (e.g. "Văn phòng")
-  const matchedUnit = units.find(u => calculateSimilarity(rawName, u.name) >= 70);
-  const fallbackField = fields.find(f => matchedUnit ? f.unit_id === matchedUnit.id : true) || fields[0];
+  // 3. Try to match the unit name directly from the raw name (e.g. "Văn phòng")
+  const matchedUnit = units.find((u) => calculateSimilarity(rawName, u.name) >= 70);
+  const matchedFieldByUnit = fields.find((f) => matchedUnit ? f.unit_id === matchedUnit.id : false);
 
   return {
-    field: fallbackField,
-    unit: matchedUnit || (fallbackField ? units.find(u => u.id === fallbackField.unit_id) : undefined),
-    score: 50
+    field: matchedFieldByUnit,
+    unit: matchedUnit || (matchedFieldByUnit ? units.find((u) => u.id === matchedFieldByUnit.unit_id) : undefined),
+    score: matchedFieldByUnit ? 50 : 0,
   };
 }
 

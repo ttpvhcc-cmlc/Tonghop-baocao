@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { store } from '../services/store';
-import { UserRole, Profile } from '../types/database';
+import { Profile } from '../types/database';
 
 export const AppLayout: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
@@ -20,21 +20,7 @@ export const AppLayout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
 
   const toggleSidebar = () => {
-    setSidebarCollapsed((prev) => {
-      const next = !prev;
-      return next;
-    });
-  };
-
-  const handleRoleChange = (role: UserRole) => {
-    const updated = store.switchUserRole(role);
-    setCurrentUser(updated);
-  };
-
-  const handleResetData = () => {
-    store.resetToFactoryDemo();
-    setCurrentUser(store.getCurrentUser());
-    window.location.reload();
+    setSidebarCollapsed((prev) => !prev);
   };
 
   return (
@@ -46,8 +32,6 @@ export const AppLayout: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Header
           currentUser={currentUser}
-          onUserRoleChange={handleRoleChange}
-          onResetData={handleResetData}
           isSidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
         />

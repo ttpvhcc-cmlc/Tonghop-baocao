@@ -15,21 +15,16 @@ import {
 
 interface HeaderProps {
   currentUser: Profile;
-  onUserRoleChange: (newRole: UserRole) => void;
-  onResetData: () => void;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
-  onUserRoleChange,
-  onResetData,
   isSidebarCollapsed,
   onToggleSidebar,
 }) => {
   const [downloadSuccess, setDownloadSuccess] = useState(false);
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
