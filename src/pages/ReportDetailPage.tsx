@@ -4,7 +4,6 @@ import { store } from '../services/store';
 import { formatNumber, formatPercent, formatDate, formatDateTime, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
 import { generateAIReportAnalysis } from '../services/aiService';
-import { isReadWriteTestPassed } from '../services/dbInit';
 import {
   calcCompletionRate,
   calcOnTimeRate,

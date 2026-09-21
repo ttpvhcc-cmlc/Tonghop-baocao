@@ -10,14 +10,8 @@ import {
 } from '../features/analysis/formulas';
 import {
   fetchLiveDashboardData,
-  initializeSupabaseDatabase,
-  runCompleteReadWriteTest,
-  isReadWriteTestPassed,
-  validateRowFormulas,
-  E2ETestResult
-} from '../services/dbInit';
-import { INITIAL_MIGRATION_SQL, SEED_DATA_SQL } from '../services/sqlScripts';
-import { supabaseUrl } from '../lib/supabase';
+  validateRowFormulas
+} from '../services/dashboardService';
 import type { ReportingPeriod, ReportSource, ReportStatistic, Unit, Field } from '../types/database';
 import {
   BarChart,
@@ -35,25 +29,14 @@ import {
   Line
 } from 'recharts';
 import {
-  AlertCircle,
   AlertTriangle,
-  CheckCircle2,
   Database,
   RefreshCw,
-  Play,
-  Copy,
-  Code,
   Check,
-  ExternalLink,
-  ShieldCheck,
-  Server,
-  Layers,
-  X
+  Plus,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const RESOLUTION_COLORS = ['#10b981', '#0ea5e9', '#f43f5e'];
-const CHANNEL_COLORS = ['#3b82f6', '#f59e0b'];
 
 export const DashboardPage: React.FC = () => {
   // Live Supabase Database state
@@ -82,22 +65,7 @@ export const DashboardPage: React.FC = () => {
   const [selectedSourceId, setSelectedSourceId] = useState<string>('ALL');
   const [selectedFieldId, setSelectedFieldId] = useState<string>('ALL');
 
-  // E2E Test Modal State
-  const [showTestModal, setShowTestModal] = useState<boolean>(false);
-  const [isRunningTest, setIsRunningTest] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<E2ETestResult | null>(null);
-  const [hasPassedTest, setHasPassedTest] = useState<boolean>(isReadWriteTestPassed());
-
-  // SQL Script Modal State
-  const [showSqlModal, setShowSqlModal] = useState<boolean>(false);
-  const [sqlTab, setSqlTab] = useState<'migration' | 'seed'>('migration');
-  const [copied, setCopied] = useState<boolean>(false);
-
-  // Init Data Loading State
-  const [isInitializingData, setIsInitializingData] = useState<boolean>(false);
-  const [initFeedback, setInitFeedback] = useState<string | null>(null);
-
-  // Load live data from Supabase (or fallback to store)
+  // Load live data from Supabase
   const loadData = useCallback(async (reportId?: string) => {
     setLoading(true);
     try {
@@ -114,12 +82,8 @@ export const DashboardPage: React.FC = () => {
       setLiveUnits(res.units);
       setLiveFields(res.fields);
 
-      const effectiveActiveId = targetId || res.currentReport?.id || res.reports[0]?.id || '';
-      const finalSources = res.sources;
-      const finalStats = res.statistics;
-
-      setLiveSources(finalSources);
-      setLiveStats(finalStats);
+      setLiveSources(res.sources);
+      setLiveStats(res.statistics);
 
       if (!selectedReportId && res.currentReport) {
         setSelectedReportId(res.currentReport.id);
@@ -148,53 +112,6 @@ export const DashboardPage: React.FC = () => {
   const handleReportChange = (newReportId: string) => {
     setSelectedReportId(newReportId);
     loadData(newReportId);
-  };
-
-  // Run the full E2E Read/Write test
-  const handleRunE2ETest = async () => {
-    setIsRunningTest(true);
-    setTestResult(null);
-    setShowTestModal(true);
-    try {
-      const result = await runCompleteReadWriteTest();
-      setTestResult(result);
-      if (result.passed) {
-        setHasPassedTest(true);
-      }
-    } catch (err: any) {
-      console.error('E2E Test Execution Error:', err);
-    } finally {
-      setIsRunningTest(false);
-    }
-  };
-
-  // Initialize Sample Data on Supabase
-  const handleInitSupabaseData = async () => {
-    setIsInitializingData(true);
-    setInitFeedback(null);
-    try {
-      const res = await initializeSupabaseDatabase();
-      if (res.success) {
-        setInitFeedback(`Thành công: Đã khởi tạo dữ liệu mẫu lên Supabase (${res.inserted?.stats} bản ghi thống kê chuẩn 4 công thức toán học).`);
-        await loadData();
-      } else {
-        setInitFeedback(`Thông báo: ${res.message}`);
-        if (!res.schemaReady) {
-          setShowSqlModal(true);
-        }
-      }
-    } catch (err: any) {
-      setInitFeedback(`Lỗi: ${err.message}`);
-    } finally {
-      setIsInitializingData(false);
-    }
-  };
-
-  // Copy SQL script to clipboard
-  const handleCopySql = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   // Selected Report Details
@@ -284,9 +201,7 @@ export const DashboardPage: React.FC = () => {
     return [...liveReports]
       .reverse()
       .map((rep) => {
-        const repStats = dbStatus.schemaReady
-          ? liveStats.filter((s) => s.report_id === rep.id)
-          : store.getStatsByReport(rep.id);
+        const repStats = liveStats.filter((s) => s.report_id === rep.id);
         const rec = repStats.reduce((acc, curr) => acc + curr.received_total, 0);
         const comp = repStats.reduce((acc, curr) => acc + curr.completed_total, 0);
         const pend = repStats.reduce((acc, curr) => acc + curr.pending_total, 0);
@@ -298,7 +213,7 @@ export const DashboardPage: React.FC = () => {
           pending: pend,
         };
       });
-  }, [liveReports, liveStats, dbStatus.schemaReady]);
+  }, [liveReports, liveStats]);
 
   // Chart 2: Resolution distribution (early / on time / late)
   const resolutionDistributionData = useMemo(() => {
@@ -317,7 +232,7 @@ export const DashboardPage: React.FC = () => {
     ];
   }, [totals]);
 
-  // Chart 4: Unit performance ranking (Văn phòng, Phòng Kinh tế, Phòng VHXH)
+  // Chart 4: Unit performance ranking
   const unitRankingData = useMemo(() => {
     const map: Record<string, { unitName: string; rec: number; comp: number; pend: number; onTime: number; onTimeRate: number }> = {};
     liveUnits.forEach((u) => {
@@ -345,6 +260,15 @@ export const DashboardPage: React.FC = () => {
 
   const reportBadge = selectedReport ? getStatusBadge(selectedReport.status) : null;
 
+  if (loading && liveReports.length === 0) {
+    return (
+      <div className="py-24 text-center space-y-3">
+        <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
+        <div className="text-sm font-bold text-slate-800">Đang tải dữ liệu từ CSDL Supabase...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 w-full">
       {/* Top Controls & Global Filter Bar */}
@@ -362,6 +286,13 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadData(selectedReportId)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Làm mới
+            </button>
             {selectedReportId && (
               <Link
                 to={`/reports/${selectedReportId}`}
@@ -374,83 +305,118 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Global Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
-          {/* Filter 1: Kỳ Báo Cáo */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Kỳ báo cáo
-            </label>
-            <select
-              value={selectedReportId}
-              onChange={(e) => handleReportChange(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {liveReports.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.report_code} - {r.report_name}
-                </option>
-              ))}
-            </select>
-          </div>
+        {liveReports.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+            {/* Filter 1: Kỳ Báo Cáo */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Kỳ báo cáo
+              </label>
+              <select
+                value={selectedReportId}
+                onChange={(e) => handleReportChange(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {liveReports.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.report_code} - {r.report_name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Filter 2: Nguồn dữ liệu */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Nguồn dữ liệu
-            </label>
-            <select
-              value={selectedSourceId}
-              onChange={(e) => setSelectedSourceId(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">Tất cả nguồn dữ liệu</option>
-              {liveSources.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.source_name}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Filter 2: Nguồn dữ liệu */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Nguồn dữ liệu
+              </label>
+              <select
+                value={selectedSourceId}
+                onChange={(e) => setSelectedSourceId(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Tất cả nguồn dữ liệu</option>
+                {liveSources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.source_name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Filter 3: Đơn vị giải quyết */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Đơn vị giải quyết
-            </label>
-            <select
-              value={selectedUnitId}
-              onChange={(e) => setSelectedUnitId(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">Tất cả đơn vị</option>
-              {liveUnits.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.code})
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Filter 3: Đơn vị giải quyết */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Đơn vị giải quyết
+              </label>
+              <select
+                value={selectedUnitId}
+                onChange={(e) => setSelectedUnitId(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Tất cả đơn vị</option>
+                {liveUnits.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.code})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Filter 4: Lĩnh vực */}
+            {/* Filter 4: Lĩnh vực */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Lĩnh vực TTHC
+              </label>
+              <select
+                value={selectedFieldId}
+                onChange={(e) => setSelectedFieldId(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">Tất cả lĩnh vực</option>
+                {liveFields.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="py-6 text-center text-xs text-slate-500">
+            Chưa có kỳ báo cáo nào trong cơ sở dữ liệu Supabase.
+          </div>
+        )}
+      </div>
+
+      {/* Empty State Banner if no reports */}
+      {liveReports.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center space-y-4">
+          <Database className="w-12 h-12 text-slate-400 mx-auto" />
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Lĩnh vực TTHC
-            </label>
-            <select
-              value={selectedFieldId}
-              onChange={(e) => setSelectedFieldId(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <h3 className="text-base font-bold text-slate-800">Cơ sở dữ liệu chưa có Báo cáo</h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+              Hệ thống hoạt động theo kiến trúc DB-only 100% và không tự động sinh dữ liệu ảo. Hãy tạo kỳ báo cáo đầu tiên hoặc nạp dữ liệu từ Excel để bắt đầu phân tích.
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              to="/reports"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
             >
-              <option value="ALL">Tất cả lĩnh vực</option>
-              {liveFields.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name} ({f.code})
-                </option>
-              ))}
-            </select>
+              <Plus className="w-4 h-4" />
+              Tạo Kỳ báo cáo mới
+            </Link>
+            <Link
+              to="/import"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              Nhập số liệu Excel
+            </Link>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Discrepancy Notification (if any) */}
       {warnings.length > 0 && (
@@ -717,7 +683,7 @@ export const DashboardPage: React.FC = () => {
                 4. Xếp hạng hiệu năng Đơn vị (Unit Performance Ranking)
               </h3>
               <p className="text-[11px] text-slate-400">
-                3 đơn vị cốt lõi: Văn phòng, Phòng Kinh tế, Phòng VHXH
+                Hiệu suất xử lý và tỷ lệ đúng hạn của các đơn vị
               </p>
             </div>
             <span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2.5 py-1 rounded-md">
@@ -834,240 +800,6 @@ export const DashboardPage: React.FC = () => {
           </table>
         </div>
       </div>
-
-      {/* 6. MODAL: E2E READ/WRITE TEST RUNNER */}
-      {showTestModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                  <Play className="w-4 h-4 fill-current" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Quy trình kiểm thử khép kín Read/Write (E2E Test)
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Create report → insert statistics → query statistics → calculate totals → display dashboard
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowTestModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex-1 space-y-4">
-              {isRunningTest ? (
-                <div className="py-12 text-center space-y-3">
-                  <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
-                  <div className="text-sm font-bold text-slate-800">
-                    Đang thực hiện kiểm thử khép kín trên CSDL Supabase...
-                  </div>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Đang gửi các thao tác INSERT, SELECT và xác thực công thức toán học tới Supabase PostgreSQL.
-                  </p>
-                </div>
-              ) : testResult ? (
-                <div className="space-y-4">
-                  <div className={`p-4 rounded-xl border flex items-center justify-between ${
-                    testResult.passed
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
-                      : 'bg-rose-50 border-rose-200 text-rose-950'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      {testResult.passed ? (
-                        <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-                      ) : (
-                        <AlertCircle className="w-6 h-6 text-rose-600" />
-                      )}
-                      <div>
-                        <div className="font-bold text-sm">
-                          {testResult.passed
-                            ? 'Kiểm thử khép kín HOÀN TẤT VÀ ĐẠT 100%'
-                            : 'Kiểm thử chưa đạt yêu cầu'}
-                        </div>
-                        <div className="text-xs opacity-90 mt-0.5">
-                          Thời gian thực thi: {testResult.totalDurationMs}ms | Số bước: {testResult.steps.length}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Steps Log */}
-                  <div className="space-y-2.5">
-                    {testResult.steps.map((step, idx) => (
-                      <div
-                        key={idx}
-                        className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 flex items-start justify-between gap-3 text-xs"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            {step.passed ? (
-                              <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-[10px]">
-                                ✓
-                              </span>
-                            ) : (
-                              <span className="w-4 h-4 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-[10px]">
-                                ✗
-                              </span>
-                            )}
-                            <span className="font-bold text-slate-800">{step.name}</span>
-                          </div>
-                          <p className="text-slate-600 pl-6 leading-relaxed">{step.message}</p>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                          {step.durationMs}ms
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {testResult.calculatedKpis && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-950 space-y-2">
-                      <div className="font-bold flex items-center gap-1.5">
-                        <ShieldCheck className="w-4 h-4 text-blue-600" />
-                        Kết quả chỉ tiêu tính toán tự động từ số liệu CSDL:
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-1 font-medium">
-                        <div className="bg-white p-2 rounded-lg border border-blue-200">
-                          <div className="text-[10px] text-slate-500">Tiếp nhận</div>
-                          <div className="text-sm font-bold text-slate-900">{testResult.calculatedKpis.receivedTotal}</div>
-                        </div>
-                        <div className="bg-white p-2 rounded-lg border border-blue-200">
-                          <div className="text-[10px] text-slate-500">Tỷ lệ Online</div>
-                          <div className="text-sm font-bold text-blue-600">{testResult.calculatedKpis.onlineRate}</div>
-                        </div>
-                        <div className="bg-white p-2 rounded-lg border border-blue-200">
-                          <div className="text-[10px] text-slate-500">Tỷ lệ Giải quyết</div>
-                          <div className="text-sm font-bold text-emerald-600">{testResult.calculatedKpis.completionRate}</div>
-                        </div>
-                        <div className="bg-white p-2 rounded-lg border border-blue-200">
-                          <div className="text-[10px] text-slate-500">Tỷ lệ Đúng hạn</div>
-                          <div className="text-sm font-bold text-emerald-600">{testResult.calculatedKpis.onTimeRate}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="py-8 text-center space-y-3">
-                  <Play className="w-8 h-8 text-blue-600 mx-auto" />
-                  <div className="text-sm font-bold text-slate-800">
-                    Sẵn sàng chạy kiểm thử khép kín
-                  </div>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Hệ thống sẽ thực hiện đầy đủ vòng đời: Tạo báo cáo → Lưu trữ nguồn → Ghi nhận số liệu hạt nhân → Truy vấn ngược → Tính toán các KPI và đối soát 4 công thức toán học.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                {hasPassedTest ? '✓ Tính năng AI Analysis đã sẵn sàng' : 'Cần đạt kiểm thử để kích hoạt AI Analysis'}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowTestModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
-                >
-                  Đóng
-                </button>
-                <button
-                  onClick={handleRunE2ETest}
-                  disabled={isRunningTest}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isRunningTest ? 'Đang kiểm thử...' : 'Chạy lại kiểm thử'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. MODAL: SQL SCRIPTS & MIGRATION VIEWER */}
-      {showSqlModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                  <Code className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Mã nguồn SQL khởi tạo CSDL Supabase
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Sao chép và chạy trực tiếp trong Supabase SQL Editor để tạo 10 bảng cốt lõi và dữ liệu mẫu
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSqlModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Tab Navigation */}
-            <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2">
-              <button
-                onClick={() => setSqlTab('migration')}
-                className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-                  sqlTab === 'migration'
-                    ? 'border-blue-600 text-blue-700 bg-white rounded-t-lg'
-                    : 'border-transparent text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                1. DDL Khởi tạo cấu trúc (001_initial.sql)
-              </button>
-              <button
-                onClick={() => setSqlTab('seed')}
-                className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-                  sqlTab === 'seed'
-                    ? 'border-blue-600 text-blue-700 bg-white rounded-t-lg'
-                    : 'border-transparent text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                2. Dữ liệu mẫu kiểm chứng (002_seed.sql)
-              </button>
-            </div>
-
-            <div className="p-4 bg-slate-900 text-slate-200 font-mono text-xs overflow-y-auto flex-1 select-all">
-              <pre>{sqlTab === 'migration' ? INITIAL_MIGRATION_SQL : SEED_DATA_SQL}</pre>
-            </div>
-
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-              <div className="text-xs text-slate-500">
-                Gợi ý: Mở Supabase Dashboard → SQL Editor → Tạo New Query → Dán mã và nhấn RUN.
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleCopySql(sqlTab === 'migration' ? INITIAL_MIGRATION_SQL : SEED_DATA_SQL)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
-                >
-                  {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Đã sao chép vào bộ nhớ tạm!' : 'Sao chép toàn bộ SQL'}
-                </button>
-                <button
-                  onClick={() => setShowSqlModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
-                >
-                  Đóng
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

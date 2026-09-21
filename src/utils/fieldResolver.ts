@@ -1,29 +1,6 @@
 import { Field } from '../types/database';
 
 /**
- * Standard list of sectors (Lĩnh vực TTHC)
- */
-export const STANDARD_LINH_VUC_LIST = [
-  'Chứng thực',
-  'Hộ tịch',
-  'Bảo trợ xã hội',
-  'An toàn thực phẩm',
-  'Giáo dục mầm non',
-  'Giáo dục trung học',
-  'Hàng hải và đường thủy nội địa',
-  'Quy hoạch đô thị và nông thôn',
-  'Hoạt động xây dựng',
-  'Lưu thông hàng hóa trong nước',
-  'Đất đai',
-  'Thủy sản',
-  'Người có công',
-  'Chính sách',
-  'Phí, lệ phí',
-  'Giảm nghèo',
-  'Thủ tục hành chính liên thông',
-] as const;
-
-/**
  * Normalizes Vietnamese text by removing diacritics and special characters
  */
 export function normalizeText(str: string): string {
@@ -39,121 +16,74 @@ export function normalizeText(str: string): string {
     .trim();
 }
 
+export interface LinhVucResolutionResult {
+  linhVuc: string;
+  isMapped: boolean;
+  field?: Field;
+}
+
 /**
  * Resolves a procedure text, snapshot string, or field ID into its exact official Lĩnh vực (Field/Sector).
- * Source of truth: Supabase fields table.
+ * Single Source of Truth: Supabase fields table (public.fields).
+ * If no matching field is found in Supabase fields, returns "Chưa phân loại".
  */
 export function resolveLinhVuc(
   rawText: string,
   fieldId?: string,
   availableFields?: Field[]
 ): string {
-  if (!rawText && !fieldId) return 'Chưa phân loại';
+  const res = resolveLinhVucDetails(rawText, fieldId, availableFields);
+  return res.linhVuc;
+}
+
+/**
+ * Resolves with full mapping metadata.
+ */
+export function resolveLinhVucDetails(
+  rawText: string,
+  fieldId?: string,
+  availableFields?: Field[]
+): LinhVucResolutionResult {
+  if (!rawText && !fieldId) {
+    return { linhVuc: 'Chưa phân loại', isMapped: false };
+  }
 
   const cleanRaw = (rawText || '').trim();
   const normRaw = normalizeText(cleanRaw);
 
-  // 1. If availableFields provided, check by ID or name in Supabase fields
   if (availableFields && availableFields.length > 0) {
+    // 1. Match by fieldId if provided
     if (fieldId) {
-      const matched = availableFields.find((f) => f.id === fieldId);
-      if (matched) {
-        if (matched.linh_vuc && matched.linh_vuc !== 'Chưa phân loại') {
-          return matched.linh_vuc;
-        }
-        if (matched.name && isStandardLinhVuc(matched.name)) {
-          return matched.name;
-        }
+      const matchedById = availableFields.find((f) => f.id === fieldId);
+      if (matchedById) {
+        const resolvedName = matchedById.linh_vuc || matchedById.name || 'Chưa phân loại';
+        return {
+          linhVuc: resolvedName,
+          isMapped: resolvedName !== 'Chưa phân loại',
+          field: matchedById,
+        };
       }
     }
 
-    // Match by code or exact name in Supabase fields
-    const matchedByNameOrCode = availableFields.find(
-      (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
-    );
-    if (matchedByNameOrCode) {
-      return matchedByNameOrCode.linh_vuc || matchedByNameOrCode.name || cleanRaw;
+    // 2. Match by exact code or name in Supabase fields
+    if (normRaw) {
+      const matchedByNameOrCode = availableFields.find(
+        (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
+      );
+      if (matchedByNameOrCode) {
+        const resolvedName = matchedByNameOrCode.linh_vuc || matchedByNameOrCode.name || 'Chưa phân loại';
+        return {
+          linhVuc: resolvedName,
+          isMapped: resolvedName !== 'Chưa phân loại',
+          field: matchedByNameOrCode,
+        };
+      }
     }
   }
 
-  // 2. Check if cleanRaw is already an official exact Lĩnh vực
-  for (const lv of STANDARD_LINH_VUC_LIST) {
-    if (cleanRaw.toLowerCase() === lv.toLowerCase()) {
-      return lv;
-    }
-  }
-
-  // 3. Keyword heuristics for known TTHC sectors
-  if (normRaw.includes('chung thuc') || normRaw.includes('phan chia di san') || normRaw.includes('khai nhan di san') || normRaw.includes('tu choi nhan di san')) {
-    return 'Chứng thực';
-  }
-  if (
-    normRaw.includes('ho tich') ||
-    normRaw.includes('khai sinh') ||
-    normRaw.includes('khai tu') ||
-    normRaw.includes('ket hon') ||
-    normRaw.includes('giam ho') ||
-    normRaw.includes('cha me con')
-  ) {
-    return 'Hộ tịch';
-  }
-  if (
-    normRaw.includes('hoa tang') ||
-    normRaw.includes('mai tang') ||
-    normRaw.includes('bao tro') ||
-    normRaw.includes('tro cap xa hoi') ||
-    normRaw.includes('khuyet tat')
-  ) {
-    return 'Bảo trợ xã hội';
-  }
-  if (normRaw.includes('an toan thuc pham') || normRaw.includes('attp') || normRaw.includes('ve sinh thuc pham')) {
-    return 'An toàn thực phẩm';
-  }
-  if (normRaw.includes('mam non') || normRaw.includes('nha tre') || normRaw.includes('mau giao')) {
-    return 'Giáo dục mầm non';
-  }
-  if (normRaw.includes('trung hoc') || normRaw.includes('thcs') || normRaw.includes('tuyen sinh')) {
-    return 'Giáo dục trung học';
-  }
-  if (normRaw.includes('ben thuy') || normRaw.includes('duong thuy') || normRaw.includes('hang hai') || normRaw.includes('ben khach')) {
-    return 'Hàng hải và đường thủy nội địa';
-  }
-  if (normRaw.includes('quy hoach') || normRaw.includes('nhiem vu quy hoach')) {
-    return 'Quy hoạch đô thị và nông thôn';
-  }
-  if (normRaw.includes('xay dung') || normRaw.includes('nghien cuu kha thi') || normRaw.includes('giay phep xay dung')) {
-    return 'Hoạt động xây dựng';
-  }
-  if (normRaw.includes('dat dai') || normRaw.includes('quyen su dung dat') || normRaw.includes('so do') || normRaw.includes('giao dat')) {
-    return 'Đất đai';
-  }
-  if (normRaw.includes('thuoc la') || normRaw.includes('ban le ruou') || normRaw.includes('luu thong hang hoa')) {
-    return 'Lưu thông hàng hóa trong nước';
-  }
-  if (normRaw.includes('thuy san') || normRaw.includes('nuoi trong thuy san')) {
-    return 'Thủy sản';
-  }
-  if (normRaw.includes('ho ngheo') || normRaw.includes('can ngheo') || normRaw.includes('giam ngheo')) {
-    return 'Giảm nghèo';
-  }
-  if (normRaw.includes('nguoi co cong') || normRaw.includes('thuong binh') || normRaw.includes('liet si')) {
-    return 'Người có công';
-  }
-  if (normRaw.includes('phi le phi') || normRaw.includes('phi') || normRaw.includes('le phi')) {
-    return 'Phí, lệ phí';
-  }
-  if (normRaw.includes('lien thong')) {
-    return 'Thủ tục hành chính liên thông';
-  }
-
-  // 5. If cleanRaw is short (<= 35 chars) and doesn't look like a full sentence procedure, keep it
-  if (cleanRaw.length > 0 && cleanRaw.length <= 35) {
-    return cleanRaw;
-  }
-
-  return 'Chưa phân loại';
-}
-
-export function isStandardLinhVuc(name: string): boolean {
-  return STANDARD_LINH_VUC_LIST.some((lv) => lv.toLowerCase() === (name || '').trim().toLowerCase());
+  // Not found in Supabase fields: return "Chưa phân loại" with isMapped: false
+  return {
+    linhVuc: 'Chưa phân loại',
+    isMapped: false,
+  };
 }
