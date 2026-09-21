@@ -13,6 +13,9 @@ import {
   ChevronDown,
   LogOut,
   User,
+  LogIn,
+  KeyRound,
+  Shield,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,6 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeUser, setActiveUser] = useState<Profile>(propUser || store.getCurrentUser());
 
+  // Login states for header dropdown form
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
   useEffect(() => {
     const refresh = () => {
       setConfig(store.getSystemConfig());
@@ -37,6 +46,9 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const getOfficerDisplayName = (user: Profile) => {
+    if (user?.id === 'guest') {
+      return 'Chưa đăng nhập';
+    }
     if (user?.full_name && user.full_name !== 'Người dùng' && !user.full_name.includes('@')) {
       return user.full_name;
     }
@@ -44,6 +56,40 @@ export const Header: React.FC<HeaderProps> = ({
       return 'Cán bộ TTPVHCC';
     }
     return user?.full_name || 'Cán bộ TTPVHCC';
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'Quản trị viên (Admin)';
+      case 'analyst':
+        return 'Chuyên viên phân tích';
+      case 'data_entry':
+        return 'Chuyên viên nhập liệu';
+      case 'viewer':
+      default:
+        return 'Người xem (Viewer)';
+    }
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setLoginError('Vui lòng điền Email và Mật khẩu.');
+      return;
+    }
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      await store.signIn(email, password);
+      setEmail('');
+      setPassword('');
+      setShowUserMenu(false);
+    } catch (err: any) {
+      setLoginError(err.message || 'Mật khẩu hoặc Email không chính xác.');
+    } finally {
+      setLoginBusy(false);
+    }
   };
 
   const renderLogoIcon = () => {
@@ -133,29 +179,90 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* User Dropdown Menu */}
         {showUserMenu && (
-          <div className="absolute right-0 top-11 w-56 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 animate-fade-in text-slate-800 space-y-2">
-            <div className="pb-2 border-b border-slate-100">
-              <p className="text-xs font-bold text-slate-900 truncate">{officerNameDisplay}</p>
-              <p className="text-[11px] text-slate-500 truncate mt-0.5">{activeUser.email || 'ttpvhcc.cmlc@gmail.com'}</p>
-              <span className="inline-block mt-1.5 px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded">
-                Quản trị viên (Admin)
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await store.signOut();
-                  setShowUserMenu(false);
-                } catch (e) {
-                  console.error(e);
-                }
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Đăng xuất
-            </button>
+          <div className="absolute right-0 top-11 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-4.5 z-50 animate-fade-in text-slate-800 space-y-3">
+            {activeUser.id === 'guest' ? (
+              /* Login Form for Guest Users */
+              <form onSubmit={handleLoginSubmit} className="space-y-3">
+                <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                  <LogIn className="w-4 h-4 text-blue-600" />
+                  <p className="text-xs font-extrabold text-slate-900">Đăng nhập Cán bộ</p>
+                </div>
+                
+                {loginError && (
+                  <div className="p-2 bg-rose-50 border border-rose-100 text-[11px] text-rose-600 rounded-lg font-medium leading-relaxed">
+                    {loginError}
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Email công vụ</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="VD: canbo@domain.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-950 focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mật khẩu</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Mật khẩu cán bộ"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-950 focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loginBusy}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-lg text-xs transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {loginBusy ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Đang xác thực...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-3.5 h-3.5" />
+                      Đăng nhập
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* Authenticated User Actions */
+              <>
+                <div className="pb-2 border-b border-slate-100">
+                  <p className="text-xs font-extrabold text-slate-900 truncate">{officerNameDisplay}</p>
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{activeUser.email}</p>
+                  <span className="inline-block mt-2 px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100 rounded-lg">
+                    {getRoleLabel(activeUser.role)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await store.signOut();
+                      setShowUserMenu(false);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Đăng xuất
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

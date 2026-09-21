@@ -551,6 +551,18 @@ export class StorageService {
     return this.inMemoryCache.currentUser;
   }
 
+  public async signIn(email: string, password: string): Promise<Profile> {
+    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (error) throw new Error(`Lỗi đăng nhập: ${error.message}`);
+    const user = await this.loadAuthenticatedUser();
+    if (!user) throw new Error('Không thể tải hồ sơ người dùng sau khi đăng nhập.');
+    return user;
+  }
+
   public async signOut(): Promise<void> {
     if (supabase) {
       const { error } = await supabase.auth.signOut();
