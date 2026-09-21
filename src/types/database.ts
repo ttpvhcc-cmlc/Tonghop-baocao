@@ -44,9 +44,8 @@ export interface Field {
   created_at?: string;
   updated_at?: string;
 
-  // Extra metadata columns from Excel
+  // Optional display attributes
   co_quan_cong_bo?: string;
-  quyet_dinh_cong_bo?: string;
   loai_tthc?: string;
   co_quan_thuc_hien?: string;
   cap_thuc_hien?: string;

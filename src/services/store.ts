@@ -512,20 +512,15 @@ export class StorageService {
       unit_id: field.unit_id || null,
       display_order: field.display_order || 1,
       active: field.active !== false,
-      co_quan_cong_bo: field.co_quan_cong_bo || null,
-      quyet_dinh_cong_bo: field.quyet_dinh_cong_bo || null,
-      loai_tthc: field.loai_tthc || null,
-      co_quan_thuc_hien: field.co_quan_thuc_hien || null,
-      cap_thuc_hien: field.cap_thuc_hien || null,
-      muc_do_cung_cap: field.muc_do_cung_cap || null,
-      phi_le_phi: field.phi_le_phi || null,
-      linh_vuc: field.linh_vuc || null,
     };
 
     const { data: saved, error } = await supabase.from('fields').upsert(payload).select('*').single();
     if (error) throw new Error(`Không thể lưu lĩnh vực vào Supabase: ${error.message}`);
 
-    const result = saved as Field;
+    const result = {
+      ...field,
+      ...(saved as Field),
+    } as Field;
     this.inMemoryCache.fields = [
       ...this.inMemoryCache.fields.filter((f) => f.id !== result.id),
       result,
@@ -548,14 +543,6 @@ export class StorageService {
         unit_id: field.unit_id || null,
         display_order: field.display_order || 1,
         active: field.active !== false,
-        co_quan_cong_bo: field.co_quan_cong_bo || null,
-        quyet_dinh_cong_bo: field.quyet_dinh_cong_bo || null,
-        loai_tthc: field.loai_tthc || null,
-        co_quan_thuc_hien: field.co_quan_thuc_hien || null,
-        cap_thuc_hien: field.cap_thuc_hien || null,
-        muc_do_cung_cap: field.muc_do_cung_cap || null,
-        phi_le_phi: field.phi_le_phi || null,
-        linh_vuc: field.linh_vuc || null,
       };
     });
 
@@ -566,12 +553,21 @@ export class StorageService {
 
     if (error) throw new Error(`Không thể lưu danh mục TTHC vào Supabase: ${error.message}`);
 
+    const savedMap = new Map((saved || []).map((s: Field) => [s.code, s]));
+    const mergedResults: Field[] = fieldsToUpdate.map((original) => {
+      const fromDb = savedMap.get(original.code);
+      return {
+        ...original,
+        ...(fromDb || {}),
+      };
+    });
+
     this.inMemoryCache.fields = [
       ...this.inMemoryCache.fields.filter((f) => !rows.some((r) => r.id === f.id || r.code === f.code)),
-      ...(saved || []),
+      ...mergedResults,
     ] as Field[];
     this.notify();
-    return (saved || []) as Field[];
+    return mergedResults;
   }
 
   public async deleteField(fieldId: string): Promise<void> {

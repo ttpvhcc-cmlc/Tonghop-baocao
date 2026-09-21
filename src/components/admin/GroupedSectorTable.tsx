@@ -472,11 +472,6 @@ export const GroupedSectorTable: React.FC<GroupedSectorTableProps> = ({
                                 <div className="font-semibold text-slate-800 leading-snug">
                                   {field.name}
                                 </div>
-                                {field.quyet_dinh_cong_bo && (
-                                  <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                                    QĐ: {field.quyet_dinh_cong_bo}
-                                  </div>
-                                )}
                               </td>
 
                               {/* Cơ quan công bố */}
