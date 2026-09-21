@@ -509,9 +509,16 @@ export class StorageService {
       id,
       code: codeClean,
       name: field.name,
+      linh_vuc: field.linh_vuc || 'Chưa phân loại',
       unit_id: field.unit_id || null,
       display_order: field.display_order || 1,
       active: field.active !== false,
+      co_quan_cong_bo: field.co_quan_cong_bo || null,
+      loai_tthc: field.loai_tthc || null,
+      co_quan_thuc_hien: field.co_quan_thuc_hien || null,
+      cap_thuc_hien: field.cap_thuc_hien || null,
+      muc_do_cung_cap: field.muc_do_cung_cap || null,
+      phi_le_phi: field.phi_le_phi || null,
     };
 
     const { data: saved, error } = await supabase.from('fields').upsert(payload).select('*').single();
@@ -535,14 +542,21 @@ export class StorageService {
     if (!supabase) throw new Error('Supabase chưa được cấu hình.');
     if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    const rows = fieldsToUpdate.map((field) => {
+    const rows = fieldsToUpdate.map((field, idx) => {
       return {
         id: field.id || generateUUID(),
         code: field.code.trim(),
         name: field.name.trim(),
+        linh_vuc: field.linh_vuc?.trim() || 'Chưa phân loại',
         unit_id: field.unit_id || null,
-        display_order: field.display_order || 1,
+        display_order: field.display_order || idx + 1,
         active: field.active !== false,
+        co_quan_cong_bo: field.co_quan_cong_bo?.trim() || null,
+        loai_tthc: field.loai_tthc?.trim() || null,
+        co_quan_thuc_hien: field.co_quan_thuc_hien?.trim() || null,
+        cap_thuc_hien: field.cap_thuc_hien?.trim() || null,
+        muc_do_cung_cap: field.muc_do_cung_cap?.trim() || null,
+        phi_le_phi: field.phi_le_phi?.trim() || null,
       };
     });
 
