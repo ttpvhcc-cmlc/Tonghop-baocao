@@ -11,6 +11,7 @@ import {
 import { formatNumber, getStatusBadge } from '../utils/format';
 import { Report, ReportType } from '../types/database';
 import { resolveLinhVuc } from '../utils/fieldResolver';
+import { getFriendlyErrorMessage } from '../utils/errorHandler';
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -28,7 +29,10 @@ import {
   Eye,
   Building2,
   FolderKanban,
-  X
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -149,7 +153,7 @@ export const ImportPage: React.FC = () => {
       setNewReportCode('');
       setNewReportName('');
     } catch (err: any) {
-      setImportError(err.message || 'Lỗi khi tạo kỳ báo cáo');
+      setImportError(getFriendlyErrorMessage(err, 'Lỗi khi tạo kỳ báo cáo. Vui lòng thử lại.'));
     }
   };
 
@@ -177,7 +181,7 @@ export const ImportPage: React.FC = () => {
         setActiveStep(2);
       } catch (err: any) {
         console.error('File parsing error:', err);
-        setImportError(err.message || 'Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file!');
+        setImportError(getFriendlyErrorMessage(err, 'Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file!'));
       } finally {
         setIsProcessing(false);
       }
@@ -196,6 +200,45 @@ export const ImportPage: React.FC = () => {
     setParseResult(res);
   };
 
+  // Sorting state for preview table
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDirection('asc');
+    }
+  };
+
+  // Manual Unit Mapping adjustment
+  const handleUnitMapChange = (rowNumber: number, newUnitId: string) => {
+    if (!parseResult) return;
+    const targetUnit = units.find((u) => u.id === newUnitId);
+    if (!targetUnit) return;
+
+    const updatedDrafts = parseResult.draftRows.map((row) => {
+      if (row.rowNumber === rowNumber) {
+        return {
+          ...row,
+          unitId: targetUnit.id,
+          unitName: targetUnit.name,
+          validationStatus: (row.validationStatus === 'error' && !row.matchedFieldId) ? 'valid' : row.validationStatus,
+          isConfirmed: true,
+        };
+      }
+      return row;
+    });
+
+    setParseResult({
+      ...parseResult,
+      draftRows: updatedDrafts,
+      unmappedFieldsCount: updatedDrafts.filter((r) => !r.unitId).length,
+    });
+  };
+
   // Manual Field Mapping adjustment
   const handleFieldMapChange = (rowNumber: number, newFieldId: string) => {
     if (!parseResult) return;
@@ -208,8 +251,8 @@ export const ImportPage: React.FC = () => {
           ...row,
           matchedFieldId: targetField?.id,
           matchedFieldName: targetField?.name,
-          unitId: targetUnit?.id,
-          unitName: targetUnit?.name,
+          unitId: targetUnit?.id || row.unitId,
+          unitName: targetUnit?.name || row.unitName,
           isConfirmed: true,
         };
       }
@@ -222,6 +265,26 @@ export const ImportPage: React.FC = () => {
       unmappedFieldsCount: updatedDrafts.filter((r) => !r.matchedFieldId).length,
     });
   };
+
+  const sortedDraftRows = useMemo(() => {
+    if (!parseResult?.draftRows) return [];
+    const rows = [...parseResult.draftRows];
+    if (!sortKey) return rows;
+
+    return rows.sort((a, b) => {
+      let aVal: any = (a as any)[sortKey];
+      let bVal: any = (b as any)[sortKey];
+
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = (bVal || '').toLowerCase();
+        return sortDirection === 'asc' ? aVal.localeCompare(bVal, 'vi') : bVal.localeCompare(aVal, 'vi');
+      }
+      aVal = aVal || 0;
+      bVal = bVal || 0;
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  }, [parseResult?.draftRows, sortKey, sortDirection]);
 
   // Confirm Import
   const handleConfirmImport = async () => {
@@ -236,7 +299,7 @@ export const ImportPage: React.FC = () => {
         targetReport = currentReports[0];
         setSelectedReportId(targetReport.id);
       } else {
-        setImportError('Vui lòng chọn hoặc tạo kỳ báo cáo trước khi xác nhận nhập số liệu.');
+        setImportError('Vui lòng chọn hoặc bấm "+ Tạo kỳ mới" để thiết lập kỳ báo cáo trước khi nhập số liệu.');
         return;
       }
     }
@@ -246,8 +309,17 @@ export const ImportPage: React.FC = () => {
       return;
     }
 
-    if (targetReport.status === 'locked' || targetReport.status === 'archived') {
-      setImportError(`Báo cáo "${targetReport.report_code}" đã bị khóa hoặc lưu trữ. Không thể nhập đè dữ liệu!`);
+    const statusLabels: Record<string, string> = {
+      submitted: 'Đã gửi duyệt',
+      approved: 'Đã phê duyệt',
+      locked: 'Đã khóa sổ',
+      archived: 'Đã lưu trữ',
+    };
+
+    if (['submitted', 'approved', 'locked', 'archived'].includes(targetReport.status)) {
+      setImportError(
+        `Kỳ báo cáo "${targetReport.report_name || targetReport.report_code}" hiện ở trạng thái "${statusLabels[targetReport.status] || targetReport.status}". Không thể nhập thêm hoặc ghi đè số liệu vào kỳ này. Vui lòng chọn kỳ báo cáo ở trạng thái Dự thảo/Thẩm định hoặc bấm "+ Tạo kỳ mới".`
+      );
       return;
     }
 
@@ -393,15 +465,29 @@ export const ImportPage: React.FC = () => {
       }
       totalSaved = savedStatsInDb.length;
 
-      // BƯỚC 3: Recalculate indicators & update status
+      // BƯỚC 3: Recalculate indicators & update status safely following lifecycle
       setImportStatusText('Đang tính các chỉ tiêu...');
       const hasErrors = preparedRows.some((r) => r.validationStatus === 'error');
       await store.recalculateAndPersistReportIndicators(targetReport.id);
 
       setImportStatusText('Đang hoàn tất...');
-      await store.updateReportStatus(targetReport.id, 'imported');
-      if (!hasErrors) {
-        await store.updateReportStatus(targetReport.id, 'validated');
+
+      // Cập nhật trạng thái tuần tự theo đúng quy trình nghiệp vụ (chỉ chuyển tiếp khi cần)
+      const currentStatus = targetReport.status;
+      try {
+        if (currentStatus === 'draft') {
+          await store.updateReportStatus(targetReport.id, 'imported');
+          if (!hasErrors) {
+            await store.updateReportStatus(targetReport.id, 'validated');
+          }
+        } else if (currentStatus === 'imported') {
+          if (!hasErrors) {
+            await store.updateReportStatus(targetReport.id, 'validated');
+          }
+        }
+        // Nếu kỳ báo cáo đã ở trạng thái 'validated' thì giữ nguyên, không chuyển lùi
+      } catch (statusErr) {
+        console.warn('Cập nhật trạng thái kỳ báo cáo:', statusErr);
       }
 
       setImportSummary({
@@ -418,7 +504,7 @@ export const ImportPage: React.FC = () => {
       setActiveStep(3);
     } catch (err: any) {
       console.error('Lỗi khi nhập dữ liệu Excel:', err);
-      setImportError(err.message || 'Lỗi không xác định khi nhập dữ liệu.');
+      setImportError(getFriendlyErrorMessage(err, 'Đã xảy ra lỗi trong quá trình lưu số liệu Excel vào hệ thống. Vui lòng kiểm tra lại.'));
     } finally {
       setIsProcessing(false);
       setImportStatusText(null);
@@ -596,19 +682,37 @@ export const ImportPage: React.FC = () => {
       {/* Global Error Banner */}
       {importError && (
         <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start justify-between gap-3 text-rose-800 text-xs shadow-xs">
-          <div className="flex items-start gap-2.5">
+          <div className="flex items-start gap-2.5 flex-1">
             <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold text-rose-900 block text-xs mb-0.5">
-                Lỗi nhập dữ liệu:
+            <div className="space-y-1">
+              <span className="font-bold text-rose-900 block text-xs">
+                Thông báo nhập dữ liệu:
               </span>
-              <p className="whitespace-pre-line leading-relaxed text-xs">{importError}</p>
+              <p className="whitespace-pre-line leading-relaxed text-xs text-rose-800">
+                {importError}
+              </p>
+              {(importError.includes('kỳ báo cáo') || importError.includes('trạng thái') || importError.includes('Khóa sổ')) && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateReportModal(true);
+                      setImportError(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tạo kỳ báo cáo mới ngay</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <button
             type="button"
             onClick={() => setImportError(null)}
-            className="text-rose-400 hover:text-rose-700 transition-colors shrink-0 p-0.5"
+            className="text-rose-400 hover:text-rose-700 transition-colors shrink-0 p-1 rounded-md hover:bg-rose-100"
+            title="Đóng thông báo"
           >
             <X className="w-4 h-4" />
           </button>
@@ -783,102 +887,414 @@ export const ImportPage: React.FC = () => {
           {/* Detailed Preview Table */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Bảng thẩm định chi tiết trước khi lưu ({parseResult.draftRows.length} dòng số liệu)
-              </h3>
-              <span className="text-[11px] text-slate-500">
-                Đã tự động loại bỏ dòng TỔNG CỘNG và dòng tiêu đề
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Bảng thẩm định chi tiết trước khi lưu ({sortedDraftRows.length} dòng số liệu)
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Đã tự động loại bỏ dòng TỔNG CỘNG và dòng tiêu đề • Nguồn dữ liệu được gom nhóm phân tách
+                </p>
+              </div>
+              <span className="text-[11px] font-medium text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-md">
+                Nhấp vào tiêu đề cột để sắp xếp
               </span>
             </div>
 
-            <div className="overflow-x-auto max-h-[600px]">
+            <div className="overflow-x-auto max-h-[620px]">
               <table className="w-full text-xs text-left border-collapse">
-                <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 text-[11px] border-b border-slate-200">
+                <thead className="sticky top-0 z-20 shadow-xs border-b border-slate-300 select-none bg-white">
+                  {/* Row 1: Nhóm cấp 1 */}
                   <tr>
-                    <th className="p-2.5 font-semibold text-center w-10">Dòng</th>
-                    <th className="p-2.5 font-semibold">Nguồn dữ liệu</th>
-                    <th className="p-2.5 font-semibold min-w-[160px]">Lĩnh vực gốc (File)</th>
-                    <th className="p-2.5 font-semibold">Đơn vị suy ra</th>
-                    <th className="p-2.5 font-semibold text-right">Tổng TN</th>
-                    <th className="p-2.5 font-semibold text-right">Trực tuyến</th>
-                    <th className="p-2.5 font-semibold text-right">Trực tiếp</th>
-                    <th className="p-2.5 font-semibold text-right">Kỳ trước</th>
-                    <th className="p-2.5 font-semibold text-right">Tổng GQ</th>
-                    <th className="p-2.5 font-semibold text-right">Trước hạn</th>
-                    <th className="p-2.5 font-semibold text-right">Đúng hạn</th>
-                    <th className="p-2.5 font-semibold text-right">Quá hạn</th>
-                    <th className="p-2.5 font-semibold text-right">Tổng Tồn</th>
-                    <th className="p-2.5 font-semibold text-center">Trạng thái</th>
+                    <th
+                      rowSpan={3}
+                      onClick={() => handleSort('rowNumber')}
+                      className="cursor-pointer select-none bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 p-2 font-bold text-center w-12 text-[11px] transition-colors"
+                      title="Sắp xếp theo Số thứ tự"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>TT</span>
+                        {sortKey === 'rowNumber' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40 hover:opacity-100" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      rowSpan={3}
+                      onClick={() => handleSort('rawFieldName')}
+                      className="cursor-pointer select-none bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 p-2 font-bold text-left min-w-[200px] text-[11px] transition-colors"
+                      title="Sắp xếp theo Lĩnh vực"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span>Lĩnh vực</span>
+                        {sortKey === 'rawFieldName' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40 hover:opacity-100" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      rowSpan={3}
+                      onClick={() => handleSort('unitName')}
+                      className="cursor-pointer select-none bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 p-2 font-bold text-left min-w-[150px] text-[11px] transition-colors"
+                      title="Sắp xếp theo Đơn vị suy ra"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span>Đơn vị suy ra</span>
+                        {sortKey === 'unitName' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40 hover:opacity-100" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Nhóm 1: Số hồ sơ tiếp nhận (Xanh lá) */}
+                    <th
+                      colSpan={4}
+                      className="bg-[#c8e6c9] text-[#1b5e20] border border-slate-300 font-bold text-center py-2 px-3 text-xs uppercase tracking-wide"
+                    >
+                      Số hồ sơ tiếp nhận
+                    </th>
+
+                    {/* Nhóm 2: Số lượng hồ sơ đã giải quyết (Vàng cam) */}
+                    <th
+                      colSpan={4}
+                      className="bg-[#ffecb3] text-[#b78103] border border-slate-300 font-bold text-center py-2 px-3 text-xs uppercase tracking-wide"
+                    >
+                      Số lượng hồ sơ đã giải quyết
+                    </th>
+
+                    {/* Nhóm 3: Số lượng hồ sơ đang giải quyết (Xanh dương) */}
+                    <th
+                      colSpan={3}
+                      className="bg-[#bbdefb] text-[#0d47a1] border border-slate-300 font-bold text-center py-2 px-3 text-xs uppercase tracking-wide"
+                    >
+                      Số lượng hồ sơ đang giải quyết
+                    </th>
+
+                    <th
+                      rowSpan={3}
+                      onClick={() => handleSort('validationStatus')}
+                      className="cursor-pointer select-none bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 p-2 font-bold text-center min-w-[90px] text-[11px] transition-colors"
+                      title="Sắp xếp theo Trạng thái"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Trạng thái</span>
+                        {sortKey === 'validationStatus' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40 hover:opacity-100" />
+                        )}
+                      </div>
+                    </th>
+                  </tr>
+
+                  {/* Row 2: Nhóm con cấp 2 */}
+                  <tr>
+                    {/* Dưới Số hồ sơ tiếp nhận */}
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('received_total')}
+                      className="cursor-pointer select-none bg-[#e8f5e9] hover:bg-[#dcedc8] text-[#2e7d32] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Tổng tiếp nhận"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Tổng số</span>
+                        {sortKey === 'received_total' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      colSpan={2}
+                      className="bg-[#e8f5e9] text-[#2e7d32] border border-slate-300 py-1 px-2 font-bold text-center text-[11px]"
+                    >
+                      Trong kỳ
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('carried_forward')}
+                      className="cursor-pointer select-none bg-[#e8f5e9] hover:bg-[#dcedc8] text-[#2e7d32] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Từ kỳ trước"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Từ kỳ trước</span>
+                        {sortKey === 'carried_forward' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Dưới Số lượng hồ sơ đã giải quyết */}
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('completed_total')}
+                      className="cursor-pointer select-none bg-[#fff8e1] hover:bg-[#ffecb3] text-[#b78103] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Tổng đã giải quyết"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Tổng số</span>
+                        {sortKey === 'completed_total' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('completed_early')}
+                      className="cursor-pointer select-none bg-[#fff8e1] hover:bg-[#ffecb3] text-[#b78103] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Trước hạn"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Trước hạn</span>
+                        {sortKey === 'completed_early' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('completed_on_time')}
+                      className="cursor-pointer select-none bg-[#fff8e1] hover:bg-[#ffecb3] text-[#b78103] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Đúng hạn"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Đúng hạn</span>
+                        {sortKey === 'completed_on_time' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('completed_late')}
+                      className="cursor-pointer select-none bg-[#fff8e1] hover:bg-[#ffecb3] text-[#b78103] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Quá hạn"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Quá hạn</span>
+                        {sortKey === 'completed_late' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Dưới Số lượng hồ sơ đang giải quyết */}
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('pending_total')}
+                      className="cursor-pointer select-none bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Tổng đang giải quyết (Tồn)"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Tổng số</span>
+                        {sortKey === 'pending_total' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('pending_on_time')}
+                      className="cursor-pointer select-none bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Đang trong hạn"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Trong hạn</span>
+                        {sortKey === 'pending_on_time' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      rowSpan={2}
+                      onClick={() => handleSort('pending_late')}
+                      className="cursor-pointer select-none bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] border border-slate-300 p-1.5 font-bold text-center text-[11px] transition-colors"
+                      title="Đang quá hạn"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Quá hạn</span>
+                        {sortKey === 'pending_late' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                  </tr>
+
+                  {/* Row 3: Chi tiết Trong kỳ */}
+                  <tr>
+                    <th
+                      onClick={() => handleSort('received_online')}
+                      className="cursor-pointer select-none bg-[#f1f8e9] hover:bg-[#dcedc8] text-[#33691e] border border-slate-300 p-1 font-bold text-center text-[10.5px] transition-colors"
+                      title="Tiếp nhận trực tuyến"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Trực tuyến</span>
+                        {sortKey === 'received_online' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSort('received_offline')}
+                      className="cursor-pointer select-none bg-[#f1f8e9] hover:bg-[#dcedc8] text-[#33691e] border border-slate-300 p-1 font-bold text-center text-[10.5px] transition-colors"
+                      title="Trực tiếp / Dịch vụ bưu chính"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Trực tiếp / Bưu chính</span>
+                        {sortKey === 'received_offline' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {parseResult.draftRows.map((row) => {
+
+                <tbody className="divide-y divide-slate-200">
+                  {sortedDraftRows.map((row, idx) => {
                     const isError = row.validationStatus === 'error';
-                    const isWarning = row.validationStatus === 'warning' || !row.matchedFieldId || !row.unitId;
+                    const isWarning = row.validationStatus === 'warning' || !row.unitId;
+                    const prevRow = idx > 0 ? sortedDraftRows[idx - 1] : null;
+                    const showSourceSeparator = !sortKey && (!prevRow || prevRow.sourceName !== row.sourceName);
 
                     return (
-                      <tr
-                        key={row.rowNumber}
-                        className={`hover:bg-slate-50/80 transition-colors ${
-                          isError ? 'bg-rose-50/50' : isWarning ? 'bg-amber-50/50' : ''
-                        }`}
-                      >
-                        <td className="p-2.5 text-center text-slate-400 font-mono text-[10px]">
-                          {row.rowNumber}
-                        </td>
-                        <td className="p-2.5 font-medium text-slate-700">
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-[10px] font-semibold">
-                            {row.sourceName}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-slate-800 font-medium">
-                          {row.rawFieldName}
-                        </td>
+                      <React.Fragment key={row.rowNumber}>
+                        {/* Thanh phân tách Nguồn dữ liệu */}
+                        {showSourceSeparator && (
+                          <tr className="bg-slate-100 border-y-2 border-slate-300 font-bold text-slate-800">
+                            <td colSpan={14} className="py-2 px-3 bg-slate-200/80">
+                              <div className="flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-blue-700 shrink-0" />
+                                <span className="text-[11px] text-slate-600 uppercase tracking-wider font-semibold">
+                                  Nguồn dữ liệu:
+                                </span>
+                                <span className="text-xs text-blue-900 bg-white border border-blue-200 px-2.5 py-0.5 rounded shadow-2xs font-bold">
+                                  {row.sourceName}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
 
-                        {/* Inferred Unit */}
-                        <td className="p-2.5 font-semibold text-slate-700">
-                          {row.unitName || '—'}
-                        </td>
+                        <tr
+                          className={`hover:bg-slate-50/90 transition-colors ${
+                            isError ? 'bg-rose-50/50' : isWarning ? 'bg-amber-50/40' : ''
+                          }`}
+                        >
+                          {/* TT */}
+                          <td className="p-2 text-center text-slate-500 font-mono text-[11px] border border-slate-200">
+                            {row.rowNumber}
+                          </td>
 
-                        {/* Numbers */}
-                        <td className={`p-2.5 text-right font-mono font-bold ${row.hasDifference ? 'text-amber-700' : 'text-slate-900'}`}>
-                          {formatNumber(row.received_total)}
-                          {row.recalculatedReceived !== row.received_total && (
-                            <span className="block text-[10px] text-amber-600 font-normal">
-                              Lệch: {row.recalculatedReceived - row.received_total > 0 ? '+' : ''}{row.recalculatedReceived - row.received_total}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-right font-mono text-blue-600">{formatNumber(row.received_online)}</td>
-                        <td className="p-2.5 text-right font-mono text-slate-600">{formatNumber(row.received_offline)}</td>
-                        <td className="p-2.5 text-right font-mono text-amber-600">{formatNumber(row.carried_forward)}</td>
+                          {/* Lĩnh vực gốc */}
+                          <td className="p-2 text-slate-900 font-semibold border border-slate-200">
+                            {row.rawFieldName}
+                          </td>
 
-                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">{formatNumber(row.completed_total)}</td>
-                        <td className="p-2.5 text-right font-mono text-slate-600">{formatNumber(row.completed_early)}</td>
-                        <td className="p-2.5 text-right font-mono text-slate-600">{formatNumber(row.completed_on_time)}</td>
-                        <td className={`p-2.5 text-right font-mono ${row.completed_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
-                          {formatNumber(row.completed_late)}
-                        </td>
+                          {/* Đơn vị suy ra kèm quick selection */}
+                          <td className="p-2 text-slate-700 font-medium border border-slate-200">
+                            <select
+                              value={row.unitId || ''}
+                              onChange={(e) => handleUnitMapChange(row.rowNumber, e.target.value)}
+                              className="w-full text-[11px] bg-slate-50 border border-slate-300 rounded px-1.5 py-1 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {units.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
 
-                        <td className="p-2.5 text-right font-mono font-bold text-indigo-700">{formatNumber(row.pending_total)}</td>
+                          {/* Nhóm: Số hồ sơ tiếp nhận */}
+                          <td className={`p-2 text-right font-mono font-bold border border-slate-200 ${row.hasDifference ? 'text-amber-700' : 'text-slate-900'}`}>
+                            {formatNumber(row.received_total)}
+                            {row.recalculatedReceived !== row.received_total && (
+                              <span className="block text-[9.5px] text-amber-600 font-normal">
+                                Lệch: {row.recalculatedReceived - row.received_total > 0 ? '+' : ''}{row.recalculatedReceived - row.received_total}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 text-right font-mono text-blue-600 font-medium border border-slate-200">
+                            {formatNumber(row.received_online)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-slate-600 border border-slate-200">
+                            {formatNumber(row.received_offline)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-amber-700 border border-slate-200">
+                            {formatNumber(row.carried_forward)}
+                          </td>
 
-                        {/* Validation Status Indicator */}
-                        <td className="p-2.5 text-center">
-                          {isError ? (
-                            <span className="inline-flex items-center gap-1 text-rose-600 font-bold text-[10px] bg-rose-100 px-2 py-0.5 rounded" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
-                              <XCircle className="w-3.5 h-3.5" /> Lỗi
-                            </span>
-                          ) : isWarning ? (
-                            <span className="inline-flex items-center gap-1 text-amber-700 font-bold text-[10px] bg-amber-100 px-2 py-0.5 rounded" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
-                              <AlertTriangle className="w-3.5 h-3.5" /> {!row.matchedFieldId || !row.unitId ? 'Chưa gán' : 'Lệch'}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-[10px] bg-emerald-100 px-2 py-0.5 rounded">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Chuẩn
-                            </span>
-                          )}
-                        </td>
-                      </tr>
+                          {/* Nhóm: Số lượng hồ sơ đã giải quyết */}
+                          <td className="p-2 text-right font-mono font-bold text-emerald-700 border border-slate-200">
+                            {formatNumber(row.completed_total)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-slate-600 border border-slate-200">
+                            {formatNumber(row.completed_early)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-slate-600 border border-slate-200">
+                            {formatNumber(row.completed_on_time)}
+                          </td>
+                          <td className={`p-2 text-right font-mono border border-slate-200 ${row.completed_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                            {formatNumber(row.completed_late)}
+                          </td>
+
+                          {/* Nhóm: Số lượng hồ sơ đang giải quyết */}
+                          <td className="p-2 text-right font-mono font-bold text-blue-700 border border-slate-200">
+                            {formatNumber(row.pending_total)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-slate-600 border border-slate-200">
+                            {formatNumber(row.pending_on_time)}
+                          </td>
+                          <td className={`p-2 text-right font-mono border border-slate-200 ${row.pending_late > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                            {formatNumber(row.pending_late)}
+                          </td>
+
+                          {/* Trạng thái thẩm định */}
+                          <td className="p-2 text-center border border-slate-200">
+                            {isError ? (
+                              <span className="inline-flex items-center gap-1 text-rose-700 font-bold text-[10px] bg-rose-100 px-2 py-0.5 rounded border border-rose-200" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
+                                <XCircle className="w-3.5 h-3.5 shrink-0" /> Lỗi
+                              </span>
+                            ) : isWarning ? (
+                              <span className="inline-flex items-center gap-1 text-amber-700 font-bold text-[10px] bg-amber-100 px-2 py-0.5 rounded border border-amber-200" title={row.validationErrors ? row.validationErrors.map((e) => e.message).join('\n') : ''}>
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {!row.unitId ? 'Chưa gán' : 'Lệch'}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 font-bold text-[10px] bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Chuẩn
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

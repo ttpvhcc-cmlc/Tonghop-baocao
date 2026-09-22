@@ -8,6 +8,14 @@ import {
   LogIn,
   AlertCircle,
   RefreshCw,
+  ShieldCheck,
+  Building2,
+  Landmark,
+  FileSpreadsheet,
+  Award,
+  FolderKanban,
+  Scale,
+  Briefcase,
 } from 'lucide-react';
 import { store, SystemConfig } from '../services/store';
 import { supabase } from '../lib/supabase';
@@ -90,40 +98,197 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  // Font family helper
+  const getFontFamilyClass = (font?: string) => {
+    switch (font) {
+      case 'be_vietnam_pro':
+        return "font-['Be_Vietnam_Pro',sans-serif]";
+      case 'montserrat':
+        return "font-['Montserrat',sans-serif]";
+      case 'roboto':
+        return "font-['Roboto',sans-serif]";
+      case 'inter':
+        return "font-['Inter',sans-serif]";
+      case 'playfair':
+        return "font-['Playfair_Display',serif]";
+      case 'merriweather':
+        return "font-['Merriweather',serif]";
+      case 'sans':
+      default:
+        return 'font-sans';
+    }
+  };
+
+  // Background theme helper
+  const getBgThemeClass = (theme?: string) => {
+    switch (theme) {
+      case 'indigo':
+        return 'bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-900';
+      case 'blue':
+        return 'bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900';
+      case 'emerald':
+        return 'bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950';
+      case 'crimson':
+        return 'bg-gradient-to-br from-stone-950 via-red-950 to-rose-950';
+      case 'slate':
+        return 'bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900';
+      case 'dark':
+        return 'bg-gradient-to-br from-black via-zinc-950 to-slate-950';
+      case 'custom':
+        return '';
+      case 'navy':
+      default:
+        return 'bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950';
+    }
+  };
+
+  // Logo render helper
+  const renderLoginLogo = () => {
+    if (config.loginShowLogo === false) return null;
+
+    const logoType = config.loginLogoType || 'system';
+    const logoSize = config.loginLogoSize || 64;
+
+    // 1. Custom URL
+    if (logoType === 'custom_url' && config.loginLogoUrl) {
+      return (
+        <div
+          className="rounded-2xl overflow-hidden bg-white/10 p-2 backdrop-blur-xs border border-white/20 shadow-lg flex items-center justify-center shrink-0"
+          style={{ width: `${logoSize}px`, height: `${logoSize}px` }}
+        >
+          <img
+            src={config.loginLogoUrl}
+            alt="Logo"
+            className="w-full h-full object-contain"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        </div>
+      );
+    }
+
+    // 2. System Logo (Header configured logo)
+    if (logoType === 'system') {
+      if (config.logoType === 'custom_url' && config.logoUrl) {
+        return (
+          <div
+            className="rounded-2xl overflow-hidden bg-white/10 p-2 backdrop-blur-xs border border-white/20 shadow-lg flex items-center justify-center shrink-0"
+            style={{ width: `${logoSize}px`, height: `${logoSize}px` }}
+          >
+            <img
+              src={config.logoUrl}
+              alt="Logo"
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          </div>
+        );
+      }
+    }
+
+    // 3. Built-in Icon Preset
+    const iconId = logoType === 'system' ? (config.logoIcon || 'ShieldCheck') : (config.loginLogoIcon || 'ShieldCheck');
+    const iconPx = Math.max(28, Math.round(logoSize * 0.55));
+
+    const renderIconSvg = () => {
+      const props = { style: { width: `${iconPx}px`, height: `${iconPx}px` }, className: 'text-white drop-shadow-md' };
+      switch (iconId) {
+        case 'Building2':
+          return <Building2 {...props} />;
+        case 'Landmark':
+          return <Landmark {...props} />;
+        case 'FileSpreadsheet':
+          return <FileSpreadsheet {...props} />;
+        case 'Award':
+          return <Award {...props} />;
+        case 'FolderKanban':
+          return <FolderKanban {...props} />;
+        case 'Scale':
+          return <Scale {...props} />;
+        case 'Briefcase':
+          return <Briefcase {...props} />;
+        case 'ShieldCheck':
+        default:
+          return <ShieldCheck {...props} />;
+      }
+    };
+
+    return (
+      <div
+        className="rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 border border-white/20 shadow-xl flex items-center justify-center shrink-0 ring-4 ring-white/10 backdrop-blur-xs"
+        style={{ width: `${logoSize}px`, height: `${logoSize}px` }}
+      >
+        {renderIconSvg()}
+      </div>
+    );
+  };
+
+  const loginTitle = config.loginSystemName?.trim() || config.systemName || 'HỆ THỐNG TỔNG HỢP, ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH';
+  const loginSubtitle = config.loginSubTitle?.trim() || config.subTitle || 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô';
+  const fontFamilyClass = getFontFamilyClass(config.loginFontFamily);
+  const bgThemeClass = getBgThemeClass(config.loginBgTheme);
+  const isCustomBg = config.loginBgTheme === 'custom' && config.loginCustomBgColor;
+  const logoPosition = config.loginLogoPosition || 'top';
+
   return (
-    <div className="min-h-screen w-full flex flex-col justify-between bg-slate-100 text-slate-800 font-sans selection:bg-blue-600 selection:text-white">
+    <div className={`min-h-screen w-full flex flex-col justify-between bg-slate-100 text-slate-800 ${fontFamilyClass} selection:bg-blue-600 selection:text-white`}>
       {/* Main Login Screen Container */}
-      <div className="flex-1 flex flex-col lg:flex-row w-full">
-        {/* Left Side: Clean Administrative Identity (System Title & Unit) */}
-        <div className="lg:w-5/12 xl:w-1/2 bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row w-full min-h-screen">
+        {/* Left Side: Administrative Identity (System Title, Subtitle, Logo & Custom Background) */}
+        <div
+          className={`lg:w-5/12 xl:w-1/2 ${bgThemeClass} text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-center relative overflow-hidden`}
+          style={isCustomBg ? { backgroundColor: config.loginCustomBgColor } : undefined}
+        >
           {/* Subtle Background Decoration */}
           <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]"></div>
           <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
-          {/* Centered Title & Unit Section */}
-          <div className="my-auto relative z-10 space-y-4 py-8">
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-black text-white tracking-tight leading-tight uppercase">
-              {config.systemName || 'HỆ THỐNG TỔNG HỢP, ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH'}
-            </h1>
-            <p className="text-base sm:text-lg lg:text-xl font-semibold text-blue-200 leading-relaxed">
-              {config.subTitle || 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô'}
-            </p>
-          </div>
+          {/* Centered Title, Subtitle & Logo Section */}
+          <div className="my-auto relative z-10 space-y-6 py-8">
+            {/* Top Logo Position */}
+            {logoPosition === 'top' && (
+              <div className="mb-2">
+                {renderLoginLogo()}
+              </div>
+            )}
 
-          {/* Left Footer Badges */}
-          <div className="relative z-10 pt-8 border-t border-blue-900/50 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Máy chủ vận hành ổn định • TLS 1.3
-            </span>
-            <span className="text-[11px] text-slate-400">
-              Phiên bản 2.6 Enterprise
-            </span>
+            <div className={`${logoPosition === 'left' ? 'flex items-start gap-5' : 'space-y-4'}`}>
+              {/* Left Logo Position */}
+              {logoPosition === 'left' && (
+                <div className="shrink-0 pt-1">
+                  {renderLoginLogo()}
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <h1
+                  className={`tracking-tight leading-tight uppercase drop-shadow-xs ${config.loginSystemNameFontWeight || 'font-black'}`}
+                  style={{
+                    color: config.loginSystemNameColor || '#ffffff',
+                    fontSize: config.loginSystemNameFontSize ? config.loginSystemNameFontSize : undefined,
+                  }}
+                >
+                  {loginTitle}
+                </h1>
+                <p
+                  className={`leading-relaxed drop-shadow-2xs ${config.loginSubTitleFontWeight || 'font-semibold'}`}
+                  style={{
+                    color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
+                    fontSize: config.loginSubTitleFontSize ? config.loginSubTitleFontSize : undefined,
+                  }}
+                >
+                  {loginSubtitle}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Right Side: Direct & Focused Login Form */}
-        <div className="lg:w-7/12 xl:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-white">
+        <div className="lg:w-7/12 xl:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-white min-h-full">
           {/* Centered Login Card */}
           <div className="w-full max-w-md mx-auto my-auto py-8">
             <div className="mb-8">
@@ -206,7 +371,7 @@ export const LoginPage: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="canbo@domain.gov.vn"
+                    placeholder=""
                     className="w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                   />
                 </div>
@@ -226,7 +391,7 @@ export const LoginPage: React.FC = () => {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
+                    placeholder=""
                     className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                   />
                   <button
@@ -269,18 +434,15 @@ export const LoginPage: React.FC = () => {
                 ) : (
                   <>
                     <LogIn className="w-4 h-4" />
-                    <span>Đăng nhập vào Hệ thống</span>
+                    <span>Đăng nhập</span>
                   </>
                 )}
               </button>
             </form>
           </div>
 
-          {/* Form Bottom Right Mandatory Branding / Signature */}
-          <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-slate-400">
-            <span className="text-[11px]">
-              Bảo mật hệ thống • Supabase PostgreSQL RLS
-            </span>
+          {/* Form Bottom Right Mandatory Signature */}
+          <div className="pt-6 border-t border-slate-100 flex justify-end text-xs text-slate-400">
             <span className="text-[11px] font-medium text-slate-400 select-none tracking-wide text-right">
               @2026 Design by Lê Hồng Sơn
             </span>
@@ -290,3 +452,4 @@ export const LoginPage: React.FC = () => {
     </div>
   );
 };
+

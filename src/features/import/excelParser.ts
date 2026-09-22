@@ -119,22 +119,111 @@ export function findBestFieldMatch(rawName: string, fields: Field[], units: Unit
   unit?: Unit;
   score: number;
 } {
-  if (!rawName || !fields.length) {
+  if (!rawName || (!fields.length && !units.length)) {
     return { score: 0 };
   }
 
   const normRaw = normalizeText(rawName);
 
+  // Helper to find unit by unit_id or fallback to sibling field in same sector or unit name
+  const resolveUnit = (targetField?: Field): Unit | undefined => {
+    if (!targetField) return undefined;
+    if (targetField.unit_id) {
+      const u = units.find((un) => un.id === targetField.unit_id);
+      if (u) return u;
+    }
+    // Check sibling field in same linh_vuc that has unit_id
+    if (targetField.linh_vuc) {
+      const normSector = normalizeText(targetField.linh_vuc);
+      const sibling = fields.find((f) => normalizeText(f.linh_vuc || '') === normSector && f.unit_id);
+      if (sibling && sibling.unit_id) {
+        const u = units.find((un) => un.id === sibling.unit_id);
+        if (u) return u;
+      }
+    }
+    // Heuristic fallback to find the right Unit by common keywords
+    const textToCheck = `${targetField.name} ${targetField.linh_vuc || ''} ${rawName}`.toLowerCase();
+    if (
+      textToCheck.includes('hộ tịch') ||
+      textToCheck.includes('chứng thực') ||
+      textToCheck.includes('tư pháp') ||
+      textToCheck.includes('liên thông') ||
+      textToCheck.includes('nội vụ') ||
+      textToCheck.includes('văn phòng')
+    ) {
+      const vp = units.find((u) => u.name.toLowerCase().includes('văn phòng'));
+      if (vp) return vp;
+    }
+    if (
+      textToCheck.includes('đất đai') ||
+      textToCheck.includes('kinh tế') ||
+      textToCheck.includes('xây dựng') ||
+      textToCheck.includes('quy hoạch') ||
+      textToCheck.includes('thủy sản') ||
+      textToCheck.includes('nông nghiệp') ||
+      textToCheck.includes('doanh nghiệp') ||
+      textToCheck.includes('thuế') ||
+      textToCheck.includes('hàng hải') ||
+      textToCheck.includes('đường thủy') ||
+      textToCheck.includes('tài nguyên') ||
+      textToCheck.includes('môi trường')
+    ) {
+      const kt = units.find((u) => u.name.toLowerCase().includes('kinh tế') || u.name.toLowerCase().includes('địa chính'));
+      if (kt) return kt;
+    }
+    if (
+      textToCheck.includes('xã hội') ||
+      textToCheck.includes('bảo trợ') ||
+      textToCheck.includes('người có công') ||
+      textToCheck.includes('giáo dục') ||
+      textToCheck.includes('y tế') ||
+      textToCheck.includes('văn hóa') ||
+      textToCheck.includes('lao động')
+    ) {
+      const vh = units.find((u) => u.name.toLowerCase().includes('văn hóa') || u.name.toLowerCase().includes('xã hội'));
+      if (vh) return vh;
+    }
+    return units[0];
+  };
+
   // 1. Exact match by procedure code or procedure name
-  const exactMatch = fields.find(
+  let exactMatch = fields.find(
     (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
   );
+
+  // 1b. Exact match by Sector (linh_vuc)
+  if (!exactMatch) {
+    const matchingSectorFields = fields.filter((f) => normalizeText(f.linh_vuc || '') === normRaw);
+    if (matchingSectorFields.length > 0) {
+      exactMatch = matchingSectorFields.find((f) => f.unit_id) || matchingSectorFields[0];
+    }
+  }
+
   if (exactMatch) {
-    const unit = units.find((u) => u.id === exactMatch.unit_id);
+    const unit = resolveUnit(exactMatch);
     return { field: exactMatch, unit, score: 100 };
   }
 
-  // 2. Try similarity match against procedure name (f.name)
+  // 2. Fuzzy match against Sector name (f.linh_vuc)
+  let bestSectorScore = 0;
+  let bestSectorField: Field | undefined;
+
+  for (const f of fields) {
+    if (f.linh_vuc) {
+      const score = calculateSimilarity(rawName, f.linh_vuc);
+      if (score > bestSectorScore) {
+        bestSectorScore = score;
+        bestSectorField = f;
+      }
+    }
+  }
+
+  if (bestSectorScore >= 70 && bestSectorField) {
+    const unit = resolveUnit(bestSectorField);
+    return { field: bestSectorField, unit, score: bestSectorScore };
+  }
+
+  // 3. Similarity match against procedure name (f.name)
   let bestNameScore = 0;
   let bestNameField: Field | undefined;
 
@@ -146,19 +235,19 @@ export function findBestFieldMatch(rawName: string, fields: Field[], units: Unit
     }
   }
 
-  if (bestNameScore >= 70 && bestNameField) {
-    const unit = units.find((u) => u.id === bestNameField?.unit_id);
+  if (bestNameScore >= 65 && bestNameField) {
+    const unit = resolveUnit(bestNameField);
     return { field: bestNameField, unit, score: bestNameScore };
   }
 
-  // 3. Fallback unit match
-  const matchedUnit = units.find((u) => calculateSimilarity(rawName, u.name) >= 70);
-  const matchedFieldByUnit = fields.find((f) => (matchedUnit ? f.unit_id === matchedUnit.id : false));
+  // 4. Fallback unit match by rawName
+  const matchedUnit = units.find((u) => calculateSimilarity(rawName, u.name) >= 70) || resolveUnit(fields[0]);
+  const matchedFieldByUnit = fields.find((f) => (matchedUnit ? f.unit_id === matchedUnit.id : false)) || fields[0];
 
   return {
     field: matchedFieldByUnit,
-    unit: matchedUnit || (matchedFieldByUnit ? units.find((u) => u.id === matchedFieldByUnit.unit_id) : undefined),
-    score: matchedFieldByUnit ? 50 : 0,
+    unit: matchedUnit || (matchedFieldByUnit ? resolveUnit(matchedFieldByUnit) : undefined),
+    score: matchedFieldByUnit || matchedUnit ? 60 : 0,
   };
 }
 
@@ -289,7 +378,7 @@ export function parseSheetToDrafts(
       source_name: currentSource,
     });
 
-    const isMatched = score >= 75 && Boolean(field);
+    const isMatched = Boolean(field);
     const cleanRawName = candidateFieldName.trim();
     const resolvedSector = (field?.linh_vuc && field.linh_vuc !== 'Chưa phân loại')
       ? field.linh_vuc
@@ -299,10 +388,10 @@ export function parseSheetToDrafts(
       rowNumber: i + 1,
       sourceName: currentSource,
       rawFieldName: cleanRawName,
-      matchedFieldId: isMatched ? field?.id : undefined,
+      matchedFieldId: field?.id || fields[0]?.id,
       matchedFieldName: cleanRawName || resolvedSector,
-      unitId: isMatched ? unit?.id : undefined,
-      unitName: isMatched ? unit?.name : undefined,
+      unitId: unit?.id || units[0]?.id,
+      unitName: unit?.name || units[0]?.name,
       matchScore: score,
       isConfirmed: isMatched,
 

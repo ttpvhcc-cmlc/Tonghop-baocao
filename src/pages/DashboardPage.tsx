@@ -218,10 +218,45 @@ export const DashboardPage: React.FC = () => {
   const [selectedFieldId, setSelectedFieldId] = useState<string>('ALL');
   const [presentationDimension, setPresentationDimension] = useState<'unit' | 'field'>('unit');
 
-  // Trend history limit selection state
+  // Trend axis granularity ('month' | 'quarter' | 'year') and year selection state
+  const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter' | 'year'>('month');
+  const [selectedTrendYear, setSelectedTrendYear] = useState<number>(() => {
+    return new Date().getFullYear();
+  });
   const [trendHistoryLimit, setTrendHistoryLimit] = useState<number>(10);
   const [isSavingLayout, setIsSavingLayout] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Available Years for Trend Chart
+  const availableTrendYears = useMemo(() => {
+    const years = new Set<number>();
+    years.add(new Date().getFullYear());
+    liveReports.forEach((rep) => {
+      const dateStr = rep.data_as_of || rep.period_end || rep.period_start || rep.created_at || '';
+      if (dateStr) {
+        const clean = dateStr.split('T')[0];
+        const yr = new Date(clean).getFullYear() || parseInt(clean.split('-')[0], 10);
+        if (yr && !isNaN(yr)) years.add(yr);
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [liveReports]);
+
+  // Distinct year ticks for multi-year view
+  const yearTicks = useMemo(() => {
+    const sorted = availableTrendYears.slice().sort((a, b) => a - b);
+    if (sorted.length === 0) return [new Date().getFullYear()];
+    if (sorted.length === 1) {
+      return [sorted[0] - 1, sorted[0], sorted[0] + 1];
+    }
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const all: number[] = [];
+    for (let y = min; y <= max; y++) {
+      all.push(y);
+    }
+    return all;
+  }, [availableTrendYears]);
 
   // Series visibility toggle state for Trend chart (Diễn biến khối lượng theo mốc chốt báo cáo)
   type TrendSeriesKey = 'received' | 'pendingLate' | 'pending' | 'resolved' | 'resolvedLate';
@@ -701,64 +736,107 @@ export const DashboardPage: React.FC = () => {
     });
   }, [filteredStats]);
 
-  // Chart 1: Monthly Volume Trend (multi-period)
+  // Chart 1: Monthly/Quarterly/Yearly Volume Trend
   const monthlyTrendData = useMemo(() => {
-    const rawTrends = [...liveReports]
-      .slice(0, trendHistoryLimit)
-      .map((rep) => {
-        const repStats = allPeriodStats.filter((s) => s.report_id === rep.id);
-        
-        // Apply the same filters as the rest of the dashboard
-        const filteredRepStats = repStats.filter((s) => {
-          if (selectedUnitId !== 'ALL' && s.unit_id !== selectedUnitId) return false;
-          if (selectedSourceId !== 'ALL' && s.source_id !== selectedSourceId) return false;
-          if (selectedFieldId !== 'ALL') {
-            const sec = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, liveFields);
-            const raw = (s.field_name_snapshot || s.field_name || '').trim();
-            if (sec !== selectedFieldId && raw !== selectedFieldId && s.field_id !== selectedFieldId) return false;
+    const targetReports = trendGranularity === 'year'
+      ? liveReports
+      : liveReports.filter((rep) => {
+          const dateStr = rep.data_as_of || rep.period_end || rep.period_start || rep.created_at || '';
+          if (!dateStr) return false;
+          const clean = dateStr.split('T')[0];
+          const parts = clean.split('-');
+          let yr = parts.length === 3 ? parseInt(parts[0], 10) : new Date(clean).getFullYear();
+          if (isNaN(yr) || yr === 1970) {
+            yr = selectedTrendYear;
           }
-          return true;
+          return yr === selectedTrendYear;
         });
 
-        const rec = filteredRepStats.reduce((acc, curr) => acc + curr.received_total, 0);
-        const comp = filteredRepStats.reduce((acc, curr) => acc + curr.completed_total, 0);
-        const pend = filteredRepStats.reduce((acc, curr) => acc + curr.pending_total, 0);
-        const pendLate = filteredRepStats.reduce((acc, curr) => acc + (curr.pending_late || 0), 0);
-        const compLate = filteredRepStats.reduce((acc, curr) => acc + (curr.completed_late || 0), 0);
-
-        // Date chốt báo cáo: data_as_of -> period_end -> period_start
-        const dateStr = rep.data_as_of || rep.period_end || rep.period_start || '';
-        let closingDateFormatted = dateStr;
-        let sortKey = 0;
-        if (dateStr) {
-          const cleanDate = dateStr.split('T')[0];
-          const parts = cleanDate.split('-');
-          if (parts.length === 3) {
-            closingDateFormatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
-            sortKey = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T00:00:00`).getTime() || 0;
-          } else {
-            sortKey = new Date(dateStr).getTime() || 0;
-          }
+    const processed = targetReports.map((rep) => {
+      const repStats = allPeriodStats.filter((s) => s.report_id === rep.id);
+      
+      // Apply the same filters as the rest of the dashboard
+      const filteredRepStats = repStats.filter((s) => {
+        if (selectedUnitId !== 'ALL' && s.unit_id !== selectedUnitId) return false;
+        if (selectedSourceId !== 'ALL' && s.source_id !== selectedSourceId) return false;
+        if (selectedFieldId !== 'ALL') {
+          const sec = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, liveFields);
+          const raw = (s.field_name_snapshot || s.field_name || '').trim();
+          if (sec !== selectedFieldId && raw !== selectedFieldId && s.field_id !== selectedFieldId) return false;
         }
-
-        return {
-          code: rep.report_code,
-          name: closingDateFormatted || rep.report_name,
-          reportName: rep.report_name,
-          received: rec,
-          resolved: comp,
-          pending: pend,
-          pendingLate: pendLate,
-          resolvedLate: compLate,
-          sortKey,
-        };
+        return true;
       });
 
-    // Sort chronologically in ascending order
-    rawTrends.sort((a, b) => a.sortKey - b.sortKey);
+      const rec = filteredRepStats.reduce((acc, curr) => acc + curr.received_total, 0);
+      const comp = filteredRepStats.reduce((acc, curr) => acc + curr.completed_total, 0);
+      const pend = filteredRepStats.reduce((acc, curr) => acc + curr.pending_total, 0);
+      const pendLate = filteredRepStats.reduce((acc, curr) => acc + (curr.pending_late || 0), 0);
+      const compLate = filteredRepStats.reduce((acc, curr) => acc + (curr.completed_late || 0), 0);
 
-    return rawTrends;
-  }, [liveReports, allPeriodStats, trendHistoryLimit, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
+      // Parse date for exact day and month
+      const dateStr = rep.data_as_of || rep.period_end || rep.period_start || rep.created_at || '';
+      let year = selectedTrendYear;
+      let month = 1;
+      let day = 1;
+      let formattedDate = dateStr;
+
+      if (dateStr) {
+        const cleanDate = dateStr.split('T')[0];
+        const parts = cleanDate.split('-');
+        if (parts.length === 3) {
+          year = parseInt(parts[0], 10) || selectedTrendYear;
+          month = Math.max(1, Math.min(12, parseInt(parts[1], 10) || 1));
+          day = Math.max(1, Math.min(31, parseInt(parts[2], 10) || 1));
+          formattedDate = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+        } else {
+          const parsedD = new Date(dateStr);
+          if (!isNaN(parsedD.getTime())) {
+            year = parsedD.getFullYear();
+            month = parsedD.getMonth() + 1;
+            day = parsedD.getDate();
+            formattedDate = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+          }
+        }
+      }
+
+      const daysInMonth = new Date(year, month, 0).getDate() || 30;
+      
+      let x = 1;
+      if (trendGranularity === 'month') {
+        // Continuous position: 1.0 (Jan 1) -> 12.99 (Dec 31)
+        x = Math.round((month + (day - 1) / daysInMonth) * 1000) / 1000;
+      } else if (trendGranularity === 'quarter') {
+        // Continuous position: 1.0 (Q1) -> 4.99 (Q4)
+        const quarter = Math.floor((month - 1) / 3) + 1;
+        const monthInQuarter = (month - 1) % 3;
+        x = Math.round((quarter + (monthInQuarter + (day - 1) / daysInMonth) / 3) * 1000) / 1000;
+      } else {
+        // Continuous position across years: e.g. 2026.70
+        x = Math.round((year + (month - 1 + (day - 1) / daysInMonth) / 12) * 1000) / 1000;
+      }
+
+      return {
+        code: rep.report_code,
+        name: formattedDate || rep.report_name,
+        formattedDate,
+        reportName: rep.report_name,
+        year,
+        month,
+        day,
+        x,
+        received: rec,
+        resolved: comp,
+        pending: pend,
+        pendingLate: pendLate,
+        resolvedLate: compLate,
+        sortKey: new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`).getTime() || 0,
+      };
+    });
+
+    // Sort chronologically
+    processed.sort((a, b) => a.x - b.x);
+    return processed;
+  }, [liveReports, allPeriodStats, trendGranularity, selectedTrendYear, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
 
   // Chart 2: Resolution distribution (early / on time / late)
   const resolutionDistributionData = useMemo(() => {
@@ -1603,7 +1681,7 @@ export const DashboardPage: React.FC = () => {
                 <div className="flex-1 flex flex-col justify-between h-full w-full min-h-0">
                   {chart.id === 'trend' && (
                     <>
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                         <div className="flex-1 min-w-0 pr-2">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <h3 className="text-sm font-bold text-slate-900">
@@ -1624,115 +1702,267 @@ export const DashboardPage: React.FC = () => {
                             {getChartSubtitle('trend', 'Xu hướng tổng tiếp nhận, kết quả giải quyết và số lượng hồ sơ tồn đang xử lý')}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0 z-10 self-start sm:self-center">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Số mốc hiển thị:</span>
-                          <select
-                            value={trendHistoryLimit}
-                            onChange={(e) => setTrendHistoryLimit(Number(e.target.value))}
-                            className="text-[11px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                          >
-                            <option value={5}>5 mốc gần nhất</option>
-                            <option value={10}>10 mốc gần nhất (Mặc định)</option>
-                            <option value={15}>15 mốc gần nhất</option>
-                            <option value={20}>20 mốc gần nhất</option>
-                            <option value={30}>30 mốc gần nhất</option>
-                            <option value={999}>Tất cả mốc báo cáo</option>
-                          </select>
+
+                        {/* Top controls: Granularity (Tháng / Quý / Năm) and Year selector */}
+                        <div className="flex items-center gap-2 shrink-0 z-10 self-start sm:self-center flex-wrap">
+                          {/* Granularity Toggle: Tháng | Quý | Năm */}
+                          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setTrendGranularity('month')}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                trendGranularity === 'month'
+                                  ? 'bg-white text-blue-700 shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Hiển thị trục hoành 12 tháng"
+                            >
+                              Tháng
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTrendGranularity('quarter')}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                trendGranularity === 'quarter'
+                                  ? 'bg-white text-blue-700 shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Hiển thị trục hoành 4 Quý (Quý I - Quý IV)"
+                            >
+                              Quý
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTrendGranularity('year')}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                trendGranularity === 'year'
+                                  ? 'bg-white text-blue-700 shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Hiển thị trục hoành theo Năm"
+                            >
+                              Năm
+                            </button>
+                          </div>
+
+                          {/* Year Selector placed to the right (only for Month / Quarter mode) */}
+                          {trendGranularity !== 'year' && (
+                            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5 shadow-2xs">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Năm:</span>
+                              <select
+                                value={selectedTrendYear}
+                                onChange={(e) => setSelectedTrendYear(Number(e.target.value))}
+                                className="text-xs font-bold text-blue-700 bg-transparent border-0 focus:outline-none cursor-pointer py-0.5"
+                              >
+                                {availableTrendYears.map((yr) => (
+                                  <option key={yr} value={yr}>
+                                    {yr}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
                       </div>
+
+                      {/* Main Chart Area */}
                       <div className="flex-1 min-h-0 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={monthlyTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25}/>
-                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                              </linearGradient>
-                              <linearGradient id="colorSolv" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} />
-                            <Tooltip
-                              formatter={(val) => formatNumber(Number(val))}
-                              labelFormatter={(label, items) => {
-                                const repName = items && items[0]?.payload?.reportName;
-                                return `Ngày chốt số liệu: ${label}${repName ? ` (${repName})` : ''}`;
-                              }}
-                            />
-                            <Legend
-                              content={() => (
-                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 pt-3 pb-1 text-xs select-none">
-                                  {TREND_SERIES_LIST.map((series) => {
-                                    const isVisible = trendSeriesVisibility[series.key];
-                                    return (
-                                      <button
-                                        key={series.key}
-                                        type="button"
-                                        onClick={() => toggleTrendSeries(series.key)}
-                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
-                                          isVisible
-                                            ? 'bg-slate-50 border-slate-300 text-slate-800 hover:bg-slate-100 hover:border-slate-400 shadow-2xs'
-                                            : 'bg-slate-100/70 border-dashed border-slate-300 text-slate-400 line-through hover:bg-slate-200/60 opacity-60'
-                                        }`}
-                                        title={isVisible ? `Nhấn để tắt đường "${series.name}"` : `Nhấn để bật lại đường "${series.name}"`}
-                                      >
-                                        <span className="flex items-center gap-0.5">
-                                          <span
-                                            className={`inline-block h-0.5 ${series.dash ? 'w-2.5 border-t-2 border-dashed' : 'w-2.5'}`}
-                                            style={{
-                                              borderColor: isVisible ? series.color : '#94a3b8',
-                                              backgroundColor: !series.dash && isVisible ? series.color : !series.dash ? '#94a3b8' : 'transparent',
-                                            }}
-                                          />
+                        {monthlyTrendData.length === 0 ? (
+                          <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center p-6 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                            <p className="text-xs font-semibold text-slate-600 mb-1">
+                              {trendGranularity === 'year'
+                                ? 'Chưa có dữ liệu báo cáo nào'
+                                : `Chưa có kỳ báo cáo nào trong năm ${selectedTrendYear} theo bộ lọc hiện tại`}
+                            </p>
+                            <p className="text-[11px] text-slate-400 max-w-sm">
+                              Hãy chọn năm khác có dữ liệu hoặc điều chỉnh lại bộ lọc Đơn vị / Lĩnh vực.
+                            </p>
+                          </div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={monthlyTrendData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+                              <defs>
+                                <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25}/>
+                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                </linearGradient>
+                                <linearGradient id="colorSolv" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
+                                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={true} />
+                              
+                              {trendGranularity === 'month' && (
+                                <XAxis
+                                  type="number"
+                                  dataKey="x"
+                                  domain={[1, 13]}
+                                  ticks={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}
+                                  tickFormatter={(v) => `Thg ${v}`}
+                                  tick={{ fontSize: 11, fill: '#64748b' }}
+                                  axisLine={{ stroke: '#cbd5e1' }}
+                                  tickLine={{ stroke: '#cbd5e1' }}
+                                />
+                              )}
+                              {trendGranularity === 'quarter' && (
+                                <XAxis
+                                  type="number"
+                                  dataKey="x"
+                                  domain={[1, 5]}
+                                  ticks={[1, 2, 3, 4]}
+                                  tickFormatter={(v) => `Quý ${v === 1 ? 'I' : v === 2 ? 'II' : v === 3 ? 'III' : 'IV'}`}
+                                  tick={{ fontSize: 11, fill: '#64748b' }}
+                                  axisLine={{ stroke: '#cbd5e1' }}
+                                  tickLine={{ stroke: '#cbd5e1' }}
+                                />
+                              )}
+                              {trendGranularity === 'year' && (
+                                <XAxis
+                                  type="number"
+                                  dataKey="x"
+                                  domain={[yearTicks[0], yearTicks[yearTicks.length - 1] + 1]}
+                                  ticks={yearTicks}
+                                  tickFormatter={(v) => `${v}`}
+                                  tick={{ fontSize: 11, fill: '#64748b' }}
+                                  axisLine={{ stroke: '#cbd5e1' }}
+                                  tickLine={{ stroke: '#cbd5e1' }}
+                                />
+                              )}
+
+                              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={{ stroke: '#cbd5e1' }} />
+                              
+                              <Tooltip
+                                content={({ active, payload }) => {
+                                  if (!active || !payload || !payload.length) return null;
+                                  const item = payload[0]?.payload;
+                                  return (
+                                    <div className="bg-white/95 backdrop-blur-xs border border-slate-200/90 shadow-lg rounded-lg px-2.5 py-1.5 text-[11px] min-w-[140px] pointer-events-none z-50">
+                                      <div className="font-semibold text-slate-800 pb-1 mb-1 border-b border-slate-100 flex items-center justify-between gap-2">
+                                        <span>{item?.formattedDate || item?.name || 'Mốc báo cáo'}</span>
+                                        {item?.reportName && (
+                                          <span className="text-[10px] font-normal text-slate-400 truncate max-w-[110px]" title={item.reportName}>
+                                            {item.reportName}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        {payload.map((entry: any, i: number) => {
+                                          if (entry.value === undefined || entry.value === null) return null;
+                                          return (
+                                            <div key={i} className="flex items-center justify-between gap-3">
+                                              <div className="flex items-center gap-1.5 text-slate-600">
+                                                <span
+                                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                                  style={{ backgroundColor: entry.color || entry.stroke || entry.fill }}
+                                                />
+                                                <span className="text-[10px]">{entry.name}</span>
+                                              </div>
+                                              <span className="font-bold text-slate-900 text-[11px]">
+                                                {formatNumber(Number(entry.value))}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                }}
+                              />
+
+                              <Legend
+                                content={() => (
+                                  <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 pt-2 select-none">
+                                    {TREND_SERIES_LIST.map((series) => {
+                                      const isVisible = trendSeriesVisibility[series.key];
+                                      return (
+                                        <button
+                                          key={series.key}
+                                          type="button"
+                                          onClick={() => toggleTrendSeries(series.key)}
+                                          className={`inline-flex items-center gap-1.5 text-[11px] font-medium transition-opacity cursor-pointer ${
+                                            isVisible
+                                              ? 'text-slate-700 hover:text-slate-900 opacity-100'
+                                              : 'text-slate-400 line-through opacity-40'
+                                          }`}
+                                          title={isVisible ? `Nhấn để ẩn "${series.name}"` : `Nhấn để hiện "${series.name}"`}
+                                        >
                                           <span
                                             className="inline-block w-2 h-2 rounded-full shrink-0"
-                                            style={{ backgroundColor: isVisible ? series.color : '#94a3b8' }}
+                                            style={{ backgroundColor: series.color }}
                                           />
-                                        </span>
-                                        <span>{series.name}</span>
-                                        {isVisible ? (
-                                          <span className="text-[10px] text-emerald-600 font-bold ml-0.5">✓</span>
-                                        ) : (
-                                          <span className="text-[10px] text-slate-400 ml-0.5">✕</span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const allActive = Object.values(trendSeriesVisibility).every(Boolean);
-                                      setAllTrendSeries(!allActive);
-                                    }}
-                                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer ml-1"
-                                    title="Bật hoặc tắt tất cả các đường biểu đồ"
-                                  >
-                                    {Object.values(trendSeriesVisibility).every(Boolean) ? 'Tắt tất cả' : 'Bật tất cả'}
-                                  </button>
-                                </div>
+                                          <span>{series.name}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              />
+
+                              {trendSeriesVisibility.received && (
+                                <Area
+                                  type="monotone"
+                                  dataKey="received"
+                                  name="Tổng tiếp nhận"
+                                  stroke="#3b82f6"
+                                  strokeWidth={2.5}
+                                  fillOpacity={1}
+                                  fill="url(#colorRec)"
+                                  dot={{ r: 5, fill: '#3b82f6', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 7, fill: '#1d4ed8', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
                               )}
-                            />
-                            {trendSeriesVisibility.received && (
-                              <Area type="monotone" dataKey="received" name="Tổng tiếp nhận" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRec)" />
-                            )}
-                            {trendSeriesVisibility.resolved && (
-                              <Area type="monotone" dataKey="resolved" name="Đã giải quyết" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSolv)" />
-                            )}
-                            {trendSeriesVisibility.pending && (
-                              <Line type="monotone" dataKey="pending" name="Đang xử lý (Tồn)" stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4 }} />
-                            )}
-                            {trendSeriesVisibility.pendingLate && (
-                              <Line type="monotone" dataKey="pendingLate" name="Đang giải quyết quá hạn" stroke="#ef4444" strokeWidth={2.5} strokeDasharray="3 3" dot={{ r: 3 }} />
-                            )}
-                            {trendSeriesVisibility.resolvedLate && (
-                              <Line type="monotone" dataKey="resolvedLate" name="Đã giải quyết trễ hạn" stroke="#b91c1c" strokeWidth={2.5} dot={{ r: 3 }} />
-                            )}
-                          </AreaChart>
-                        </ResponsiveContainer>
+                              {trendSeriesVisibility.resolved && (
+                                <Area
+                                  type="monotone"
+                                  dataKey="resolved"
+                                  name="Đã giải quyết"
+                                  stroke="#10b981"
+                                  strokeWidth={2.5}
+                                  fillOpacity={1}
+                                  fill="url(#colorSolv)"
+                                  dot={{ r: 5, fill: '#10b981', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 7, fill: '#047857', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
+                              )}
+                              {trendSeriesVisibility.pending && (
+                                <Line
+                                  type="monotone"
+                                  dataKey="pending"
+                                  name="Đang xử lý (Tồn)"
+                                  stroke="#f59e0b"
+                                  strokeWidth={2}
+                                  strokeDasharray="4 4"
+                                  dot={{ r: 4.5, fill: '#f59e0b', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 6.5, fill: '#d97706', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
+                              )}
+                              {trendSeriesVisibility.pendingLate && (
+                                <Line
+                                  type="monotone"
+                                  dataKey="pendingLate"
+                                  name="Đang giải quyết quá hạn"
+                                  stroke="#ef4444"
+                                  strokeWidth={2.5}
+                                  strokeDasharray="3 3"
+                                  dot={{ r: 4.5, fill: '#ef4444', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 6.5, fill: '#b91c1c', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
+                              )}
+                              {trendSeriesVisibility.resolvedLate && (
+                                <Line
+                                  type="monotone"
+                                  dataKey="resolvedLate"
+                                  name="Đã giải quyết trễ hạn"
+                                  stroke="#b91c1c"
+                                  strokeWidth={2.5}
+                                  dot={{ r: 4.5, fill: '#b91c1c', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 6.5, fill: '#7f1d1d', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
+                              )}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )}
                       </div>
                     </>
                   )}

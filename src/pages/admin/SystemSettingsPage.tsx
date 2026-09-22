@@ -27,6 +27,11 @@ import {
   Plus,
   AlertCircle,
   UserCheck,
+  LogIn,
+  Scale,
+  Briefcase,
+  Sparkles,
+  Mail,
 } from 'lucide-react';
 
 export const SystemSettingsPage: React.FC = () => {
@@ -34,7 +39,8 @@ export const SystemSettingsPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
   const [users, setUsers] = useState<Profile[]>(store.getUsers());
   const units = store.getUnits();
-  const [activeTab, setActiveTab] = useState<'branding' | 'theme' | 'navigation' | 'permissions' | 'users'>('branding');
+  const [activeTab, setActiveTab] = useState<'ui' | 'navigation' | 'permissions' | 'users'>('ui');
+  const [uiSubTab, setUiSubTab] = useState<'branding' | 'login' | 'theme'>('branding');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
 
@@ -206,6 +212,114 @@ export const SystemSettingsPage: React.FC = () => {
     { id: 'FileSpreadsheet', label: 'Báo cáo thống kê', icon: FileSpreadsheet },
     { id: 'Award', label: 'Huy hiệu thành tích', icon: Award },
     { id: 'FolderKanban', label: 'Quản lý thư mục', icon: FolderKanban },
+    { id: 'Scale', label: 'Cán cân công lý', icon: Scale },
+    { id: 'Briefcase', label: 'Công vụ hành chính', icon: Briefcase },
+  ];
+
+  const loginBgThemes: Array<{
+    id: NonNullable<SystemConfig['loginBgTheme']>;
+    name: string;
+    desc: string;
+    gradientClass: string;
+  }> = [
+    {
+      id: 'navy',
+      name: 'Xanh Hải Quân (Navy Blue)',
+      desc: 'Sang trọng, uy nghiêm, tiêu chuẩn công vụ',
+      gradientClass: 'bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950',
+    },
+    {
+      id: 'indigo',
+      name: 'Xanh Chàm Hoàng Gia (Royal Indigo)',
+      desc: 'Hiện đại, chuyên nghiệp, chiều sâu công nghệ',
+      gradientClass: 'bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-900',
+    },
+    {
+      id: 'blue',
+      name: 'Xanh Lam Hành Chính (Classic Blue)',
+      desc: 'Tươi sáng, năng động, thân thiện phục vụ nhân dân',
+      gradientClass: 'bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900',
+    },
+    {
+      id: 'emerald',
+      name: 'Xanh Ngọc Công Vụ (Deep Emerald)',
+      desc: 'Trang nhã, phát triển bền vững, tinh tế',
+      gradientClass: 'bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950',
+    },
+    {
+      id: 'crimson',
+      name: 'Đỏ Đô Hành Chính (Administrative Crimson)',
+      desc: 'Trang nghiêm, truyền thống nhà nước',
+      gradientClass: 'bg-gradient-to-br from-stone-950 via-red-950 to-rose-950',
+    },
+    {
+      id: 'slate',
+      name: 'Xám Thẫm Sang Trọng (Deep Slate)',
+      desc: 'Tối giản, trung tính cao cấp',
+      gradientClass: 'bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900',
+    },
+    {
+      id: 'dark',
+      name: 'Đêm Đen Huyền Bí (Pure Dark)',
+      desc: 'Độ tương phản cao, hiện đại',
+      gradientClass: 'bg-gradient-to-br from-black via-zinc-950 to-slate-950',
+    },
+    {
+      id: 'custom',
+      name: 'Màu Tùy Chỉnh (Custom Hex Color)',
+      desc: 'Nhập mã màu Hex theo nhận diện địa phương',
+      gradientClass: 'bg-slate-800',
+    },
+  ];
+
+  const loginFontFamilies: Array<{
+    id: NonNullable<SystemConfig['loginFontFamily']>;
+    name: string;
+    sample: string;
+    fontClass: string;
+  }> = [
+    {
+      id: 'sans',
+      name: 'Sans-serif Mặc định',
+      sample: 'Aa Bb Cc 123 (Hệ thống)',
+      fontClass: 'font-sans',
+    },
+    {
+      id: 'be_vietnam_pro',
+      name: 'Be Vietnam Pro',
+      sample: 'Tiêu chuẩn Phông chữ Hành chính Quốc gia Việt Nam',
+      fontClass: "font-['Be_Vietnam_Pro',sans-serif]",
+    },
+    {
+      id: 'montserrat',
+      name: 'Montserrat',
+      sample: 'Hiện đại, Trang trọng, Đẳng cấp',
+      fontClass: "font-['Montserrat',sans-serif]",
+    },
+    {
+      id: 'roboto',
+      name: 'Roboto',
+      sample: 'Rõ ràng, Dễ đọc, Tiêu chuẩn Kỹ thuật',
+      fontClass: "font-['Roboto',sans-serif]",
+    },
+    {
+      id: 'inter',
+      name: 'Inter',
+      sample: 'Giao diện Tinh gọn, Số hóa',
+      fontClass: "font-['Inter',sans-serif]",
+    },
+    {
+      id: 'playfair',
+      name: 'Playfair Display (Serif)',
+      sample: 'Trang nghiêm, Quý phái, Văn bản Pháp quy',
+      fontClass: "font-['Playfair_Display',serif]",
+    },
+    {
+      id: 'merriweather',
+      name: 'Merriweather (Serif)',
+      sample: 'Đĩnh đạc, Dễ chịu, Báo chí',
+      fontClass: "font-['Merriweather',serif]",
+    },
   ];
 
   const permissionLabels: Array<{ key: keyof RolePermissionRule['permissions']; title: string; desc: string }> = [
@@ -293,28 +407,15 @@ export const SystemSettingsPage: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto pb-1">
         <button
           type="button"
-          onClick={() => setActiveTab('branding')}
+          onClick={() => setActiveTab('ui')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === 'branding'
-              ? 'border-blue-600 text-blue-600 bg-blue-50/50'
-              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          Thương hiệu & Logo
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('theme')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === 'theme'
+            activeTab === 'ui'
               ? 'border-blue-600 text-blue-600 bg-blue-50/50'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
           <Palette className="w-4 h-4" />
-          Màu sắc & Giao diện
+          Giao diện
         </button>
 
         <button
@@ -357,9 +458,54 @@ export const SystemSettingsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* TAB 1: THƯƠNG HIỆU & LOGO */}
-      {activeTab === 'branding' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* TAB GIAO DIỆN (Bao gồm: Thương hiệu & Header, Giao diện Trang Đăng nhập, Màu sắc & Theme) */}
+      {activeTab === 'ui' && (
+        <div className="space-y-6">
+          {/* Sub-tab Pill Selector */}
+          <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/90 rounded-2xl w-fit border border-slate-200 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setUiSubTab('branding')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                uiSubTab === 'branding'
+                  ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+              1. Thương hiệu & Header
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUiSubTab('login')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                uiSubTab === 'login'
+                  ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <LogIn className="w-3.5 h-3.5 text-blue-600" />
+              2. Giao diện Trang Đăng nhập
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUiSubTab('theme')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                uiSubTab === 'theme'
+                  ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5 text-blue-600" />
+              3. Màu sắc & Giao diện
+            </button>
+          </div>
+
+          {/* SUBTAB 1: THƯƠNG HIỆU & HEADER */}
+          {uiSubTab === 'branding' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
               <Building2 className="w-5 h-5 text-blue-600" />
@@ -662,8 +808,701 @@ export const SystemSettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: MÀU SẮC & GIAO DIỆN */}
-      {activeTab === 'theme' && (
+      {/* SUBTAB 2: THIẾT LẬP GIAO DIỆN TRANG ĐĂNG NHẬP */}
+      {uiSubTab === 'login' && (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* Controls Column */}
+          <div className="xl:col-span-7 space-y-6">
+            {/* Quick Actions / Sync Bar */}
+            <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 rounded-2xl border border-blue-200/80 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">Đồng bộ Nhanh Thiết lập Thương hiệu</h4>
+                  <p className="text-[11px] text-slate-500">Sao chép cấu hình tiêu đề, logo & màu sắc trong 1 chạm</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfig({
+                      ...config,
+                      loginSystemName: config.systemName,
+                      loginSubTitle: config.subTitle,
+                      loginLogoType: config.logoType === 'custom_url' ? 'custom_url' : 'icon',
+                      loginLogoIcon: config.logoIcon || 'ShieldCheck',
+                      loginLogoUrl: config.logoUrl || '',
+                      loginLogoSize: 64,
+                      loginLogoPosition: 'left',
+                    });
+                  }}
+                  className="px-3 py-1.5 bg-white text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  Đồng bộ từ Header
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfig({
+                      ...config,
+                      loginBgTheme: 'crimson',
+                      loginLogoPosition: 'left',
+                      loginLogoType: 'icon',
+                      loginLogoIcon: 'ShieldCheck',
+                      loginLogoSize: 64,
+                      loginSystemNameColor: '#ffffff',
+                      loginSystemNameFontSize: '24px',
+                      loginSystemNameFontWeight: 'font-black',
+                      loginSubTitleColor: '#fee2e2',
+                      loginSubTitleFontSize: '14px',
+                      loginSubTitleFontWeight: 'font-semibold',
+                    });
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 text-white hover:bg-rose-700 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Mẫu Đỏ Đô (Ảnh chuẩn)
+                </button>
+              </div>
+            </div>
+
+            {/* Section 1: Tên Hệ thống & Tiêu đề Trang Login */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Type className="w-4 h-4 text-blue-600" />
+                  1. Tên Hệ thống & Tiêu đề Trang Đăng nhập
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, loginSystemName: config.systemName })}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  Lấy theo Tên Header
+                </button>
+              </div>
+
+              {/* Login System Name Input */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Nội dung Tên Hệ thống (Banner Đăng nhập)
+                </label>
+                <input
+                  type="text"
+                  value={config.loginSystemName ?? ''}
+                  onChange={(e) => setConfig({ ...config, loginSystemName: e.target.value })}
+                  placeholder={config.systemName || 'HỆ THỐNG TỔNG HỢP, ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH'}
+                  className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              {/* Typography & Color controls for Title */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+                {/* Text Color */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Màu chữ Tiêu đề:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={config.loginSystemNameColor || '#ffffff'}
+                      onChange={(e) => setConfig({ ...config, loginSystemNameColor: e.target.value })}
+                      className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={config.loginSystemNameColor || '#ffffff'}
+                      onChange={(e) => setConfig({ ...config, loginSystemNameColor: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Font Size */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Kích thước Font Tiêu đề:
+                  </label>
+                  <select
+                    value={config.loginSystemNameFontSize || '24px'}
+                    onChange={(e) => setConfig({ ...config, loginSystemNameFontSize: e.target.value })}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                  >
+                    <option value="18px">18px (Vừa phải)</option>
+                    <option value="20px">20px (Tiêu chuẩn)</option>
+                    <option value="24px">24px (Nổi bật - Mặc định)</option>
+                    <option value="28px">28px (Lớn sang trọng)</option>
+                    <option value="32px">32px (Rất lớn)</option>
+                    <option value="36px">36px (Cực đại)</option>
+                  </select>
+                </div>
+
+                {/* Font Weight */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Độ đậm Font Tiêu đề:
+                  </label>
+                  <select
+                    value={config.loginSystemNameFontWeight || 'font-black'}
+                    onChange={(e) => setConfig({ ...config, loginSystemNameFontWeight: e.target.value })}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                  >
+                    <option value="font-semibold">Semibold (Đậm vừa)</option>
+                    <option value="font-bold">Bold (Đậm chuẩn)</option>
+                    <option value="font-extrabold">Extrabold (Rất đậm)</option>
+                    <option value="font-black">Black (Đậm tối đa - Chuẩn)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Login Subtitle */}
+              <div className="space-y-2 pt-3 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Tên Đơn vị / Phụ đề Trang Đăng nhập
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, loginSubTitle: config.subTitle })}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                  >
+                    Lấy theo Phụ đề Header
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={config.loginSubTitle ?? ''}
+                  onChange={(e) => setConfig({ ...config, loginSubTitle: e.target.value })}
+                  placeholder={config.subTitle || 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô'}
+                  className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+
+                {/* Typography & Color controls for Subtitle */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Màu chữ Phụ đề:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={config.loginSubTitleColor || '#dbeafe'}
+                        onChange={(e) => setConfig({ ...config, loginSubTitleColor: e.target.value })}
+                        className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={config.loginSubTitleColor || '#dbeafe'}
+                        onChange={(e) => setConfig({ ...config, loginSubTitleColor: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Kích thước Font Phụ đề:
+                    </label>
+                    <select
+                      value={config.loginSubTitleFontSize || '14px'}
+                      onChange={(e) => setConfig({ ...config, loginSubTitleFontSize: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                    >
+                      <option value="12px">12px (Nhỏ gọn)</option>
+                      <option value="13px">13px (Vừa)</option>
+                      <option value="14px">14px (Tiêu chuẩn - Mặc định)</option>
+                      <option value="16px">16px (Lớn rõ ràng)</option>
+                      <option value="18px">18px (Rất lớn)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Độ đậm Font Phụ đề:
+                    </label>
+                    <select
+                      value={config.loginSubTitleFontWeight || 'font-semibold'}
+                      onChange={(e) => setConfig({ ...config, loginSubTitleFontWeight: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium"
+                    >
+                      <option value="font-normal">Regular (Bình thường)</option>
+                      <option value="font-medium">Medium (Vừa)</option>
+                      <option value="font-semibold">Semibold (Đậm vừa)</option>
+                      <option value="font-bold">Bold (Đậm)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Logo Trang Login */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  2. Bổ sung Biểu tượng & Logo Trang Đăng nhập
+                </h2>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={config.loginShowLogo !== false}
+                    onChange={(e) => setConfig({ ...config, loginShowLogo: e.target.checked })}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-700">Hiển thị Logo</span>
+                </label>
+              </div>
+
+              {config.loginShowLogo !== false && (
+                <div className="space-y-4">
+                  {/* Logo Source Mode */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      Phương thức hiển thị Logo:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, loginLogoType: 'system' })}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          (config.loginLogoType || 'system') === 'system'
+                            ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20 text-blue-900'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 font-bold text-xs mb-1">
+                          <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                          Logo Hệ thống
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 leading-snug">
+                          Đồng bộ theo cấu hình Logo đã thiết lập ở Header
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, loginLogoType: 'icon' })}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          config.loginLogoType === 'icon'
+                            ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20 text-blue-900'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 font-bold text-xs mb-1">
+                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                          Biểu tượng Preset
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 leading-snug">
+                          Chọn biểu trưng hành chính từ thư viện có sẵn
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setConfig({ ...config, loginLogoType: 'custom_url' })}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          config.loginLogoType === 'custom_url'
+                            ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20 text-blue-900'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 font-bold text-xs mb-1">
+                          <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                          URL Ảnh tùy chỉnh
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 leading-snug">
+                          Nhập link ảnh Logo cơ quan địa phương (PNG, SVG, JPG)
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Internal Icon Selector when 'icon' */}
+                  {config.loginLogoType === 'icon' && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Chọn Biểu trưng Logo từ kho bên trong:
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {logoIcons.map((item) => {
+                          const IconComp = item.icon;
+                          const isSelected = (config.loginLogoIcon || 'ShieldCheck') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setConfig({ ...config, loginLogoIcon: item.id })}
+                              className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all text-center ${
+                                isSelected
+                                  ? 'border-blue-600 bg-white ring-2 ring-blue-500/20 text-blue-700 shadow-xs'
+                                  : 'border-slate-200 bg-white/70 hover:bg-white text-slate-700'
+                              }`}
+                            >
+                              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                                <IconComp className="w-4 h-4" />
+                              </div>
+                              <span className="text-[11px] font-bold leading-tight line-clamp-1">{item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom URL Input */}
+                  {config.loginLogoType === 'custom_url' && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Đường dẫn URL ảnh Logo (HTTPS):
+                      </label>
+                      <input
+                        type="text"
+                        value={config.loginLogoUrl || ''}
+                        onChange={(e) => setConfig({ ...config, loginLogoUrl: e.target.value })}
+                        placeholder="https://example.com/logo-tinh-huyen-xa.png"
+                        className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium"
+                      />
+                    </div>
+                  )}
+
+                  {/* Logo Size & Position Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-2">
+                        Kích thước Khung Logo:
+                      </label>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {[40, 48, 56, 64, 80, 96].map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => setConfig({ ...config, loginLogoSize: sz })}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                              (config.loginLogoSize || 64) === sz
+                                ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            {sz}px
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-2">
+                        Vị trí đặt Logo:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfig({ ...config, loginLogoPosition: 'left' })}
+                          className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg border transition-all ${
+                            config.loginLogoPosition === 'left'
+                              ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold ring-2 ring-blue-500/20'
+                              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          Bên cạnh Tiêu đề (Ngang)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfig({ ...config, loginLogoPosition: 'top' })}
+                          className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-lg border transition-all ${
+                            (config.loginLogoPosition || 'top') === 'top'
+                              ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold ring-2 ring-blue-500/20'
+                              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          Phía trên Tiêu đề (Dọc)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Thiết lập Font chữ */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Type className="w-4 h-4 text-blue-600" />
+                  3. Thiết lập Phông chữ (Font Family)
+                </h2>
+                <span className="text-[11px] text-slate-500">Hỗ trợ đầy đủ tiếng Việt có dấu</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {loginFontFamilies.map((f) => {
+                  const isSelected = (config.loginFontFamily || 'sans') === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setConfig({ ...config, loginFontFamily: f.id })}
+                      className={`p-3.5 rounded-xl border text-left transition-all ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-xs'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-xs font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
+                          {f.name}
+                        </span>
+                        {isSelected && <Check className="w-4 h-4 text-blue-600" />}
+                      </div>
+                      <p className={`text-xs ${f.fontClass} ${isSelected ? 'text-blue-700' : 'text-slate-500'} font-semibold truncate`}>
+                        {f.sample}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Section 4: Thiết lập Màu nền & Gradient Banner */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-blue-600" />
+                  4. Thiết lập Màu nền & Phong cách Banner (Background Theme)
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {loginBgThemes.map((t) => {
+                  const isSelected = (config.loginBgTheme || 'navy') === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setConfig({ ...config, loginBgTheme: t.id })}
+                      className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
+                        isSelected
+                          ? 'border-slate-900 bg-slate-50 ring-2 ring-blue-500/40 shadow-xs'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg ${t.gradientClass} shrink-0 border border-white/20 shadow-xs flex items-center justify-center text-white`}>
+                        {isSelected && <Check className="w-4 h-4 drop-shadow-md" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 leading-tight">{t.name}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{t.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Color Hex Picker if 'custom' is selected */}
+              {config.loginBgTheme === 'custom' && (
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2 pt-3">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Mã màu nền tùy chỉnh (HEX):
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={config.loginCustomBgColor || '#0f172a'}
+                      onChange={(e) => setConfig({ ...config, loginCustomBgColor: e.target.value })}
+                      className="w-10 h-10 rounded-xl cursor-pointer border border-slate-300 p-1 bg-white shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={config.loginCustomBgColor || '#0f172a'}
+                      onChange={(e) => setConfig({ ...config, loginCustomBgColor: e.target.value })}
+                      placeholder="#0f172a"
+                      className="w-full px-3.5 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Real-time Preview Column */}
+          <div className="xl:col-span-5 space-y-4">
+            <div className="sticky top-20 bg-slate-900 text-white p-5 rounded-2xl shadow-xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Mô phỏng Giao diện Trang Đăng nhập Thực tế
+                </h3>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold px-2 py-0.5 rounded-full">
+                  Thời gian thực
+                </span>
+              </div>
+
+              {/* Login Page Simulation Box */}
+              <div className="rounded-xl overflow-hidden border border-slate-700 bg-slate-100 flex flex-col shadow-inner">
+                {/* Left Banner Mini */}
+                <div
+                  className={`p-6 text-white relative overflow-hidden transition-all ${
+                    config.loginBgTheme === 'custom'
+                      ? ''
+                      : config.loginBgTheme === 'indigo'
+                      ? 'bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-900'
+                      : config.loginBgTheme === 'blue'
+                      ? 'bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900'
+                      : config.loginBgTheme === 'emerald'
+                      ? 'bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950'
+                      : config.loginBgTheme === 'crimson'
+                      ? 'bg-gradient-to-br from-stone-950 via-red-950 to-rose-950'
+                      : config.loginBgTheme === 'slate'
+                      ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900'
+                      : config.loginBgTheme === 'dark'
+                      ? 'bg-gradient-to-br from-black via-zinc-950 to-slate-950'
+                      : 'bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950'
+                  }`}
+                  style={
+                    config.loginBgTheme === 'custom' && config.loginCustomBgColor
+                      ? { backgroundColor: config.loginCustomBgColor }
+                      : undefined
+                  }
+                >
+                  <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px]"></div>
+
+                  {/* Render simulated logo */}
+                  {config.loginShowLogo !== false && (
+                    <div className={`${(config.loginLogoPosition || 'top') === 'left' ? 'flex items-start gap-3.5' : 'space-y-3'}`}>
+                      <div
+                        className="rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 border border-white/20 shadow-md flex items-center justify-center shrink-0"
+                        style={{
+                          width: `${Math.min(60, config.loginLogoSize || 64)}px`,
+                          height: `${Math.min(60, config.loginLogoSize || 64)}px`,
+                        }}
+                      >
+                        {config.loginLogoType === 'custom_url' && config.loginLogoUrl ? (
+                          <img src={config.loginLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                        ) : config.loginLogoType === 'system' && config.logoType === 'custom_url' && config.logoUrl ? (
+                          <img src={config.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                        ) : (
+                          <ShieldCheck className="w-6 h-6 text-white" />
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5 min-w-0">
+                        <h4
+                          className={`uppercase leading-snug tracking-tight ${config.loginSystemNameFontWeight || 'font-black'} ${
+                            config.loginFontFamily === 'be_vietnam_pro'
+                              ? "font-['Be_Vietnam_Pro',sans-serif]"
+                              : config.loginFontFamily === 'montserrat'
+                              ? "font-['Montserrat',sans-serif]"
+                              : config.loginFontFamily === 'roboto'
+                              ? "font-['Roboto',sans-serif]"
+                              : config.loginFontFamily === 'inter'
+                              ? "font-['Inter',sans-serif]"
+                              : config.loginFontFamily === 'playfair'
+                              ? "font-['Playfair_Display',serif]"
+                              : config.loginFontFamily === 'merriweather'
+                              ? "font-['Merriweather',serif]"
+                              : 'font-sans'
+                          }`}
+                          style={{
+                            color: config.loginSystemNameColor || '#ffffff',
+                            fontSize: config.loginSystemNameFontSize ? `clamp(13px, ${config.loginSystemNameFontSize}, 18px)` : '15px'
+                          }}
+                        >
+                          {config.loginSystemName?.trim() || config.systemName || 'HỆ THỐNG TỔNG HỢP...'}
+                        </h4>
+                        <p
+                          className={`leading-relaxed ${config.loginSubTitleFontWeight || 'font-semibold'}`}
+                          style={{
+                            color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
+                            fontSize: config.loginSubTitleFontSize ? `clamp(10px, ${config.loginSubTitleFontSize}, 13px)` : '11px'
+                          }}
+                        >
+                          {config.loginSubTitle?.trim() || config.subTitle || 'Trung tâm Phục vụ hành chính công...'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {config.loginShowLogo === false && (
+                    <div className="space-y-1.5">
+                      <h4
+                        className={`uppercase leading-snug tracking-tight ${config.loginSystemNameFontWeight || 'font-black'} ${
+                          config.loginFontFamily === 'be_vietnam_pro'
+                            ? "font-['Be_Vietnam_Pro',sans-serif]"
+                            : config.loginFontFamily === 'montserrat'
+                            ? "font-['Montserrat',sans-serif]"
+                            : config.loginFontFamily === 'roboto'
+                            ? "font-['Roboto',sans-serif]"
+                            : config.loginFontFamily === 'inter'
+                            ? "font-['Inter',sans-serif]"
+                            : config.loginFontFamily === 'playfair'
+                            ? "font-['Playfair_Display',serif]"
+                            : config.loginFontFamily === 'merriweather'
+                            ? "font-['Merriweather',serif]"
+                            : 'font-sans'
+                        }`}
+                        style={{
+                          color: config.loginSystemNameColor || '#ffffff',
+                          fontSize: config.loginSystemNameFontSize ? `clamp(13px, ${config.loginSystemNameFontSize}, 18px)` : '15px'
+                        }}
+                      >
+                        {config.loginSystemName?.trim() || config.systemName || 'HỆ THỐNG TỔNG HỢP...'}
+                      </h4>
+                      <p
+                        className={`leading-relaxed ${config.loginSubTitleFontWeight || 'font-semibold'}`}
+                        style={{
+                          color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
+                          fontSize: config.loginSubTitleFontSize ? `clamp(10px, ${config.loginSubTitleFontSize}, 13px)` : '11px'
+                        }}
+                      >
+                        {config.loginSubTitle?.trim() || config.subTitle || 'Trung tâm Phục vụ hành chính công...'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form Mini Simulation (Cleaned - No placeholders, single Đăng nhập button, clean signature) */}
+                <div className="p-4 bg-white text-slate-800 space-y-3">
+                  <h5 className="text-xs font-bold text-slate-900">Đăng nhập Hệ thống</h5>
+                  <div className="space-y-2">
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-2">
+                      <Mail className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="text-[11px] text-slate-400 font-medium">(Email công vụ)</span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="text-[11px] text-slate-400 font-medium">(Mật khẩu)</span>
+                    </div>
+                    <div className="py-2 bg-blue-600 text-white font-bold text-xs rounded-lg text-center flex items-center justify-center gap-1.5 shadow-xs">
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Đăng nhập</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex justify-end text-[10px] text-slate-400">
+                    <span>@2026 Design by Lê Hồng Sơn</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action notice */}
+              <div className="p-3 bg-blue-950/60 border border-blue-800/50 rounded-xl text-xs text-blue-200 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                <span>
+                  Bấm nút <strong>"Lưu Thay đổi"</strong> ở góc trên để lưu cài đặt trang Đăng nhập vào cơ sở dữ liệu hệ thống.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 3: MÀU SẮC & GIAO DIỆN */}
+      {uiSubTab === 'theme' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
@@ -739,8 +1578,10 @@ export const SystemSettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+    </div>
+  )}
 
-      {/* TAB 3: TÙY CHỈNH TÊN MENU & TIÊU ĐỀ GIAO DIỆN */}
+      {/* TAB 2: TÙY CHỈNH TÊN MENU & TIÊU ĐỀ GIAO DIỆN */}
       {activeTab === 'navigation' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Menu Labels */}

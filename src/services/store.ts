@@ -92,6 +92,25 @@ export interface SystemConfig {
   rolePermissions: RolePermissionRule[];
   chartsLayout?: any[];
   trendHistoryLimit?: number;
+
+  // LOGIN PAGE CUSTOMIZATION
+  loginSystemName?: string;
+  loginSubTitle?: string;
+  loginSystemNameColor?: string;
+  loginSystemNameFontSize?: string;
+  loginSystemNameFontWeight?: string;
+  loginSubTitleColor?: string;
+  loginSubTitleFontSize?: string;
+  loginSubTitleFontWeight?: string;
+  loginBgTheme?: 'navy' | 'indigo' | 'blue' | 'slate' | 'emerald' | 'crimson' | 'dark' | 'custom';
+  loginCustomBgColor?: string;
+  loginFontFamily?: 'sans' | 'be_vietnam_pro' | 'montserrat' | 'roboto' | 'inter' | 'playfair' | 'merriweather';
+  loginShowLogo?: boolean;
+  loginLogoType?: 'icon' | 'custom_url' | 'system';
+  loginLogoIcon?: string;
+  loginLogoUrl?: string;
+  loginLogoSize?: number;
+  loginLogoPosition?: 'top' | 'left';
 }
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
@@ -109,6 +128,23 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   themeColor: 'blue',
   sidebarTheme: 'dark',
   headerTitle: 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC',
+  loginSystemName: '',
+  loginSubTitle: '',
+  loginSystemNameColor: '#ffffff',
+  loginSystemNameFontSize: '24px',
+  loginSystemNameFontWeight: 'font-black',
+  loginSubTitleColor: '#dbeafe',
+  loginSubTitleFontSize: '14px',
+  loginSubTitleFontWeight: 'font-semibold',
+  loginBgTheme: 'navy',
+  loginCustomBgColor: '#0f172a',
+  loginFontFamily: 'sans',
+  loginShowLogo: true,
+  loginLogoType: 'system',
+  loginLogoIcon: 'ShieldCheck',
+  loginLogoUrl: '',
+  loginLogoSize: 64,
+  loginLogoPosition: 'top',
   menuLabels: {
     dashboard: 'Tổng quan',
     reports: 'Kỳ báo cáo',
@@ -1086,6 +1122,12 @@ export class StorageService {
 
     const existing = this.inMemoryCache.reports.find((r) => r.id === reportId);
     if (!existing) throw new Error('Không tìm thấy báo cáo');
+
+    // If status is already identical and notes are not changing, return safely
+    if (existing.status === status && (notes === undefined || notes === existing.notes)) {
+      return existing;
+    }
+
     if (existing.status === 'archived') {
       throw new Error('Báo cáo đã lưu trữ, không thể thay đổi trạng thái.');
     }

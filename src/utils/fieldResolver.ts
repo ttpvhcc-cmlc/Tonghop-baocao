@@ -57,7 +57,10 @@ export function resolveLinhVucDetails(
     if (!matchedField && rawText) {
       const normRaw = normalizeText(rawText);
       matchedField = availableFields.find(
-        (f) => normalizeText(f.code) === normRaw || normalizeText(f.name) === normRaw
+        (f) =>
+          normalizeText(f.code) === normRaw ||
+          normalizeText(f.name) === normRaw ||
+          normalizeText(f.linh_vuc || '') === normRaw
       );
     }
   }

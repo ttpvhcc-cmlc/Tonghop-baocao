@@ -139,19 +139,25 @@ export const ReportsListPage: React.FC = () => {
   };
 
   const filteredReports = useMemo(() => {
-    return reports.filter((r) => {
-      if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
-      if (typeFilter !== 'ALL' && r.report_type !== typeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          r.report_code.toLowerCase().includes(q) ||
-          r.report_name.toLowerCase().includes(q) ||
-          (r.created_by && r.created_by.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
+    return reports
+      .filter((r) => {
+        if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+        if (typeFilter !== 'ALL' && r.report_type !== typeFilter) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          return (
+            r.report_code.toLowerCase().includes(q) ||
+            r.report_name.toLowerCase().includes(q) ||
+            (r.created_by && r.created_by.toLowerCase().includes(q))
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.data_as_of || a.period_end || a.created_at).getTime() || 0;
+        const dateB = new Date(b.data_as_of || b.period_end || b.created_at).getTime() || 0;
+        return dateB - dateA;
+      });
   }, [reports, search, statusFilter, typeFilter]);
 
   const handleExport = (reportId: string, type: 'excel' | 'csv') => {
@@ -200,12 +206,9 @@ export const ReportsListPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <FileText className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Kho lưu trữ & Quản lý các kỳ Báo cáo
+              Quản lý các kỳ Báo cáo
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Mỗi kỳ báo cáo là một bản ghi độc lập, lưu trữ lịch sử, hỗ trợ khóa Snapshot và kiểm soát số liệu bất biến
-          </p>
         </div>
 
         {store.hasPermission('create_reports', currentUser) && (
@@ -270,6 +273,7 @@ export const ReportsListPage: React.FC = () => {
                 <th className="p-3">Mã báo cáo</th>
                 <th className="p-3">Tên kỳ báo cáo</th>
                 <th className="p-3">Khoảng thời gian</th>
+                <th className="p-3 whitespace-nowrap">Ngày chốt số liệu</th>
                 <th className="p-3 text-right">Tổng tiếp nhận</th>
                 <th className="p-3 text-right">Đã giải quyết</th>
                 <th className="p-3 text-center">Trạng thái</th>
@@ -280,7 +284,7 @@ export const ReportsListPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredReports.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-400">
+                  <td colSpan={9} className="p-8 text-center text-slate-400">
                     Không tìm thấy báo cáo nào phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -315,6 +319,12 @@ export const ReportsListPage: React.FC = () => {
                           <span>
                             {formatDate(rep.period_start)} – {formatDate(rep.period_end)}
                           </span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-slate-700 whitespace-nowrap font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                          <span>{formatDate(rep.data_as_of || rep.period_end)}</span>
                         </div>
                       </td>
                       <td className="p-3 text-right font-mono font-bold text-slate-800">

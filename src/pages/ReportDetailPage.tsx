@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { ReportFieldStatistic } from '../types/database';
 import { resolveLinhVuc } from '../utils/fieldResolver';
+import { getFriendlyErrorMessage } from '../utils/errorHandler';
 
 export const ReportDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -351,7 +352,7 @@ export const ReportDetailPage: React.FC = () => {
       const updated = await store.updateReportStatus(reportState.id, newStatus);
       setReportState(updated);
     } catch (err: any) {
-      alert(err.message);
+      alert(getFriendlyErrorMessage(err, 'Không thể cập nhật trạng thái báo cáo.'));
     }
   };
 
