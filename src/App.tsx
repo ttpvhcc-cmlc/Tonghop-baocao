@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from './layouts/AppLayout';
 import { DashboardPage } from './pages/DashboardPage';
@@ -13,11 +13,48 @@ import { CompareAnalysisPage } from './pages/analysis/CompareAnalysisPage';
 import { UnitsAdminPage } from './pages/admin/UnitsAdminPage';
 import { FieldsAdminPage } from './pages/admin/FieldsAdminPage';
 import { IndicatorsAdminPage } from './pages/admin/IndicatorsAdminPage';
-import { UsersAdminPage } from './pages/admin/UsersAdminPage';
 import { SystemSettingsPage } from './pages/admin/SystemSettingsPage';
 import { AuditLogsPage } from './pages/admin/AuditLogsPage';
 import { SupabaseAdminPage } from './pages/admin/SupabaseAdminPage';
-import { store } from './services/store';
+import { LoginPage } from './pages/LoginPage';
+import { store, RolePermissionRule } from './services/store';
+
+const ProtectedRoute: React.FC<{
+  permission?: keyof RolePermissionRule['permissions'];
+  anyOfPermissions?: Array<keyof RolePermissionRule['permissions']>;
+  requireAuth?: boolean;
+  redirectTo?: string;
+  children: React.ReactElement;
+}> = ({ permission, anyOfPermissions, requireAuth = true, redirectTo = '/login', children }) => {
+  const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
+
+  useEffect(() => {
+    setCurrentUser(store.getCurrentUser());
+    const unsub = store.subscribe(() => {
+      setCurrentUser(store.getCurrentUser());
+    });
+    return unsub;
+  }, []);
+
+  const isAuthenticated = currentUser && currentUser.id !== 'guest' && currentUser.active === true;
+
+  if (requireAuth && !isAuthenticated) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  let allowed = true;
+  if (permission) {
+    allowed = store.hasPermission(permission, currentUser);
+  } else if (anyOfPermissions) {
+    allowed = anyOfPermissions.some((p) => store.hasPermission(p, currentUser));
+  }
+
+  if (!allowed) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  return children;
+};
 
 export default function App() {
   useEffect(() => {
@@ -29,29 +66,142 @@ export default function App() {
   return (
     <HashRouter>
       <Routes>
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="reports" element={<ReportsListPage />} />
-          <Route path="archive" element={<ArchivePage />} />
-          <Route path="reports/new" element={<CreateReportPage />} />
-          <Route path="reports/:id" element={<ReportDetailPage />} />
-          <Route path="import" element={<ImportPage />} />
+          <Route
+            path="reports"
+            element={
+              <ProtectedRoute>
+                <ReportsListPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="archive"
+            element={
+              <ProtectedRoute>
+                <ArchivePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="reports/new"
+            element={
+              <ProtectedRoute permission="create_reports" redirectTo="/reports">
+                <CreateReportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="reports/:id"
+            element={
+              <ProtectedRoute>
+                <ReportDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="import"
+            element={
+              <ProtectedRoute permission="import_excel" redirectTo="/reports">
+                <ImportPage />
+              </ProtectedRoute>
+            }
+          />
 
-          {/* Phân tích */}
-          <Route path="analysis/units" element={<UnitAnalysisPage />} />
-          <Route path="analysis/fields" element={<FieldAnalysisPage />} />
-          <Route path="analysis/compare" element={<CompareAnalysisPage />} />
+          {/* Phân tích - Yêu cầu đăng nhập */}
+          <Route
+            path="analysis/units"
+            element={
+              <ProtectedRoute>
+                <UnitAnalysisPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="analysis/fields"
+            element={
+              <ProtectedRoute>
+                <FieldAnalysisPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="analysis/compare"
+            element={
+              <ProtectedRoute>
+                <CompareAnalysisPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Danh mục & Quản trị */}
-          <Route path="admin/settings" element={<SystemSettingsPage />} />
-          <Route path="admin/units" element={<UnitsAdminPage />} />
-          <Route path="admin/fields" element={<FieldsAdminPage />} />
-          <Route path="admin/indicators" element={<IndicatorsAdminPage />} />
-          <Route path="admin/users" element={<SystemSettingsPage />} />
-          <Route path="admin/audit-logs" element={<AuditLogsPage />} />
-          <Route path="admin/supabase" element={<SupabaseAdminPage />} />
-          <Route path="supabase" element={<SupabaseAdminPage />} />
+          <Route
+            path="admin/settings"
+            element={
+              <ProtectedRoute anyOfPermissions={['manage_system_config', 'manage_users']}>
+                <SystemSettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/units"
+            element={
+              <ProtectedRoute permission="manage_catalogs">
+                <UnitsAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/fields"
+            element={
+              <ProtectedRoute permission="manage_catalogs">
+                <FieldsAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/indicators"
+            element={
+              <ProtectedRoute permission="manage_catalogs">
+                <IndicatorsAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/users"
+            element={
+              <ProtectedRoute permission="manage_users">
+                <SystemSettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/audit-logs"
+            element={
+              <ProtectedRoute permission="view_audit_logs">
+                <AuditLogsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/supabase"
+            element={
+              <ProtectedRoute permission="manage_system_config">
+                <SupabaseAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="supabase"
+            element={
+              <ProtectedRoute permission="manage_system_config">
+                <SupabaseAdminPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

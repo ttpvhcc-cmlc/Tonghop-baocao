@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { store } from '../services/store';
+import { store, Profile } from '../services/store';
 import { formatNumber, formatPercent, formatDate, formatDateTime, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
 import { generateAIReportAnalysis } from '../services/aiService';
@@ -40,7 +40,7 @@ import { resolveLinhVuc } from '../utils/fieldResolver';
 export const ReportDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const currentUser = store.getCurrentUser();
+  const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
 
   const [activeTab, setActiveTab] = useState<'stats' | 'analysis' | 'snapshots'>('stats');
   const [sourceFilter, setSourceFilter] = useState('ALL');
@@ -66,7 +66,10 @@ export const ReportDetailPage: React.FC = () => {
   const [, forceRefresh] = useState(0);
   useEffect(() => {
     if (!id) return;
-    const refresh = () => forceRefresh((v) => v + 1);
+    const refresh = () => {
+      setCurrentUser(store.getCurrentUser());
+      forceRefresh((v) => v + 1);
+    };
     const unsubscribe = store.subscribe(refresh);
     void Promise.all([
       store.fetchReportById(id),
@@ -475,7 +478,7 @@ export const ReportDetailPage: React.FC = () => {
             {/* Workflow status transitions */}
             {!isLocked && (
               <>
-                {reportState.status !== 'submitted' && reportState.status !== 'approved' && (
+                {store.hasPermission('edit_reports', currentUser) && reportState.status !== 'submitted' && reportState.status !== 'approved' && (
                   <button
                     type="button"
                     onClick={() => handleUpdateStatus('submitted')}
@@ -485,7 +488,7 @@ export const ReportDetailPage: React.FC = () => {
                   </button>
                 )}
 
-                {currentUser.role !== 'viewer' && currentUser.role !== 'data_entry' && reportState.status !== 'approved' && (
+                {currentUser.role !== 'viewer' && currentUser.role !== 'data_entry' && store.hasPermission('edit_reports', currentUser) && reportState.status !== 'approved' && (
                   <button
                     type="button"
                     onClick={() => handleUpdateStatus('approved')}
@@ -495,7 +498,7 @@ export const ReportDetailPage: React.FC = () => {
                   </button>
                 )}
 
-                {currentUser.role === 'admin' && (
+                {store.hasPermission('lock_snapshot', currentUser) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -511,7 +514,7 @@ export const ReportDetailPage: React.FC = () => {
               </>
             )}
 
-            {isLocked && currentUser.role === 'admin' && (
+            {isLocked && store.hasPermission('lock_snapshot', currentUser) && (
               <button
                 type="button"
                 onClick={() => {
@@ -630,7 +633,7 @@ export const ReportDetailPage: React.FC = () => {
               </button>
             </div>
 
-            {!isLocked && currentUser.role !== 'viewer' && (
+            {!isLocked && (store.hasPermission('edit_reports', currentUser) || store.hasPermission('import_excel', currentUser)) && (
               <div className="ml-auto flex items-center gap-2">
                 {isEditingInline ? (
                   <>
@@ -652,21 +655,25 @@ export const ReportDetailPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={handleStartEditingStats}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors shadow-xs"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Sửa trực tiếp số liệu</span>
-                    </button>
+                    {store.hasPermission('edit_reports', currentUser) && (
+                      <button
+                        type="button"
+                        onClick={handleStartEditingStats}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors shadow-xs"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Sửa trực tiếp số liệu</span>
+                      </button>
+                    )}
 
-                    <Link
-                      to="/import"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-xs"
-                    >
-                      + Nhập đè Excel mới
-                    </Link>
+                    {store.hasPermission('import_excel', currentUser) && (
+                      <Link
+                        to="/import"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-xs"
+                      >
+                        + Nhập đè Excel mới
+                      </Link>
+                    )}
                   </>
                 )}
               </div>

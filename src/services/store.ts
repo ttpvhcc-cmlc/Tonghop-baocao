@@ -12,6 +12,7 @@ import {
   Profile, 
   UserRole 
 } from '../types/database';
+export type { Profile, UserRole } from '../types/database';
 import { supabase, isSupabaseConfigured, supabaseUrl } from '../lib/supabase';
 import { resolveLinhVuc } from '../utils/fieldResolver';
 import { isTestProcedureCode } from '../utils/excelProcedureHelper';
@@ -174,7 +175,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         manage_catalogs: false,
         manage_users: false,
         manage_system_config: false,
-        view_audit_logs: true,
+        view_audit_logs: false,
       },
     },
     {
@@ -570,6 +571,26 @@ export class StorageService {
     }
     this.inMemoryCache.currentUser = GUEST_USER;
     this.notify();
+  }
+
+  public hasPermission(permissionKey: keyof RolePermissionRule['permissions'], user?: Profile | null): boolean {
+    const targetUser = user || this.getCurrentUser();
+    if (!targetUser) return false;
+
+    // Look up permissions configured in SystemConfig
+    const config = this.getSystemConfig();
+    const roleRule = config.rolePermissions?.find((r) => r.role === targetUser.role);
+    if (roleRule && roleRule.permissions && typeof roleRule.permissions[permissionKey] === 'boolean') {
+      return roleRule.permissions[permissionKey];
+    }
+
+    // Fallback to default role permissions
+    const defaultRule = DEFAULT_SYSTEM_CONFIG.rolePermissions.find((r) => r.role === targetUser.role);
+    if (defaultRule && defaultRule.permissions && typeof defaultRule.permissions[permissionKey] === 'boolean') {
+      return defaultRule.permissions[permissionKey];
+    }
+
+    return targetUser.role === 'admin';
   }
 
   private assertRole(allowed: UserRole[], action: string): void {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { store } from '../services/store';
+import { store, Profile } from '../services/store';
 import { formatNumber, formatDate, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
 import { Report } from '../types/database';
@@ -23,10 +23,10 @@ import {
 
 export const ReportsListPage: React.FC = () => {
   const [reports, setReports] = useState<Report[]>(store.getReports());
+  const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
-  const currentUser = store.getCurrentUser();
   const [editingReport, setEditingReport] = useState<any>(null);
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [reportToLock, setReportToLock] = useState<Report | null>(null);
@@ -45,8 +45,10 @@ export const ReportsListPage: React.FC = () => {
 
   useEffect(() => {
     setReports(store.getReports());
+    setCurrentUser(store.getCurrentUser());
     const unsub = store.subscribe(() => {
       setReports(store.getReports());
+      setCurrentUser(store.getCurrentUser());
     });
     return () => unsub();
   }, []);
@@ -206,13 +208,15 @@ export const ReportsListPage: React.FC = () => {
           </p>
         </div>
 
-        <Link
-          to="/reports/new"
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tạo kỳ báo cáo mới</span>
-        </Link>
+        {store.hasPermission('create_reports', currentUser) && (
+          <Link
+            to="/reports/new"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tạo kỳ báo cáo mới</span>
+          </Link>
+        )}
       </div>
 
       {/* Filter Bar */}
@@ -339,7 +343,7 @@ export const ReportsListPage: React.FC = () => {
                             <Eye className="w-4 h-4" />
                           </Link>
 
-                          {!isLocked && (
+                          {!isLocked && store.hasPermission('edit_reports', currentUser) && (
                             <button
                               type="button"
                               onClick={() => handleStartEdit(rep)}
@@ -350,7 +354,7 @@ export const ReportsListPage: React.FC = () => {
                             </button>
                           )}
 
-                          {!isLocked && (
+                          {!isLocked && store.hasPermission('delete_reports', currentUser) && (
                             <button
                               type="button"
                               onClick={() => setReportToDelete(rep)}
@@ -370,7 +374,7 @@ export const ReportsListPage: React.FC = () => {
                             <Download className="w-4 h-4" />
                           </button>
 
-                          {!isLocked && currentUser.role === 'admin' && (
+                          {!isLocked && store.hasPermission('lock_snapshot', currentUser) && (
                             <button
                               type="button"
                               onClick={() => setReportToLock(rep)}

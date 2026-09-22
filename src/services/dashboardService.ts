@@ -88,7 +88,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
       configured: false,
       connected: false,
       schemaReady: false,
-      errorMessage: 'Supabase chưa được cấu hình biến môi trường VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY.',
+      errorMessage: 'Supabase chưa được cấu hình biến môi trường VITE_SUPABASE_URL và VITE_SUPABASE_PUBLISHABLE_KEY.',
       reports: [],
       currentReport: null,
       sources: [],

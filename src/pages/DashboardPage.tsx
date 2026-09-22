@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { store } from '../services/store';
+import { store, Profile } from '../services/store';
 import { formatNumber, formatPercent, getStatusBadge } from '../utils/format';
 import { resolveLinhVuc } from '../utils/fieldResolver';
 import {
@@ -48,13 +48,137 @@ import {
   Settings,
   RotateCcw,
   Save,
-  LayoutGrid
+  LayoutGrid,
+  Pencil,
+  X,
+  CheckCircle2,
+  ArrowUpDown,
+  Layers,
+  Filter,
+  Search,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+interface ChartConfig {
+  id: string;
+  title: string;
+  subtitle?: string;
+  width: 'half' | 'full';
+  order: number;
+  visible: boolean;
+  widthPercent?: number;
+  height?: number;
+}
+
+const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
+  {
+    id: 'trend',
+    title: '1. Diễn biến khối lượng theo mốc chốt báo cáo',
+    subtitle: 'Xu hướng tổng tiếp nhận, kết quả giải quyết và số lượng hồ sơ tồn đang xử lý',
+    width: 'half',
+    widthPercent: 49,
+    height: 420,
+    order: 0,
+    visible: true,
+  },
+  {
+    id: 'quality',
+    title: '2. Cơ cấu chất lượng giải quyết (QĐ 766)',
+    subtitle: 'Tỷ trọng Trước hạn, Đúng hạn và Quá hạn (Chỉ tiêu đúng hạn > 95%)',
+    width: 'half',
+    widthPercent: 49,
+    height: 420,
+    order: 1,
+    visible: true,
+  },
+  {
+    id: 'channels',
+    title: '3. Cơ cấu kênh tiếp nhận Dịch vụ công',
+    subtitle: 'Đo lường mức độ hồ sơ nộp trực tuyến',
+    width: 'half',
+    widthPercent: 49,
+    height: 420,
+    order: 2,
+    visible: true,
+  },
+  {
+    id: 'ranking',
+    title: '4. Xếp hạng hiệu năng giải quyết Đơn vị',
+    subtitle: 'So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị',
+    width: 'half',
+    widthPercent: 49,
+    height: 420,
+    order: 3,
+    visible: true,
+  },
+  {
+    id: 'thematic_pending',
+    title: 'TỔNG HỢP TIẾN ĐỘ HỒ SƠ ĐANG GIẢI QUYẾT',
+    subtitle: 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn & Đang giải quyết Quá hạn',
+    width: 'full',
+    widthPercent: 100,
+    height: 480,
+    order: 4,
+    visible: true,
+  },
+  {
+    id: 'thematic_received',
+    title: 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ TIẾP NHẬN',
+    subtitle: 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến & Trực tiếp',
+    width: 'full',
+    widthPercent: 100,
+    height: 480,
+    order: 5,
+    visible: true,
+  },
+  {
+    id: 'thematic_completed',
+    title: 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT',
+    subtitle: 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn & Trước hạn vs Trễ hạn (Quá hạn)',
+    width: 'full',
+    widthPercent: 100,
+    height: 480,
+    order: 6,
+    visible: true,
+  },
+  {
+    id: 'detailed_table',
+    title: 'Chi tiết số liệu thống kê',
+    subtitle: 'Thống kê chi tiết tình hình tiếp nhận và giải quyết hồ sơ thủ tục hành chính',
+    width: 'full',
+    widthPercent: 100,
+    height: 480,
+    order: 7,
+    visible: true,
+  },
+];
+
+const mergeWithDefaultCharts = (savedCharts?: any[]): ChartConfig[] => {
+  if (!Array.isArray(savedCharts) || savedCharts.length === 0) {
+    return DEFAULT_CHARTS_LAYOUT;
+  }
+  return DEFAULT_CHARTS_LAYOUT.map((def) => {
+    const found = savedCharts.find((s) => s.id === def.id);
+    if (!found) return def;
+    return {
+      ...def,
+      ...found,
+      title: found.title || def.title,
+      subtitle: found.subtitle !== undefined ? found.subtitle : def.subtitle,
+      width: found.width || def.width,
+      widthPercent: found.widthPercent ?? def.widthPercent,
+      height: found.height ?? def.height,
+      order: found.order ?? def.order,
+      visible: found.visible !== undefined ? found.visible : def.visible,
+    };
+  }).sort((a, b) => a.order - b.order);
+};
 
 export const DashboardPage: React.FC = () => {
   // Live Supabase Database state
   const [loading, setLoading] = useState<boolean>(true);
+  const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
   const [dbStatus, setDbStatus] = useState<{
     configured: boolean;
     connected: boolean;
@@ -66,6 +190,19 @@ export const DashboardPage: React.FC = () => {
     schemaReady: false,
     errorMessage: null,
   });
+
+  useEffect(() => {
+    setCurrentUser(store.getCurrentUser());
+    const unsub = store.subscribe(() => {
+      setCurrentUser(store.getCurrentUser());
+    });
+    return unsub;
+  }, []);
+
+  const isAuthenticated = currentUser.id !== 'guest' && currentUser.active === true;
+  const canCreateReport = store.hasPermission('create_reports', currentUser);
+  const canImportExcel = store.hasPermission('import_excel', currentUser);
+  const canManageLayout = store.hasPermission('manage_system_config', currentUser);
 
   const [liveReports, setLiveReports] = useState<ReportingPeriod[]>([]);
   const [liveSources, setLiveSources] = useState<ReportSource[]>([]);
@@ -86,29 +223,148 @@ export const DashboardPage: React.FC = () => {
   const [isSavingLayout, setIsSavingLayout] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Chart Layout state (Support drag-and-drop, mouse edge/corner resize, hide/show, reorder)
-  interface ChartConfig {
+  // Series visibility toggle state for Trend chart (Diễn biến khối lượng theo mốc chốt báo cáo)
+  type TrendSeriesKey = 'received' | 'pendingLate' | 'pending' | 'resolved' | 'resolvedLate';
+
+  interface TrendSeriesItem {
+    key: TrendSeriesKey;
+    name: string;
+    color: string;
+    isArea: boolean;
+    dash?: string;
+    gradientId?: string;
+  }
+
+  const TREND_SERIES_LIST: TrendSeriesItem[] = [
+    { key: 'received', name: 'Tổng tiếp nhận', color: '#3b82f6', isArea: true, gradientId: 'colorRec' },
+    { key: 'pendingLate', name: 'Đang giải quyết quá hạn', color: '#ef4444', isArea: false, dash: '3 3' },
+    { key: 'pending', name: 'Đang xử lý (Tồn)', color: '#f59e0b', isArea: false, dash: '4 4' },
+    { key: 'resolved', name: 'Đã giải quyết', color: '#10b981', isArea: true, gradientId: 'colorSolv' },
+    { key: 'resolvedLate', name: 'Đã giải quyết trễ hạn', color: '#b91c1c', isArea: false },
+  ];
+
+  const [trendSeriesVisibility, setTrendSeriesVisibility] = useState<Record<TrendSeriesKey, boolean>>({
+    received: true,
+    pendingLate: true,
+    pending: true,
+    resolved: true,
+    resolvedLate: true,
+  });
+
+  const toggleTrendSeries = (key: TrendSeriesKey) => {
+    setTrendSeriesVisibility(prev => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const setAllTrendSeries = (visible: boolean) => {
+    setTrendSeriesVisibility({
+      received: visible,
+      pendingLate: visible,
+      pending: visible,
+      resolved: visible,
+      resolvedLate: visible,
+    });
+  };
+
+  // State for Admin Editing Chart Header (Title & Subtitle/Caption)
+  const [editingChartMeta, setEditingChartMeta] = useState<{
     id: string;
     title: string;
-    width: 'half' | 'full';
-    order: number;
-    visible: boolean;
-    widthPercent?: number;
-    height?: number;
-  }
+    subtitle: string;
+  } | null>(null);
+
+  // Detailed Table State: Sorting, Filtering, Grouping by Source
+  const [tableSearchQuery, setTableSearchQuery] = useState<string>('');
+  const [tableSourceFilter, setTableSourceFilter] = useState<string>('ALL');
+  const [tableValidityFilter, setTableValidityFilter] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
+  const [tableOnlyWithData, setTableOnlyWithData] = useState<boolean>(false);
+  const [tableGroupBySource, setTableGroupBySource] = useState<boolean>(false);
+  const [tableSortKey, setTableSortKey] = useState<string>('received_total');
+  const [tableSortDirection, setTableSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  const handleTableSort = (key: string) => {
+    if (tableSortKey === key) {
+      setTableSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setTableSortKey(key);
+      setTableSortDirection(key === 'field' || key === 'unit' || key === 'source' ? 'asc' : 'desc');
+    }
+  };
 
   const [isAdminLayoutMode, setIsAdminLayoutMode] = useState<boolean>(false);
   const [resizingChartId, setResizingChartId] = useState<string | null>(null);
 
-  const [chartsLayout, setChartsLayout] = useState<ChartConfig[]>([
-    { id: 'trend', title: '1. Diễn biến khối lượng theo mốc chốt báo cáo', width: 'half', widthPercent: 49, height: 420, order: 0, visible: true },
-    { id: 'quality', title: '2. Cơ cấu chất lượng giải quyết (QĐ 766)', width: 'half', widthPercent: 49, height: 420, order: 1, visible: true },
-    { id: 'channels', title: '3. Cơ cấu kênh tiếp nhận Dịch vụ công', width: 'half', widthPercent: 49, height: 420, order: 2, visible: true },
-    { id: 'ranking', title: '4. Xếp hạng hiệu năng giải quyết Đơn vị', width: 'half', widthPercent: 49, height: 420, order: 3, visible: true },
-    { id: 'thematic_pending', title: '5. Chuyên đề: Tiến độ hồ sơ Đang giải quyết', width: 'full', widthPercent: 100, height: 480, order: 4, visible: true },
-    { id: 'thematic_received', title: '6. Chuyên đề: Số lượng hồ sơ Đã tiếp nhận', width: 'full', widthPercent: 100, height: 480, order: 5, visible: true },
-    { id: 'thematic_completed', title: '7. Chuyên đề: Số lượng hồ sơ Đã giải quyết', width: 'full', widthPercent: 100, height: 480, order: 6, visible: true },
-  ]);
+  const [chartsLayout, setChartsLayout] = useState<ChartConfig[]>(DEFAULT_CHARTS_LAYOUT);
+
+  const handleOpenEditModal = (chartId: string) => {
+    const chart = chartsLayout.find(c => c.id === chartId);
+    const def = DEFAULT_CHARTS_LAYOUT.find(c => c.id === chartId);
+    setEditingChartMeta({
+      id: chartId,
+      title: chart?.title || def?.title || '',
+      subtitle: chart?.subtitle !== undefined ? chart.subtitle : (def?.subtitle || ''),
+    });
+  };
+
+  const handleSaveChartMeta = async () => {
+    if (!editingChartMeta) return;
+    const updatedLayout = chartsLayout.map(c => {
+      if (c.id === editingChartMeta.id) {
+        return {
+          ...c,
+          title: editingChartMeta.title.trim() || c.title,
+          subtitle: editingChartMeta.subtitle.trim(),
+        };
+      }
+      return c;
+    });
+    setChartsLayout(updatedLayout);
+    setEditingChartMeta(null);
+
+    // Automatically persist to system config so changes are saved immediately for all users
+    try {
+      const currentConfig = store.getSystemConfig();
+      await store.saveSystemConfig({
+        ...currentConfig,
+        chartsLayout: updatedLayout,
+      });
+      setSaveStatus({ type: 'success', message: 'Đã cập nhật tiêu đề & chú thích biểu đồ thành công!' });
+      setTimeout(() => setSaveStatus(null), 3500);
+    } catch (e) {
+      console.error('Failed to auto-save chart meta', e);
+    }
+  };
+
+  const handleResetCurrentChartMeta = () => {
+    if (!editingChartMeta) return;
+    const def = DEFAULT_CHARTS_LAYOUT.find(c => c.id === editingChartMeta.id);
+    if (def) {
+      setEditingChartMeta({
+        id: editingChartMeta.id,
+        title: def.title,
+        subtitle: def.subtitle || '',
+      });
+    }
+  };
+
+  const getChartTitle = (id: string, fallback: string) => {
+    const chart = chartsLayout.find(c => c.id === id);
+    return chart?.title || fallback;
+  };
+
+  const getChartSubtitle = (id: string, fallback: string, appendDimension?: boolean) => {
+    const chart = chartsLayout.find(c => c.id === id);
+    const base = chart?.subtitle !== undefined ? chart.subtitle : fallback;
+    if (appendDimension) {
+      const dimText = presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực';
+      if (!base.includes('theo Đơn vị') && !base.includes('theo Lĩnh vực')) {
+        return `${base} (${dimText})`;
+      }
+    }
+    return base;
+  };
 
   // Drag and Drop Handlers
   const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -166,15 +422,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   const resetLayout = () => {
-    setChartsLayout([
-      { id: 'trend', title: '1. Diễn biến khối lượng theo mốc chốt báo cáo', width: 'half', widthPercent: 49, height: 420, order: 0, visible: true },
-      { id: 'quality', title: '2. Cơ cấu chất lượng giải quyết (QĐ 766)', width: 'half', widthPercent: 49, height: 420, order: 1, visible: true },
-      { id: 'channels', title: '3. Cơ cấu kênh tiếp nhận Dịch vụ công', width: 'half', widthPercent: 49, height: 420, order: 2, visible: true },
-      { id: 'ranking', title: '4. Xếp hạng hiệu năng giải quyết Đơn vị', width: 'half', widthPercent: 49, height: 420, order: 3, visible: true },
-      { id: 'thematic_pending', title: '5. Chuyên đề: Tiến độ hồ sơ Đang giải quyết', width: 'full', widthPercent: 100, height: 480, order: 4, visible: true },
-      { id: 'thematic_received', title: '6. Chuyên đề: Số lượng hồ sơ Đã tiếp nhận', width: 'full', widthPercent: 100, height: 480, order: 5, visible: true },
-      { id: 'thematic_completed', title: '7. Chuyên đề: Số lượng hồ sơ Đã giải quyết', width: 'full', widthPercent: 100, height: 480, order: 6, visible: true },
-    ]);
+    setChartsLayout(DEFAULT_CHARTS_LAYOUT);
   };
 
   const saveLayoutToAllUsers = async () => {
@@ -322,7 +570,7 @@ export const DashboardPage: React.FC = () => {
     // Sync initial configuration from centralized store
     const initialConfig = store.getSystemConfig();
     if (initialConfig.chartsLayout && Array.isArray(initialConfig.chartsLayout) && initialConfig.chartsLayout.length > 0) {
-      setChartsLayout(initialConfig.chartsLayout);
+      setChartsLayout(mergeWithDefaultCharts(initialConfig.chartsLayout));
     }
     if (initialConfig.trendHistoryLimit) {
       setTrendHistoryLimit(initialConfig.trendHistoryLimit);
@@ -334,7 +582,7 @@ export const DashboardPage: React.FC = () => {
       // Also update layout if another user / tab modified system_config
       const currentConfig = store.getSystemConfig();
       if (currentConfig.chartsLayout && Array.isArray(currentConfig.chartsLayout) && currentConfig.chartsLayout.length > 0) {
-        setChartsLayout(currentConfig.chartsLayout);
+        setChartsLayout(mergeWithDefaultCharts(currentConfig.chartsLayout));
       }
       if (currentConfig.trendHistoryLimit) {
         setTrendHistoryLimit(currentConfig.trendHistoryLimit);
@@ -524,7 +772,7 @@ export const DashboardPage: React.FC = () => {
   // Chart 3: Channel mix (online vs in person)
   const channelMixData = useMemo(() => {
     return [
-      { name: 'Trực tuyến (Online)', value: totals.recOnline, color: '#3b82f6' },
+      { name: 'Trực tuyến', value: totals.recOnline, color: '#3b82f6' },
       { name: 'Trực tiếp / Một cửa', value: totals.recOffline, color: '#f59e0b' },
     ];
   }, [totals]);
@@ -679,10 +927,218 @@ export const DashboardPage: React.FC = () => {
       .sort((a, b) => b.received_total - a.received_total);
   }, [liveStats, liveFields]);
 
-  // Switch between Unit or Field based on user tab selection
-  const presentationData = useMemo(() => {
-    return presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
+  // Filtered presentation datasets ensuring only items with positive data are rendered
+  const receivedPresentationData = useMemo(() => {
+    const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
+    return base
+      .filter((item) => item.received_total > 0)
+      .sort((a, b) => b.received_total - a.received_total);
   }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+
+  const pendingPresentationData = useMemo(() => {
+    const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
+    return base
+      .filter((item) => item.pending_total > 0)
+      .sort((a, b) => b.pending_total - a.pending_total);
+  }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+
+  const completedPresentationData = useMemo(() => {
+    const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
+    return base
+      .filter((item) => item.completed_total > 0)
+      .sort((a, b) => b.completed_total - a.completed_total);
+  }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+
+  // Processed Detailed Table Rows with Search, Filter, and Sort
+  const processedTableRows = useMemo(() => {
+    let list = filteredStats.map((row) => {
+      const val = validateRowFormulas(row);
+      const sectorName = resolveLinhVuc(
+        row.field_name_snapshot || row.field_name || '',
+        row.field_id,
+        liveFields
+      );
+      const rawSnap = (row.field_name_snapshot || row.field_name || '').trim();
+      const isLongProcedure =
+        rawSnap.length > 50 ||
+        rawSnap.includes('di sản') ||
+        rawSnap.includes('giám sát') ||
+        rawSnap.includes('hỏa táng') ||
+        rawSnap.includes('quyền sử dụng đất');
+      const displayName =
+        !isLongProcedure && rawSnap
+          ? rawSnap
+          : sectorName !== 'Chưa phân loại'
+          ? sectorName
+          : rawSnap || 'Lĩnh vực TTHC';
+      const sourceName = liveSources.find((s) => s.id === row.source_id)?.source_name || 'Hệ thống';
+      const unitName = row.unit_name_snapshot || row.unit_name || 'Đơn vị';
+
+      return {
+        ...row,
+        displayName,
+        sourceName,
+        unitName,
+        validation: val,
+      };
+    });
+
+    // 1. Text Search Query (Field, Unit, Source)
+    if (tableSearchQuery.trim()) {
+      const q = tableSearchQuery.toLowerCase().trim();
+      list = list.filter(
+        (r) =>
+          r.displayName.toLowerCase().includes(q) ||
+          r.unitName.toLowerCase().includes(q) ||
+          r.sourceName.toLowerCase().includes(q)
+      );
+    }
+
+    // 2. Source Filter
+    if (tableSourceFilter !== 'ALL') {
+      list = list.filter((r) => r.source_id === tableSourceFilter);
+    }
+
+    // 3. Validity Filter
+    if (tableValidityFilter === 'VALID') {
+      list = list.filter((r) => r.validation.allPassed);
+    } else if (tableValidityFilter === 'INVALID') {
+      list = list.filter((r) => !r.validation.allPassed);
+    }
+
+    // 4. Only with data filter
+    if (tableOnlyWithData) {
+      list = list.filter((r) => r.received_total > 0 || r.completed_total > 0 || r.pending_total > 0 || r.carried_forward > 0);
+    }
+
+    // 5. Sorting
+    list.sort((a, b) => {
+      let valA: any = 0;
+      let valB: any = 0;
+
+      switch (tableSortKey) {
+        case 'field':
+          valA = a.displayName;
+          valB = b.displayName;
+          break;
+        case 'unit':
+          valA = a.unitName;
+          valB = b.unitName;
+          break;
+        case 'source':
+          valA = a.sourceName;
+          valB = b.sourceName;
+          break;
+        case 'received_total':
+          valA = a.received_total;
+          valB = b.received_total;
+          break;
+        case 'received_online':
+          valA = a.received_online;
+          valB = b.received_online;
+          break;
+        case 'carried_forward':
+          valA = a.carried_forward;
+          valB = b.carried_forward;
+          break;
+        case 'completed_total':
+          valA = a.completed_total;
+          valB = b.completed_total;
+          break;
+        case 'completed_on_time':
+          valA = a.completed_early + a.completed_on_time;
+          valB = b.completed_early + b.completed_on_time;
+          break;
+        case 'pending_total':
+          valA = a.pending_total;
+          valB = b.pending_total;
+          break;
+        case 'pending_late':
+          valA = a.pending_late;
+          valB = b.pending_late;
+          break;
+        case 'validity':
+          valA = a.validation.allPassed ? 1 : 0;
+          valB = b.validation.allPassed ? 1 : 0;
+          break;
+        default:
+          valA = a.received_total;
+          valB = b.received_total;
+      }
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return tableSortDirection === 'asc'
+          ? valA.localeCompare(valB, 'vi')
+          : valB.localeCompare(valA, 'vi');
+      }
+
+      return tableSortDirection === 'asc' ? Number(valA) - Number(valB) : Number(valB) - Number(valA);
+    });
+
+    return list;
+  }, [filteredStats, liveFields, liveSources, tableSearchQuery, tableSourceFilter, tableValidityFilter, tableOnlyWithData, tableSortKey, tableSortDirection]);
+
+  // Grouped rows when tableGroupBySource is enabled
+  const groupedTableRows = useMemo(() => {
+    if (!tableGroupBySource) return null;
+
+    const groups: Record<string, {
+      sourceId: string;
+      sourceName: string;
+      rows: typeof processedTableRows;
+      totals: {
+        received_total: number;
+        received_online: number;
+        received_offline: number;
+        carried_forward: number;
+        completed_total: number;
+        completed_early: number;
+        completed_on_time: number;
+        completed_late: number;
+        pending_total: number;
+        pending_on_time: number;
+        pending_late: number;
+      };
+    }> = {};
+
+    processedTableRows.forEach((row) => {
+      const sId = row.source_id || 'unknown';
+      if (!groups[sId]) {
+        groups[sId] = {
+          sourceId: sId,
+          sourceName: row.sourceName,
+          rows: [],
+          totals: {
+            received_total: 0,
+            received_online: 0,
+            received_offline: 0,
+            carried_forward: 0,
+            completed_total: 0,
+            completed_early: 0,
+            completed_on_time: 0,
+            completed_late: 0,
+            pending_total: 0,
+            pending_on_time: 0,
+            pending_late: 0,
+          },
+        };
+      }
+      groups[sId].rows.push(row);
+      groups[sId].totals.received_total += row.received_total;
+      groups[sId].totals.received_online += row.received_online;
+      groups[sId].totals.received_offline += row.received_offline;
+      groups[sId].totals.carried_forward += row.carried_forward;
+      groups[sId].totals.completed_total += row.completed_total;
+      groups[sId].totals.completed_early += row.completed_early;
+      groups[sId].totals.completed_on_time += row.completed_on_time;
+      groups[sId].totals.completed_late += row.completed_late;
+      groups[sId].totals.pending_total += row.pending_total;
+      groups[sId].totals.pending_on_time += row.pending_on_time;
+      groups[sId].totals.pending_late += row.pending_late;
+    });
+
+    return Object.values(groups);
+  }, [tableGroupBySource, processedTableRows]);
 
   const reportBadge = selectedReport ? getStatusBadge(selectedReport.status) : null;
 
@@ -699,16 +1155,69 @@ export const DashboardPage: React.FC = () => {
     <div className="space-y-5 w-full">
       {/* Top Controls & Global Filter Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-700">Bộ lọc phân tích</span>
+            {!isAuthenticated && (
+              <span className="text-[11px] text-slate-500 font-medium">
+                (Khách vãng lai: Tự do chọn kỳ báo cáo & các tiêu chí để xem trình diễn dữ liệu thật từ Supabase)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {canManageLayout && isAuthenticated && (
+              <>
+                {isAdminLayoutMode && (
+                  <>
+                    {saveStatus && (
+                      <span className={`text-[11px] font-bold px-2 py-1 rounded-lg border ${
+                        saveStatus.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}>
+                        {saveStatus.message}
+                      </span>
+                    )}
+                    <button
+                      onClick={saveLayoutToAllUsers}
+                      disabled={isSavingLayout}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50"
+                      title="Lưu bố cục"
+                    >
+                      {isSavingLayout ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      Lưu bố cục
+                    </button>
+                    <button
+                      onClick={resetLayout}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Mặc định
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setIsAdminLayoutMode(!isAdminLayoutMode)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                    isAdminLayoutMode
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                  title="Tùy biến bố cục biểu đồ"
+                >
+                  <Settings className={`w-3.5 h-3.5 ${isAdminLayoutMode ? 'animate-spin' : ''}`} />
+                  {isAdminLayoutMode ? 'Thoát chế độ bố cục' : 'Chỉnh bố cục'}
+                </button>
+              </>
+            )}
             <button
               onClick={() => loadData(selectedReportId)}
-              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Làm mới
             </button>
-            {selectedReportId && (
+            {selectedReportId && isAuthenticated && (
               <Link
                 to={`/reports/${selectedReportId}`}
                 className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -728,9 +1237,9 @@ export const DashboardPage: React.FC = () => {
                 Kỳ báo cáo
               </label>
               <select
-                value={selectedReportId}
+                value={selectedReportId || (selectedReport?.id ?? '')}
                 onChange={(e) => handleReportChange(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
                 {liveReports.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -806,35 +1315,50 @@ export const DashboardPage: React.FC = () => {
 
       {/* Empty State Banner if no reports */}
       {liveReports.length === 0 && (
-        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center space-y-4">
+        <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center space-y-4">
           <Database className="w-12 h-12 text-slate-400 mx-auto" />
           <div>
-            <h3 className="text-base font-bold text-slate-800">Cơ sở dữ liệu chưa có Báo cáo</h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Hệ thống hoạt động theo kiến trúc DB-only 100% và không tự động sinh dữ liệu ảo. Hãy tạo kỳ báo cáo đầu tiên hoặc nạp dữ liệu từ Excel để bắt đầu phân tích.
+            <h3 className="text-base font-bold text-slate-800">Chưa có dữ liệu Báo cáo từ Supabase</h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-xl mx-auto leading-relaxed">
+              Hệ thống hoạt động theo nguyên tắc 100% dữ liệu thật từ Supabase. Nếu trong cơ sở dữ liệu đã có dữ liệu báo cáo nhưng khách chưa đăng nhập chưa nhìn thấy, vui lòng thực thi câu lệnh SQL trong file migration <code>007_allow_public_read_for_presentation.sql</code> trên Supabase SQL Editor để cấp quyền xem công khai (RLS SELECT) cho khách vãng lai.
             </p>
           </div>
-          <div className="flex items-center justify-center gap-3">
-            <Link
-              to="/reports"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              Tạo Kỳ báo cáo mới
-            </Link>
-            <Link
-              to="/import"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Nhập số liệu Excel
-            </Link>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            {isAuthenticated ? (
+              <>
+                {canCreateReport && (
+                  <Link
+                    to="/reports"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Tạo Kỳ báo cáo mới
+                  </Link>
+                )}
+                {canImportExcel && (
+                  <Link
+                    to="/import"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    Nhập số liệu Excel
+                  </Link>
+                )}
+              </>
+            ) : (
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
+              >
+                Đăng nhập quản trị viên
+              </Link>
+            )}
           </div>
         </div>
       )}
 
-      {/* Discrepancy Notification (if any) */}
-      {warnings.length > 0 && (
+      {/* Discrepancy Notification (if any) - Only visible to authenticated users */}
+      {warnings.length > 0 && isAuthenticated && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 shadow-xs">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1">
@@ -965,71 +1489,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2.5 DASHBOARD LAYOUT BUILDER CONTROLS */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
-            <LayoutGrid className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-              Cá nhân hóa Giao diện & Bố cục Báo cáo
-            </h3>
-            <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">
-              Thay đổi vị trí (kéo thả hoặc bấm nút di chuyển) và cỡ cột 50% / 100% của từng biểu đồ lập tức
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 self-start md:self-center">
-          {isAdminLayoutMode && (
-            <>
-              {saveStatus && (
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
-                  saveStatus.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}>
-                  {saveStatus.message}
-                </span>
-              )}
-              <button
-                onClick={saveLayoutToAllUsers}
-                disabled={isSavingLayout}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 border border-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50"
-                title="Lưu bố cục hiện tại cho toàn bộ người dùng trong hệ thống"
-              >
-                {isSavingLayout ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Save className="w-3.5 h-3.5" />
-                )}
-                Lưu cho tất cả người dùng
-              </button>
-              <button
-                onClick={resetLayout}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Khôi phục mặc định
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => setIsAdminLayoutMode(!isAdminLayoutMode)}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg border transition-all shadow-xs ${
-              isAdminLayoutMode
-                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-            }`}
-          >
-            <Settings className={`w-4 h-4 ${isAdminLayoutMode ? 'animate-spin' : ''}`} />
-            {isAdminLayoutMode ? 'Thoát Chế độ Bố cục' : 'Tùy biến Bố cục (Admin)'}
-          </button>
-        </div>
-      </div>
-
-      {isAdminLayoutMode && (
+      {canManageLayout && isAdminLayoutMode && (
         <div className="bg-blue-50/50 border border-blue-200/60 rounded-xl p-4 text-xs text-blue-800 space-y-2 shadow-inner">
           <div className="font-bold flex items-center gap-1.5">
             <span className="inline-block w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
@@ -1050,6 +1510,8 @@ export const DashboardPage: React.FC = () => {
           .map((chart, index) => {
             // If hidden and not in layout mode, don't render it at all
             if (!chart.visible && !isAdminLayoutMode) return null;
+            // Detailed table is rendered as a standalone section below
+            if (chart.id === 'detailed_table') return null;
 
             return (
               <div
@@ -1141,16 +1603,28 @@ export const DashboardPage: React.FC = () => {
                 <div className="flex-1 flex flex-col justify-between h-full w-full min-h-0">
                   {chart.id === 'trend' && (
                     <>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-900 pr-16">
-                            1. Diễn biến khối lượng theo mốc chốt báo cáo
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Xu hướng tổng tiếp nhận, kết quả giải quyết và số lượng hồ sơ tồn đang xử lý
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {getChartTitle('trend', '1. Diễn biến khối lượng theo mốc chốt báo cáo')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('trend')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getChartSubtitle('trend', 'Xu hướng tổng tiếp nhận, kết quả giải quyết và số lượng hồ sơ tồn đang xử lý')}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0 z-10">
+                        <div className="flex items-center gap-2 shrink-0 z-10 self-start sm:self-center">
                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Số mốc hiển thị:</span>
                           <select
                             value={trendHistoryLimit}
@@ -1164,11 +1638,6 @@ export const DashboardPage: React.FC = () => {
                             <option value={30}>30 mốc gần nhất</option>
                             <option value={999}>Tất cả mốc báo cáo</option>
                           </select>
-                          {!isAdminLayoutMode && (
-                            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md hidden md:inline">
-                              Xu hướng thời gian
-                            </span>
-                          )}
                         </div>
                       </div>
                       <div className="flex-1 min-h-0 w-full relative">
@@ -1194,12 +1663,74 @@ export const DashboardPage: React.FC = () => {
                                 return `Ngày chốt số liệu: ${label}${repName ? ` (${repName})` : ''}`;
                               }}
                             />
-                            <Legend wrapperStyle={{ fontSize: 12 }} />
-                            <Area type="monotone" dataKey="received" name="Tổng tiếp nhận" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRec)" />
-                            <Area type="monotone" dataKey="resolved" name="Đã giải quyết" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSolv)" />
-                            <Line type="monotone" dataKey="pending" name="Đang xử lý (Tồn)" stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4 }} />
-                            <Line type="monotone" dataKey="pendingLate" name="Đang giải quyết quá hạn" stroke="#ef4444" strokeWidth={2.5} strokeDasharray="3 3" dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="resolvedLate" name="Đã giải quyết trễ hạn" stroke="#b91c1c" strokeWidth={2.5} dot={{ r: 3 }} />
+                            <Legend
+                              content={() => (
+                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 pt-3 pb-1 text-xs select-none">
+                                  {TREND_SERIES_LIST.map((series) => {
+                                    const isVisible = trendSeriesVisibility[series.key];
+                                    return (
+                                      <button
+                                        key={series.key}
+                                        type="button"
+                                        onClick={() => toggleTrendSeries(series.key)}
+                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
+                                          isVisible
+                                            ? 'bg-slate-50 border-slate-300 text-slate-800 hover:bg-slate-100 hover:border-slate-400 shadow-2xs'
+                                            : 'bg-slate-100/70 border-dashed border-slate-300 text-slate-400 line-through hover:bg-slate-200/60 opacity-60'
+                                        }`}
+                                        title={isVisible ? `Nhấn để tắt đường "${series.name}"` : `Nhấn để bật lại đường "${series.name}"`}
+                                      >
+                                        <span className="flex items-center gap-0.5">
+                                          <span
+                                            className={`inline-block h-0.5 ${series.dash ? 'w-2.5 border-t-2 border-dashed' : 'w-2.5'}`}
+                                            style={{
+                                              borderColor: isVisible ? series.color : '#94a3b8',
+                                              backgroundColor: !series.dash && isVisible ? series.color : !series.dash ? '#94a3b8' : 'transparent',
+                                            }}
+                                          />
+                                          <span
+                                            className="inline-block w-2 h-2 rounded-full shrink-0"
+                                            style={{ backgroundColor: isVisible ? series.color : '#94a3b8' }}
+                                          />
+                                        </span>
+                                        <span>{series.name}</span>
+                                        {isVisible ? (
+                                          <span className="text-[10px] text-emerald-600 font-bold ml-0.5">✓</span>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-400 ml-0.5">✕</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const allActive = Object.values(trendSeriesVisibility).every(Boolean);
+                                      setAllTrendSeries(!allActive);
+                                    }}
+                                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer ml-1"
+                                    title="Bật hoặc tắt tất cả các đường biểu đồ"
+                                  >
+                                    {Object.values(trendSeriesVisibility).every(Boolean) ? 'Tắt tất cả' : 'Bật tất cả'}
+                                  </button>
+                                </div>
+                              )}
+                            />
+                            {trendSeriesVisibility.received && (
+                              <Area type="monotone" dataKey="received" name="Tổng tiếp nhận" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRec)" />
+                            )}
+                            {trendSeriesVisibility.resolved && (
+                              <Area type="monotone" dataKey="resolved" name="Đã giải quyết" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSolv)" />
+                            )}
+                            {trendSeriesVisibility.pending && (
+                              <Line type="monotone" dataKey="pending" name="Đang xử lý (Tồn)" stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4 }} />
+                            )}
+                            {trendSeriesVisibility.pendingLate && (
+                              <Line type="monotone" dataKey="pendingLate" name="Đang giải quyết quá hạn" stroke="#ef4444" strokeWidth={2.5} strokeDasharray="3 3" dot={{ r: 3 }} />
+                            )}
+                            {trendSeriesVisibility.resolvedLate && (
+                              <Line type="monotone" dataKey="resolvedLate" name="Đã giải quyết trễ hạn" stroke="#b91c1c" strokeWidth={2.5} dot={{ r: 3 }} />
+                            )}
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>
@@ -1208,20 +1739,27 @@ export const DashboardPage: React.FC = () => {
 
                   {chart.id === 'quality' && (
                     <>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-900 pr-16">
-                            2. Cơ cấu chất lượng giải quyết (QĐ 766)
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Tỷ trọng Trước hạn, Đúng hạn và Quá hạn (Chỉ tiêu đúng hạn &gt; 95%)
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {getChartTitle('quality', '2. Cơ cấu chất lượng giải quyết (QĐ 766)')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('quality')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getChartSubtitle('quality', 'Tỷ trọng Trước hạn, Đúng hạn và Quá hạn (Chỉ tiêu đúng hạn > 95%)')}
                           </p>
                         </div>
-                        {!isAdminLayoutMode && (
-                          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md shrink-0">
-                            Đúng hạn: {formatPercent(totals.onTimeRate)}
-                          </span>
-                        )}
                       </div>
                       <div className="flex-1 min-h-0 w-full relative flex items-center justify-center">
                         {totals.compTotal > 0 ? (
@@ -1257,20 +1795,27 @@ export const DashboardPage: React.FC = () => {
 
                   {chart.id === 'channels' && (
                     <>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-900 pr-16">
-                            3. Cơ cấu kênh tiếp nhận Dịch vụ công
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Đo lường mức độ số hóa hồ sơ công dân nộp Trực tuyến (Online)
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {getChartTitle('channels', '3. Cơ cấu kênh tiếp nhận Dịch vụ công')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('channels')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getChartSubtitle('channels', 'Đo lường mức độ hồ sơ nộp trực tuyến')}
                           </p>
                         </div>
-                        {!isAdminLayoutMode && (
-                          <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md shrink-0">
-                            Số hóa: {formatPercent(totals.onlineRate)}
-                          </span>
-                        )}
                       </div>
                       <div className="flex-1 min-h-0 w-full relative flex items-center justify-center">
                         {totals.recOnline + totals.recOffline > 0 ? (
@@ -1306,13 +1851,25 @@ export const DashboardPage: React.FC = () => {
 
                   {chart.id === 'ranking' && (
                     <>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-900 pr-16">
-                            4. Xếp hạng hiệu năng giải quyết Đơn vị
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {getChartTitle('ranking', '4. Xếp hạng hiệu năng giải quyết Đơn vị')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('ranking')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getChartSubtitle('ranking', 'So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị')}
                           </p>
                         </div>
                         {!isAdminLayoutMode && (
@@ -1342,12 +1899,24 @@ export const DashboardPage: React.FC = () => {
                   {chart.id === 'thematic_pending' && (
                     <>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
-                        <div>
-                          <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider pr-16">
-                            TỔNG HỢP TIẾN ĐỘ HỒ SƠ ĐANG GIẢI QUYẾT
-                          </h3>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                              {getChartTitle('thematic_pending', 'TỔNG HỢP TIẾN ĐỘ HỒ SƠ ĐANG GIẢI QUYẾT')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('thematic_pending')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn &amp; Đang giải quyết Quá hạn ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_pending', 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn & Đang giải quyết Quá hạn')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
@@ -1374,7 +1943,7 @@ export const DashboardPage: React.FC = () => {
                       
                       <div className="flex-1 min-h-0 w-full relative">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={presentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
+                          <BarChart data={pendingPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
                               dataKey="displayName"
@@ -1404,12 +1973,24 @@ export const DashboardPage: React.FC = () => {
                   {chart.id === 'thematic_received' && (
                     <>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
-                        <div>
-                          <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider pr-16">
-                            TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ TIẾP NHẬN
-                          </h3>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                              {getChartTitle('thematic_received', 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ TIẾP NHẬN')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('thematic_received')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến &amp; Trực tiếp ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_received', 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến & Trực tiếp')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
@@ -1436,7 +2017,7 @@ export const DashboardPage: React.FC = () => {
                       
                       <div className="flex-1 min-h-0 w-full relative">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={presentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
+                          <BarChart data={receivedPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
                               dataKey="displayName"
@@ -1466,12 +2047,24 @@ export const DashboardPage: React.FC = () => {
                   {chart.id === 'thematic_completed' && (
                     <>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
-                        <div>
-                          <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider pr-16">
-                            TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT
-                          </h3>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                              {getChartTitle('thematic_completed', 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('thematic_completed')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            Phân bổ cơ cấu kết quả xử lý: Đúng hạn &amp; Trước hạn vs Trễ hạn (Quá hạn) ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_completed', 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn & Trước hạn vs Trễ hạn (Quá hạn)')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
@@ -1498,7 +2091,7 @@ export const DashboardPage: React.FC = () => {
                       
                       <div className="flex-1 min-h-0 w-full relative">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={presentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
+                          <BarChart data={completedPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
                               dataKey="displayName"
@@ -1530,117 +2123,609 @@ export const DashboardPage: React.FC = () => {
           })}
       </div>
 
-      {/* 5. DETAILED STATISTICAL GRAIN GRID (REPORT + SOURCE + FIELD) */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">
-              Chi tiết số liệu thống kê hạt nhân (Grain: REPORT + SOURCE + FIELD)
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Mỗi dòng thể hiện đầy đủ 4 công thức toán học được kiểm chứng tự động. Đơn vị được map tự động từ danh mục Lĩnh vực.
-            </p>
-          </div>
-          <div className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-md">
-            Tổng cộng: {filteredStats.length} dòng
-          </div>
-        </div>
+      {/* 5. DETAILED STATISTICAL GRAIN GRID (REPORT + SOURCE + FIELD) - Only for authenticated users */}
+      {isAuthenticated && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs space-y-0">
+          {/* Header with Title, Subtitle, and Admin Edit Button */}
+          <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-bold text-slate-900">
+                    {getChartTitle('detailed_table', 'Chi tiết số liệu thống kê')}
+                  </h3>
+                  {canManageLayout && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal('detailed_table')}
+                      className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                      title="Chỉnh sửa Tiêu đề & Chú thích bảng số liệu"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {getChartSubtitle('detailed_table', 'Thống kê chi tiết tình hình tiếp nhận và giải quyết hồ sơ thủ tục hành chính')}
+                </p>
+              </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase font-semibold text-[10px]">
-              <tr>
-                <th className="px-3 py-2.5">Lĩnh vực & Đơn vị</th>
-                <th className="px-3 py-2.5">Nguồn</th>
-                <th className="px-3 py-2.5 text-right">Tiếp nhận (Tổng)</th>
-                <th className="px-3 py-2.5 text-right">Online / Trực tiếp</th>
-                <th className="px-3 py-2.5 text-right">Kỳ trước</th>
-                <th className="px-3 py-2.5 text-right">Đã giải quyết</th>
-                <th className="px-3 py-2.5 text-right">Trước / Đúng / Trễ</th>
-                <th className="px-3 py-2.5 text-right">Đang giải quyết</th>
-                <th className="px-3 py-2.5 text-right">Trong hạn / Trễ</th>
-                <th className="px-3 py-2.5 text-center">Kiểm chứng</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {filteredStats.map((row) => {
-                const val = validateRowFormulas(row);
-                const sectorName = resolveLinhVuc(
-                  row.field_name_snapshot || row.field_name || '',
-                  row.field_id,
-                  liveFields
-                );
-                const rawSnap = (row.field_name_snapshot || row.field_name || '').trim();
-                const isLongProcedure =
-                  rawSnap.length > 50 ||
-                  rawSnap.includes('di sản') ||
-                  rawSnap.includes('giám sát') ||
-                  rawSnap.includes('hỏa táng') ||
-                  rawSnap.includes('quyền sử dụng đất');
-                const displayName =
-                  !isLongProcedure && rawSnap
-                    ? rawSnap
-                    : sectorName !== 'Chưa phân loại'
-                    ? sectorName
-                    : rawSnap || 'Lĩnh vực TTHC';
+              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                <span className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-2xs">
+                  Hiển thị: <strong className="text-blue-700">{processedTableRows.length}</strong> / {filteredStats.length} dòng
+                </span>
+              </div>
+            </div>
 
-                return (
+            {/* Toolbar: Search, Group by Source, Filter by Source, Filter by Status */}
+            <div className="mt-4 pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+                {/* Search input */}
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={tableSearchQuery}
+                    onChange={(e) => setTableSearchQuery(e.target.value)}
+                    placeholder="Tìm theo lĩnh vực, đơn vị, nguồn..."
+                    className="w-full pl-8 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
+                  />
+                  {tableSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTableSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter by Source dropdown */}
+                <div className="relative flex items-center">
+                  <select
+                    value={tableSourceFilter}
+                    onChange={(e) => setTableSourceFilter(e.target.value)}
+                    className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="ALL">Tất cả Nguồn</option>
+                    {liveSources.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.source_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter by Data Presence */}
+                <button
+                  type="button"
+                  onClick={() => setTableOnlyWithData(!tableOnlyWithData)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                    tableOnlyWithData
+                      ? 'bg-amber-50 border-amber-300 text-amber-800 shadow-2xs'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Filter className="w-3 h-3" />
+                  Chỉ dòng có số liệu
+                </button>
+
+                {/* Validity filter */}
+                <div className="flex bg-slate-200/70 p-0.5 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setTableValidityFilter('ALL')}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                      tableValidityFilter === 'ALL' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableValidityFilter('VALID')}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                      tableValidityFilter === 'VALID' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Hợp lệ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableValidityFilter('INVALID')}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                      tableValidityFilter === 'INVALID' ? 'bg-white text-rose-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Có lỗi
+                  </button>
+                </div>
+              </div>
+
+              {/* Group By Source Toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTableGroupBySource(!tableGroupBySource)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                    tableGroupBySource
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Nhóm theo Nguồn
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase font-bold text-[10px] select-none">
+                <tr>
+                  <th
+                    onClick={() => handleTableSort('field')}
+                    className="px-3.5 py-3 hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Lĩnh vực & Đơn vị</span>
+                      {tableSortKey === 'field' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('source')}
+                    className="px-3.5 py-3 hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Nguồn</span>
+                      {tableSortKey === 'source' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('received_total')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Tiếp nhận (Tổng)</span>
+                      {tableSortKey === 'received_total' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('received_online')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Online / Trực tiếp</span>
+                      {tableSortKey === 'received_online' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('carried_forward')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Kỳ trước</span>
+                      {tableSortKey === 'carried_forward' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('completed_total')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Đã giải quyết</span>
+                      {tableSortKey === 'completed_total' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('completed_on_time')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Trước / Đúng / Trễ</span>
+                      {tableSortKey === 'completed_on_time' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('pending_total')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Đang giải quyết</span>
+                      {tableSortKey === 'pending_total' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('pending_late')}
+                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Trong hạn / Trễ</span>
+                      {tableSortKey === 'pending_late' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    onClick={() => handleTableSort('validity')}
+                    className="px-3.5 py-3 text-center hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Kiểm chứng</span>
+                      {tableSortKey === 'validity' ? (
+                        tableSortDirection === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      )}
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {/* Empty State */}
+                {processedTableRows.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                      <div className="max-w-xs mx-auto space-y-2">
+                        <Filter className="w-8 h-8 text-slate-300 mx-auto" />
+                        <div className="text-xs font-semibold text-slate-700">Không tìm thấy số liệu phù hợp</div>
+                        <p className="text-[11px] text-slate-400">Hãy thử xóa bộ lọc tìm kiếm để xem toàn bộ danh sách</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTableSearchQuery('');
+                            setTableSourceFilter('ALL');
+                            setTableValidityFilter('ALL');
+                            setTableOnlyWithData(false);
+                          }}
+                          className="mt-2 text-xs font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                        >
+                          Xóa tất cả bộ lọc
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* When Group By Source is ENABLED */}
+                {tableGroupBySource && groupedTableRows && groupedTableRows.map((group) => (
+                  <React.Fragment key={group.sourceId}>
+                    {/* Group Header Row */}
+                    <tr className="bg-slate-100/90 border-y border-slate-200">
+                      <td colSpan={10} className="px-3.5 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 text-white font-bold text-xs shadow-2xs">
+                              <Layers className="w-3.5 h-3.5" />
+                              Nguồn: {group.sourceName}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-600">
+                              ({group.rows.length} lĩnh vực)
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-700">
+                            <span>
+                              Tiếp nhận: <strong className="text-slate-900">{formatNumber(group.totals.received_total)}</strong>
+                              <span className="text-blue-600 font-normal ml-1">(Online: {formatNumber(group.totals.received_online)})</span>
+                            </span>
+                            <span className="text-slate-300">|</span>
+                            <span>
+                              Đã GQ: <strong className="text-emerald-700">{formatNumber(group.totals.completed_total)}</strong>
+                            </span>
+                            <span className="text-slate-300">|</span>
+                            <span>
+                              Đang GQ: <strong className="text-indigo-700">{formatNumber(group.totals.pending_total)}</strong>
+                              {group.totals.pending_late > 0 && (
+                                <span className="text-rose-600 font-bold ml-1">
+                                  (Quá hạn: {formatNumber(group.totals.pending_late)})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Group Rows */}
+                    {group.rows.map((row) => (
+                      <tr key={row.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="px-3.5 py-2.5 pl-6">
+                          <div className="font-bold text-slate-900 text-xs leading-snug">{row.displayName}</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">{row.unitName}</div>
+                        </td>
+                        <td className="px-3.5 py-2.5 text-slate-600 font-medium">
+                          {row.sourceName}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">
+                          {formatNumber(row.received_total)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right text-blue-600 font-medium">
+                          {formatNumber(row.received_online)} / {formatNumber(row.received_offline)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right text-slate-500">
+                          {formatNumber(row.carried_forward)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right font-bold text-emerald-600">
+                          {formatNumber(row.completed_total)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right text-slate-600">
+                          {formatNumber(row.completed_early)} / {formatNumber(row.completed_on_time)} / {row.completed_late > 0 ? (
+                            <span className="text-rose-600 font-bold">{row.completed_late}</span>
+                          ) : (
+                            0
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right font-bold text-indigo-600">
+                          {formatNumber(row.pending_total)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right text-slate-600">
+                          {formatNumber(row.pending_on_time)} / {row.pending_late > 0 ? (
+                            <span className="text-rose-600 font-bold">{row.pending_late}</span>
+                          ) : (
+                            0
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center">
+                          {row.validation.allPassed ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                              <Check className="w-3 h-3 text-emerald-700" />
+                              Hợp lệ
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded" title={row.validation.errorMessages.join('\n')}>
+                              Lỗi
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+
+                {/* When Group By Source is DISABLED (Flat list) */}
+                {!tableGroupBySource && processedTableRows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-3 py-2.5">
-                      <div className="font-bold text-slate-900 text-xs leading-snug">{displayName}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">{row.unit_name_snapshot || 'Đơn vị'}</div>
+                    <td className="px-3.5 py-2.5">
+                      <div className="font-bold text-slate-900 text-xs leading-snug">{row.displayName}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{row.unitName}</div>
                     </td>
-                    <td className="px-3 py-2.5 text-slate-600">
-                      {liveSources.find((s) => s.id === row.source_id)?.source_name || 'Hệ thống'}
+                    <td className="px-3.5 py-2.5 text-slate-600">
+                      {row.sourceName}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-slate-900">
+                    <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">
                       {formatNumber(row.received_total)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-blue-600">
+                    <td className="px-3.5 py-2.5 text-right text-blue-600">
                       {formatNumber(row.received_online)} / {formatNumber(row.received_offline)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-slate-500">
+                    <td className="px-3.5 py-2.5 text-right text-slate-500">
                       {formatNumber(row.carried_forward)}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-emerald-600">
+                    <td className="px-3.5 py-2.5 text-right font-bold text-emerald-600">
                       {formatNumber(row.completed_total)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-slate-600">
+                    <td className="px-3.5 py-2.5 text-right text-slate-600">
                       {formatNumber(row.completed_early)} / {formatNumber(row.completed_on_time)} / {row.completed_late > 0 ? (
                         <span className="text-rose-600 font-bold">{row.completed_late}</span>
                       ) : (
                         0
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-indigo-600">
+                    <td className="px-3.5 py-2.5 text-right font-bold text-indigo-600">
                       {formatNumber(row.pending_total)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-slate-600">
+                    <td className="px-3.5 py-2.5 text-right text-slate-600">
                       {formatNumber(row.pending_on_time)} / {row.pending_late > 0 ? (
                         <span className="text-rose-600 font-bold">{row.pending_late}</span>
                       ) : (
                         0
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {val.allPassed ? (
+                    <td className="px-3.5 py-2.5 text-center">
+                      {row.validation.allPassed ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                           <Check className="w-3 h-3 text-emerald-700" />
                           Hợp lệ
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded" title={val.errorMessages.join('\n')}>
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded" title={row.validation.errorMessages.join('\n')}>
                           Lỗi
                         </span>
                       )}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 6. MODAL CHỈNH SỬA TIÊU ĐỀ & CHÚ THÍCH BIỂU ĐỒ (DÀNH CHO QUẢN TRỊ VIÊN) */}
+      {editingChartMeta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl shadow-2xs">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Chỉnh sửa Tiêu đề & Chú thích Biểu đồ
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Quản trị viên tùy biến nội dung hiển thị của biểu đồ trên báo cáo
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingChartMeta(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tiêu đề biểu đồ <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingChartMeta.title}
+                  onChange={(e) => setEditingChartMeta({ ...editingChartMeta, title: e.target.value })}
+                  placeholder="Nhập tiêu đề hiển thị cho biểu đồ..."
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-medium text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Phần chú thích / Giải thích biểu đồ
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingChartMeta.subtitle}
+                  onChange={(e) => setEditingChartMeta({ ...editingChartMeta, subtitle: e.target.value })}
+                  placeholder="Nhập mô tả, phần chú thích hoặc căn cứ pháp lý cho biểu đồ..."
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-normal text-slate-800 resize-none"
+                />
+              </div>
+
+              <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3 text-xs text-blue-800 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">
+                  Thay đổi sẽ được áp dụng ngay lập tức và tự động lưu đồng bộ vào cấu hình hệ thống cho tất cả người dùng.
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/70">
+              <button
+                type="button"
+                onClick={handleResetCurrentChartMeta}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Khôi phục tiêu đề và chú thích gốc của biểu đồ này"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Khôi phục mặc định
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingChartMeta(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveChartMeta}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  Lưu thay đổi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
