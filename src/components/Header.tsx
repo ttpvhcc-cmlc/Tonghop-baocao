@@ -14,6 +14,10 @@ import {
   LogOut,
   User,
   LogIn,
+  Tv,
+  Menu,
+  PanelLeft,
+  BellRing,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -24,6 +28,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser: propUser,
+  isSidebarCollapsed,
+  onToggleSidebar,
 }) => {
   const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -102,6 +108,16 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="min-h-[64px] py-2 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
       {/* Left Customizable Branding */}
       <div className="flex items-center gap-3 min-w-0 flex-1 mr-4">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="p-2 -ml-1 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer border border-transparent hover:border-slate-200 shrink-0"
+          title={isSidebarCollapsed ? "Mở menu chức năng" : "Ẩn hoàn toàn menu"}
+          aria-label="Toggle Menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="rounded-xl bg-transparent flex items-center justify-center shrink-0 overflow-hidden transition-all"
@@ -132,8 +148,9 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right User Info Block / Login Button */}
-      <div className="relative shrink-0">
+      {/* Right Actions: User Info Block */}
+      <div className="flex items-center gap-2.5 shrink-0">
+
         {activeUser.id === 'guest' ? (
           <Link
             to="/login"

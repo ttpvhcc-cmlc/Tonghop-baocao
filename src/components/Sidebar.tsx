@@ -1,19 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { store, SystemConfig } from '../services/store';
-import { Profile, UserRole } from '../types/database';
-import { supabase } from '../lib/supabase';
+import { Profile } from '../types/database';
 import {
   LayoutDashboard,
   FileText,
-  FilePlus,
-  UploadCloud,
   BarChart3,
   Building2,
   FolderKanban,
   GitCompare,
   SlidersHorizontal,
-  Users,
   History,
   ChevronDown,
   Database,
@@ -21,7 +17,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  UserCheck,
+  Tv,
+  CalendarRange,
+  BellRing,
+  GripVertical,
+  Check,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -30,64 +30,144 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
+const DEFAULT_MENU_ORDER = [
+  'dashboard',
+  'public_dashboard',
+  'dossier_urge',
+  'update_report',
+  'analysis_group',
+  'procedures_control',
+  'catalog_group',
+  'system_group',
+];
+
 export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, isCollapsed, onToggle }) => {
   const location = useLocation();
   const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
-  const [analysisOpen, setAnalysisOpen] = useState(true);
-  const [catalogOpen, setCatalogOpen] = useState(true);
-  const [showAuthMenu, setShowAuthMenu] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  // Mặc định thu gọn menu "Cập nhật báo cáo" theo yêu cầu
+  const [updateReportOpen, setUpdateReportOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   const [activeUser, setActiveUser] = useState<Profile>(propCurrentUser || store.getCurrentUser());
 
+  // Menu order state
+  const [menuOrder, setMenuOrder] = useState<string[]>(
+    config.sidebarMenuOrder && config.sidebarMenuOrder.length > 0
+      ? config.sidebarMenuOrder
+      : DEFAULT_MENU_ORDER
+  );
+
+  const [draggedItemKey, setDraggedItemKey] = useState<string | null>(null);
+  const [dragOverItemKey, setDragOverItemKey] = useState<string | null>(null);
+
   useEffect(() => {
     const refresh = () => {
-      setConfig(store.getSystemConfig());
+      const cfg = store.getSystemConfig();
+      setConfig(cfg);
       setActiveUser(propCurrentUser || store.getCurrentUser());
+      if (cfg.sidebarMenuOrder && cfg.sidebarMenuOrder.length > 0) {
+        setMenuOrder(cfg.sidebarMenuOrder);
+      }
     };
     refresh();
     return store.subscribe(refresh);
   }, [propCurrentUser]);
 
+  const isAdmin = activeUser?.role === 'admin';
+
   // Permission flags based on user's role and RBAC settings
   const canViewDashboard = store.hasPermission('view_dashboard', activeUser);
+  const canViewPublicDashboard = store.hasPermission('view_public_dashboard', activeUser);
+  const canViewDossierUrge = store.hasPermission('view_dossier_urge', activeUser);
   const canViewReports = store.hasPermission('view_reports', activeUser);
-  const canCreateReport = store.hasPermission('create_reports', activeUser);
-  const canImportExcel = store.hasPermission('import_excel', activeUser);
+  const canViewArchive = store.hasPermission('view_archive', activeUser);
+  const canViewAnalysisUnits = store.hasPermission('view_analysis_units', activeUser);
+  const canViewAnalysisFields = store.hasPermission('view_analysis_fields', activeUser);
+  const canViewAnalysisCompare = store.hasPermission('view_analysis_compare', activeUser);
+  const canManageProceduresControl = store.hasPermission('manage_procedures_control', activeUser);
   const canManageCatalogs = store.hasPermission('manage_catalogs', activeUser);
+  const canManageUnitsCatalog = store.hasPermission('manage_units_catalog', activeUser) || canManageCatalogs;
+  const canManageIndicatorsCatalog = store.hasPermission('manage_indicators_catalog', activeUser) || canManageCatalogs;
+  const canManagePeriodTypesCatalog = store.hasPermission('manage_period_types_catalog', activeUser) || canManageCatalogs;
   const canManageUsers = store.hasPermission('manage_users', activeUser);
   const canManageSystemConfig = store.hasPermission('manage_system_config', activeUser);
   const canViewAuditLogs = store.hasPermission('view_audit_logs', activeUser);
+  const canManageDatabaseTest = store.hasPermission('manage_database_test', activeUser) || canManageSystemConfig;
 
-  const showCatalogGroup = canManageCatalogs;
+  const showAnalysisGroup = canViewAnalysisUnits || canViewAnalysisFields || canViewAnalysisCompare;
+  const showCatalogGroup = canManageCatalogs || canManageUnitsCatalog || canManageIndicatorsCatalog || canManagePeriodTypesCatalog;
+  const showProceduresControl = canManageProceduresControl || canManageCatalogs;
   const showSystemConfig = canManageSystemConfig || canManageUsers;
-  const showSystemGroup = showSystemConfig || canViewAuditLogs;
+  const showSystemGroup = showSystemConfig || canViewAuditLogs || canManageDatabaseTest;
 
-  const getRoleBadge = (role: UserRole) => {
-    switch (role) {
-      case 'admin':
-        return { label: 'Quản trị viên (Admin)', bg: 'bg-rose-500/20 text-rose-300 border-rose-500/30' };
-      case 'analyst':
-        return { label: 'Chuyên viên phân tích', bg: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
-      case 'data_entry':
-        return { label: 'Chuyên viên nhập liệu', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-      case 'viewer':
-      default:
-        return { label: 'Người xem (Chỉ đọc)', bg: 'bg-slate-700 text-slate-300 border-slate-600' };
-    }
-  };
-
-  const roleInfo = getRoleBadge(activeUser.role);
-  const isAuthenticated = activeUser.id !== 'guest' && activeUser.active === true;
-
+  const isUpdateReportActive =
+    location.pathname.startsWith('/reports') ||
+    location.pathname.startsWith('/archive') ||
+    location.pathname.startsWith('/import');
   const isAnalysisActive = location.pathname.startsWith('/analysis');
   const isCatalogActive =
     location.pathname.startsWith('/admin/units') ||
-    location.pathname.startsWith('/admin/fields') ||
-    location.pathname.startsWith('/admin/indicators');
+    location.pathname.startsWith('/admin/indicators') ||
+    location.pathname.startsWith('/admin/period-types') ||
+    location.pathname.startsWith('/admin/report-periods');
+
+  // Drag & drop reorder handlers for Admin
+  const handleDragStart = (e: React.DragEvent, key: string) => {
+    if (!isAdmin) return;
+    setDraggedItemKey(key);
+    e.dataTransfer.setData('text/plain', key);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, key: string) => {
+    if (!isAdmin) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverItemKey !== key) {
+      setDragOverItemKey(key);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetKey: string) => {
+    if (!isAdmin || !draggedItemKey || draggedItemKey === targetKey) {
+      setDraggedItemKey(null);
+      setDragOverItemKey(null);
+      return;
+    }
+    e.preventDefault();
+
+    const currentOrder = [...menuOrder];
+    const fromIndex = currentOrder.indexOf(draggedItemKey);
+    const toIndex = currentOrder.indexOf(targetKey);
+
+    if (fromIndex !== -1 && toIndex !== -1) {
+      currentOrder.splice(fromIndex, 1);
+      currentOrder.splice(toIndex, 0, draggedItemKey);
+      setMenuOrder(currentOrder);
+
+      // Lưu ngay vào CSDL/store để áp dụng cho tất cả người dùng
+      try {
+        await store.saveSystemConfig({
+          ...config,
+          sidebarMenuOrder: currentOrder,
+        });
+        setSaveToast('Đã lưu và áp dụng thứ tự menu cho toàn hệ thống!');
+        setTimeout(() => setSaveToast(null), 3000);
+      } catch (err) {
+        console.warn('Lỗi lưu thứ tự menu:', err);
+      }
+    }
+
+    setDraggedItemKey(null);
+    setDragOverItemKey(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItemKey(null);
+    setDragOverItemKey(null);
+  };
 
   const getThemeBg = (sidebarTheme: string) => {
     switch (sidebarTheme) {
@@ -125,19 +205,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
     }
   };
 
+  const isVisuallyCollapsed = isCollapsed;
+
   const navClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center ${
-      isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2'
-    } text-sm font-medium rounded-xl transition-all ${
+    `flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all ${
       isActive
         ? getActiveAccent(config.themeColor)
         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
     }`;
 
   const subNavClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center ${
-      isCollapsed ? 'justify-center px-2 py-2' : 'gap-2.5 px-3 py-1.5 pl-8'
-    } text-xs font-medium rounded-lg transition-all ${
+    `flex items-center gap-2.5 px-3 py-1.5 pl-8 text-xs font-medium rounded-lg transition-all ${
       isActive
         ? 'bg-blue-600/30 text-blue-300 font-semibold border-l-2 border-blue-400'
         : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
@@ -145,226 +223,330 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
 
   const menu = config.menuLabels;
 
-  return (
-    <aside
-      className={`${
-        isCollapsed ? 'w-16' : 'w-64'
-      } ${getThemeBg(
-        config.sidebarTheme
-      )} flex flex-col shrink-0 border-r select-none transition-all duration-300 ease-in-out relative z-30`}
-    >
-      {/* Top Header Bar with NGHIỆP VỤ THỐNG KÊ Title & Collapse Toggle */}
-      <div className="p-3 border-b border-slate-800 flex items-center justify-between shrink-0 h-14">
-        {!isCollapsed && (
-          <span className="text-[11px] font-extrabold text-blue-400 uppercase tracking-wider pl-1">
-            NGHIỆP VỤ THỐNG KÊ
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onToggle}
-          className={`p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none shrink-0 ${
-            isCollapsed ? 'mx-auto' : ''
-          }`}
-          title={isCollapsed ? "Mở rộng menu" : "Thu gọn menu"}
-          id="btn-sidebar-collapse"
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="w-5 h-5 text-blue-400" />
-          ) : (
-            <PanelLeftClose className="w-4 h-4 text-slate-400" />
-          )}
-        </button>
-      </div>
-
-      {/* Nav List */}
-      <nav className="flex-1 p-2.5 space-y-1.5 overflow-y-auto overflow-x-hidden">
-
-        {/* 1. Tổng quan */}
-        {canViewDashboard && (
+  // Render individual menu item block
+  const renderMenuItem = (itemKey: string) => {
+    switch (itemKey) {
+      case 'dashboard':
+        if (!canViewDashboard) return null;
+        return (
           <NavLink to="/dashboard" className={navClass} id="nav-dashboard" title={menu.dashboard}>
             <LayoutDashboard className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>{menu.dashboard}</span>}
+            <span className="flex-1 truncate">{menu.dashboard}</span>
           </NavLink>
-        )}
+        );
 
-        {/* 2. Báo cáo */}
-        {canViewReports && (
-          <NavLink to="/reports" className={navClass} id="nav-reports" title={menu.reports}>
-            <FileText className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>{menu.reports}</span>}
+      case 'public_dashboard':
+        if (!canViewPublicDashboard) return null;
+        return (
+          <NavLink
+            to="/public-dashboard"
+            className={navClass}
+            id="nav-tv"
+            title="Màn hình TV 55 inch (Kiosk công khai)"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Tv className="w-4 h-4 text-rose-400 shrink-0" />
+            <span className="flex-1 truncate">Màn hình TV 55"</span>
           </NavLink>
-        )}
+        );
 
-        {/* Kho lưu trữ */}
-        {canViewReports && (
-          <NavLink to="/archive" className={navClass} id="nav-archive" title={menu.archive}>
-            <Archive className="w-4 h-4 text-amber-400 shrink-0" />
-            {!isCollapsed && <span>{menu.archive}</span>}
+      case 'dossier_urge':
+        if (!canViewDossierUrge) return null;
+        return (
+          <NavLink
+            to="/dossier-urge"
+            className={navClass}
+            id="nav-dossier-urge"
+            title={menu.dossier_urge || 'Đôn đốc hồ sơ'}
+          >
+            <BellRing className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="flex-1 truncate">{menu.dossier_urge || 'Đôn đốc hồ sơ'}</span>
           </NavLink>
-        )}
+        );
 
-        {/* 3. Tạo báo cáo */}
-        {canCreateReport && (
-          <NavLink to="/reports/new" className={navClass} id="nav-reports-new" title={menu.new_report}>
-            <FilePlus className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>{menu.new_report}</span>}
-          </NavLink>
-        )}
-
-        {/* 4. Dữ liệu nhập */}
-        {canImportExcel && (
-          <NavLink to="/import" className={navClass} id="nav-import" title={menu.import}>
-            <UploadCloud className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>{menu.import}</span>}
-          </NavLink>
-        )}
-
-        {/* Divider / Group: Phân tích */}
-        {(canViewDashboard || canViewReports) && (
-          <div className="pt-2">
-            {!isCollapsed ? (
-              <button
-                type="button"
-                onClick={() => setAnalysisOpen(!analysisOpen)}
-                className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-colors ${
-                  isAnalysisActive ? 'text-blue-300' : 'text-slate-300 hover:bg-slate-800'
+      case 'update_report':
+        if (!canViewReports && !canViewArchive) return null;
+        return (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => setUpdateReportOpen(!updateReportOpen)}
+              className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-colors cursor-pointer ${
+                isUpdateReportActive ? 'text-blue-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">Cập nhật báo cáo</span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                  updateReportOpen ? 'rotate-180' : ''
                 }`}
-              >
-                <div className="flex items-center gap-3">
-                  <BarChart3 className="w-4 h-4 text-blue-400 shrink-0" />
-                  <span>{menu.analysis_group}</span>
-                </div>
-                <ChevronDown
-                  className={`w-4 h-4 text-slate-400 transition-transform ${
-                    analysisOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            ) : (
-              <div className="border-t border-slate-800 my-1 pt-1" />
-            )}
+              />
+            </button>
 
-            {(analysisOpen || isCollapsed) && (
-              <div className={`mt-1 space-y-0.5 ${isCollapsed ? 'space-y-1' : ''}`}>
-                <NavLink to="/analysis/units" className={subNavClass} title={menu.analysis_units}>
-                  <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-                  {!isCollapsed && <span>{menu.analysis_units}</span>}
-                </NavLink>
-                <NavLink to="/analysis/fields" className={subNavClass} title={menu.analysis_fields}>
-                  <FolderKanban className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
-                  {!isCollapsed && <span>{menu.analysis_fields}</span>}
-                </NavLink>
-                <NavLink to="/analysis/compare" className={subNavClass} title={menu.analysis_compare}>
-                  <GitCompare className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
-                  {!isCollapsed && <span>{menu.analysis_compare}</span>}
-                </NavLink>
+            {updateReportOpen && (
+              <div className="mt-1 space-y-0.5">
+                {canViewReports && (
+                  <NavLink to="/reports" className={subNavClass} title="Kỳ báo cáo">
+                    <CalendarRange className="w-3.5 h-3.5 shrink-0 text-blue-400" />
+                    <span>Kỳ báo cáo</span>
+                  </NavLink>
+                )}
+                {(canViewArchive || canViewReports) && (
+                  <NavLink to="/archive" className={subNavClass} title="Kho lưu trữ">
+                    <Archive className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                    <span>Kho lưu trữ</span>
+                  </NavLink>
+                )}
               </div>
             )}
           </div>
-        )}
+        );
 
-        {/* Divider / Group: Danh mục */}
-        {showCatalogGroup && (
-          <div className="pt-2">
-            {!isCollapsed ? (
-              <button
-                type="button"
-                onClick={() => setCatalogOpen(!catalogOpen)}
-                className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-colors ${
-                  isCatalogActive ? 'text-amber-300' : 'text-slate-300 hover:bg-slate-800'
+      case 'analysis_group':
+        if (!showAnalysisGroup) return null;
+        return (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => setAnalysisOpen(!analysisOpen)}
+              className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-colors cursor-pointer ${
+                isAnalysisActive ? 'text-blue-300' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <BarChart3 className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">{menu.analysis_group}</span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                  analysisOpen ? 'rotate-180' : ''
                 }`}
-              >
-                <div className="flex items-center gap-3">
-                  <SlidersHorizontal className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>{menu.catalog_group}</span>
-                </div>
-                <ChevronDown
-                  className={`w-4 h-4 text-slate-400 transition-transform ${
-                    catalogOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            ) : (
-              <div className="border-t border-slate-800 my-1 pt-1" />
-            )}
+              />
+            </button>
 
-            {(catalogOpen || isCollapsed) && (
-              <div className={`mt-1 space-y-0.5 ${isCollapsed ? 'space-y-1' : ''}`}>
-                <NavLink to="/admin/units" className={subNavClass} title={menu.catalog_units}>
-                  <Building2 className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                  {!isCollapsed && <span>{menu.catalog_units}</span>}
-                </NavLink>
-                <NavLink to="/admin/fields" className={subNavClass} title={menu.catalog_fields}>
-                  <FolderKanban className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                  {!isCollapsed && <span>{menu.catalog_fields}</span>}
-                </NavLink>
-                <NavLink to="/admin/indicators" className={subNavClass} title={menu.catalog_indicators}>
-                  <SlidersHorizontal className="w-3.5 h-3.5 shrink-0 text-teal-400" />
-                  {!isCollapsed && <span>{menu.catalog_indicators}</span>}
-                </NavLink>
+            {analysisOpen && (
+              <div className="mt-1 space-y-0.5">
+                {canViewAnalysisUnits && (
+                  <NavLink to="/analysis/units" className={subNavClass} title={menu.analysis_units}>
+                    <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-400" />
+                    <span>{menu.analysis_units}</span>
+                  </NavLink>
+                )}
+                {canViewAnalysisFields && (
+                  <NavLink to="/analysis/fields" className={subNavClass} title={menu.analysis_fields}>
+                    <FolderKanban className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+                    <span>{menu.analysis_fields}</span>
+                  </NavLink>
+                )}
+                {canViewAnalysisCompare && (
+                  <NavLink to="/analysis/compare" className={subNavClass} title={menu.analysis_compare}>
+                    <GitCompare className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+                    <span>{menu.analysis_compare}</span>
+                  </NavLink>
+                )}
               </div>
             )}
           </div>
-        )}
+        );
 
-        {/* Group: Hệ thống */}
-        {showSystemGroup && (
-          <div className="pt-2 border-t border-slate-800">
-            {!isCollapsed && (
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 px-3 pt-2 pb-1">
-                {menu.system_group}
+      case 'procedures_control':
+        if (!showProceduresControl) return null;
+        return (
+          <div className="pt-0.5">
+            <NavLink
+              to="/admin/fields"
+              className={navClass}
+              id="nav-procedures-control"
+              title={menu.procedures_control || 'Kiểm soát TTHC'}
+            >
+              <FolderKanban className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="flex-1 truncate">{menu.procedures_control || 'Kiểm soát TTHC'}</span>
+            </NavLink>
+          </div>
+        );
+
+      case 'catalog_group':
+        if (!showCatalogGroup) return null;
+        return (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => setCatalogOpen(!catalogOpen)}
+              className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-colors cursor-pointer ${
+                isCatalogActive ? 'text-amber-300' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <SlidersHorizontal className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">{menu.catalog_group || 'Danh mục quản trị'}</span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                  catalogOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {catalogOpen && (
+              <div className="mt-1 space-y-0.5">
+                {canManageUnitsCatalog && (
+                  <NavLink to="/admin/units" className={subNavClass} title={menu.catalog_units || 'Đơn vị giải quyết'}>
+                    <Building2 className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                    <span>{menu.catalog_units || 'Đơn vị giải quyết'}</span>
+                  </NavLink>
+                )}
+                {canManageIndicatorsCatalog && (
+                  <NavLink to="/admin/indicators" className={subNavClass} title={menu.catalog_indicators || 'Chỉ tiêu và Công thức'}>
+                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0 text-teal-400" />
+                    <span>{menu.catalog_indicators || 'Chỉ tiêu và Công thức'}</span>
+                  </NavLink>
+                )}
+                {canManagePeriodTypesCatalog && (
+                  <NavLink to="/admin/period-types" className={subNavClass} title={menu.catalog_period_types || 'Loại kỳ báo cáo'}>
+                    <CalendarRange className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+                    <span>{menu.catalog_period_types || 'Loại kỳ báo cáo'}</span>
+                  </NavLink>
+                )}
               </div>
             )}
+          </div>
+        );
+
+      case 'system_group':
+        if (!showSystemGroup) return null;
+        return (
+          <div className="pt-1.5 border-t border-slate-800/80">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 px-3 pt-1 pb-1">
+              {menu.system_group || 'Hệ thống và Kiểm soát'}
+            </div>
             {/* Cấu hình hệ thống */}
             {showSystemConfig && (
-              <NavLink to="/admin/settings" className={navClass} id="nav-settings" title={menu.system_config || 'Thiết lập Hệ thống'}>
+              <NavLink to="/admin/settings" className={navClass} id="nav-settings" title={menu.system_config || 'Thiết lập Hệ thống & Giao diện'}>
                 <Settings className="w-4 h-4 text-amber-400 shrink-0" />
-                {!isCollapsed && <span>{menu.system_config || 'Thiết lập Hệ thống'}</span>}
+                <span className="flex-1 truncate">{menu.system_config || 'Thiết lập Hệ thống & Giao diện'}</span>
               </NavLink>
             )}
 
             {/* Nhật ký hệ thống */}
             {canViewAuditLogs && (
-              <NavLink to="/admin/audit-logs" className={navClass} id="nav-audit" title={menu.system_audit}>
-                <History className="w-4 h-4 shrink-0" />
-                {!isCollapsed && <span>{menu.system_audit}</span>}
+              <NavLink to="/admin/audit-logs" className={navClass} id="nav-audit" title={menu.system_audit || 'Nhật ký hệ thống (Audit)'}>
+                <History className="w-4 h-4 shrink-0 text-indigo-400" />
+                <span className="flex-1 truncate">{menu.system_audit || 'Nhật ký hệ thống (Audit)'}</span>
               </NavLink>
             )}
 
             {/* Supabase Integration & Verification */}
-            {canManageSystemConfig && (
-              <NavLink to="/admin/supabase" className={navClass} id="nav-supabase" title={menu.system_supabase}>
+            {canManageDatabaseTest && (
+              <NavLink to="/admin/supabase" className={navClass} id="nav-supabase" title={menu.system_supabase || 'Kiểm thử Supabase'}>
                 <Database className="w-4 h-4 text-emerald-400 shrink-0" />
-                {!isCollapsed && (
-                  <div className="flex items-center justify-between flex-1">
-                    <span>{menu.system_supabase}</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between flex-1 truncate">
+                  <span className="truncate">{menu.system_supabase || 'Kiểm thử Supabase'}</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 ml-1"></span>
+                </div>
               </NavLink>
             )}
           </div>
-        )}
-      </nav>
+        );
 
-      {/* Footer Info */}
-      <div className="p-3 border-t border-slate-800 bg-slate-950/50 flex items-center justify-between">
-        {!isCollapsed ? (
-          <>
-            <span className="text-[11px] text-slate-400">v2.5.0</span>
-            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Online
-            </span>
-          </>
-        ) : (
-          <div className="w-full flex justify-center" title="Hệ thống Online (v2.5.0)">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      <aside
+        className={`${
+          isCollapsed ? 'w-0 border-r-0 opacity-0 pointer-events-none overflow-hidden hidden' : 'w-64 shadow-2xl opacity-100 border-r'
+        } ${getThemeBg(
+          config.sidebarTheme
+        )} flex flex-col shrink-0 select-none transition-all duration-300 ease-in-out relative z-30`}
+      >
+        {/* Admin Drag Notice Toast */}
+        {saveToast && (
+          <div className="mx-2.5 mt-2 p-2 bg-emerald-600/90 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1.5 shadow-md animate-in fade-in">
+            <Check className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{saveToast}</span>
           </div>
         )}
-      </div>
-    </aside>
+
+        {/* Nav List with Admin Drag & Drop Ordering */}
+        <nav className="flex-1 p-2.5 pt-3 space-y-1.5 overflow-y-auto overflow-x-hidden min-w-[256px]">
+          {menuOrder.map((itemKey) => {
+            const isDragging = draggedItemKey === itemKey;
+            const isOver = dragOverItemKey === itemKey;
+
+            return (
+              <div
+                key={itemKey}
+                draggable={isAdmin}
+                onDragStart={(e) => handleDragStart(e, itemKey)}
+                onDragOver={(e) => handleDragOver(e, itemKey)}
+                onDrop={(e) => handleDrop(e, itemKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative group/drag transition-all rounded-xl ${
+                  isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-blue-400' : ''
+                } ${
+                  isOver && !isDragging
+                    ? 'border-t-2 border-blue-400 pt-0.5'
+                    : ''
+                }`}
+              >
+                <div className="relative flex items-center">
+                  <div className="flex-1 min-w-0">
+                    {renderMenuItem(itemKey)}
+                  </div>
+
+                  {/* Grip handle visible to Admin on hover */}
+                  {isAdmin && (
+                    <div
+                      className="opacity-0 group-hover/drag:opacity-70 hover:!opacity-100 cursor-grab active:cursor-grabbing p-1 text-slate-400 hover:text-white shrink-0 absolute right-1 top-2.5 z-20"
+                      title="Admin: Kéo thả để đổi thứ tự menu (áp dụng toàn hệ thống)"
+                    >
+                      <GripVertical className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        {/* Footer Controls: Nút ẩn / hiện menu */}
+        <div className="p-2.5 border-t border-slate-800 bg-slate-950/70 flex items-center justify-between shrink-0">
+          {!isVisuallyCollapsed ? (
+            <>
+              <span className="text-[11px] text-slate-400 font-medium pl-1.5">v2.5.0</span>
+              <button
+                type="button"
+                onClick={onToggle}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 rounded-xl transition-all cursor-pointer border border-slate-700/60 hover:border-slate-600 shadow-xs"
+                title={isCollapsed ? "Ghim mở menu cố định" : "Thu gọn menu"}
+                id="btn-sidebar-collapse"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5 text-blue-400" />
+                <span>Thu gọn menu</span>
+              </button>
+            </>
+          ) : (
+            <div className="w-full flex justify-center">
+              <button
+                type="button"
+                onClick={onToggle}
+                className="p-2 text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 rounded-xl transition-all cursor-pointer border border-slate-700/60 hover:border-slate-600 shadow-xs"
+                title="Mở rộng menu"
+                id="btn-sidebar-collapse"
+              >
+                <PanelLeftOpen className="w-4 h-4 text-blue-400" />
+              </button>
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
   );
 };
-

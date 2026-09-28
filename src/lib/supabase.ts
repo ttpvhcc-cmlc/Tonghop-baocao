@@ -392,7 +392,7 @@ export async function verifyCrudFieldsAndUnits(): Promise<VerificationStepResult
       step: 6,
       name: 'CRUD for fields and units',
       passed: false,
-      message: `Truy vấn Đơn vị & Lĩnh vực thất bại: ${err.message}`,
+      message: `Truy vấn Đơn vị và Lĩnh vực thất bại: ${err.message}`,
       durationMs: Date.now() - start,
     };
   }

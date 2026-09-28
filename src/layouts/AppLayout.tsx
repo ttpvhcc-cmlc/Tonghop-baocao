@@ -24,10 +24,32 @@ export const AppLayout: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+      const sysConfig = store.getSystemConfig();
+      if (sysConfig.sidebarDefaultCollapsed !== undefined) {
+        return sysConfig.sidebarDefaultCollapsed;
+      }
+    }
+    return true; // Mặc định khi load là thu nhỏ menu
+  });
 
   const toggleSidebar = () => {
-    setSidebarCollapsed((prev) => !prev);
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('sidebar_collapsed', String(next));
+        } catch (e) {
+          console.warn('Could not save sidebar state:', e);
+        }
+      }
+      return next;
+    });
   };
 
   const isAuthenticated = currentUser && currentUser.id !== 'guest' && currentUser.active === true;

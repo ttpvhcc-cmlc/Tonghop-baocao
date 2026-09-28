@@ -54,6 +54,7 @@ export const FieldsAdminPage: React.FC = () => {
     muc_do_cung_cap: '',
     phi_le_phi: '',
     linh_vuc: '',
+    dvc_link: '',
   });
 
   // Non-blocking toast notification & delete confirm modal
@@ -238,6 +239,7 @@ export const FieldsAdminPage: React.FC = () => {
           cap_thuc_hien: row.cap_thuc_hien?.trim() || undefined,
           muc_do_cung_cap: row.muc_do_cung_cap?.trim() || undefined,
           phi_le_phi: row.phi_le_phi?.trim() || undefined,
+          dvc_link: row.dvc_link?.trim() || undefined,
         };
 
         fieldsToSave.push(fieldItem);
@@ -293,6 +295,7 @@ export const FieldsAdminPage: React.FC = () => {
       muc_do_cung_cap: '',
       phi_le_phi: '',
       linh_vuc: '',
+      dvc_link: '',
     });
     setIsModalOpen(true);
   };
@@ -314,6 +317,7 @@ export const FieldsAdminPage: React.FC = () => {
       muc_do_cung_cap: f.muc_do_cung_cap || '',
       phi_le_phi: f.phi_le_phi || '',
       linh_vuc: f.linh_vuc || '',
+      dvc_link: f.dvc_link || '',
     });
     setIsModalOpen(true);
   };
@@ -335,6 +339,7 @@ export const FieldsAdminPage: React.FC = () => {
         muc_do_cung_cap: formData.muc_do_cung_cap.trim() || undefined,
         phi_le_phi: formData.phi_le_phi.trim() || undefined,
         linh_vuc: formData.linh_vuc.trim() || 'Chưa phân loại',
+        dvc_link: formData.dvc_link.trim() || undefined,
       };
 
       if (editingField) {
@@ -392,31 +397,13 @@ export const FieldsAdminPage: React.FC = () => {
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-blue-700 text-xs font-bold uppercase tracking-wider mb-1">
-              <FolderKanban className="w-4 h-4" />
-              <span>Chuẩn hóa Danh mục Thủ tục hành chính & Phân công giải quyết</span>
-            </div>
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
-              Quản lý Lĩnh vực & Đơn vị phụ trách giải quyết
+              KIỂM SOÁT THỦ TỤC HÀNH CHÍNH
             </h1>
-            <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-              Dữ liệu được trình bày trên bảng phân nhóm chuẩn theo từng Lĩnh vực. Bạn có thể phân cấp Đơn vị phụ trách cho 
-              <strong> toàn bộ Lĩnh vực cùng lúc</strong> hoặc điều chỉnh linh hoạt cho từng thủ tục đơn lẻ.
-            </p>
           </div>
 
           {/* Quick Header Actions */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleRefreshFields}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors"
-              title="Tải lại danh mục Lĩnh vực & Thủ tục hành chính từ Supabase"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
-              <span>Tải lại từ Supabase</span>
-            </button>
-
             <button
               type="button"
               onClick={() => downloadSampleExcelTemplate()}
@@ -448,35 +435,6 @@ export const FieldsAdminPage: React.FC = () => {
           </div>
         </div>
 
-        {/* TOP KPI OVERVIEW PILLS */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
-            <span className="text-[11px] text-slate-500 block">Tổng số Lĩnh vực</span>
-            <span className="text-lg font-extrabold text-slate-900 font-mono">{stats.totalSectors}</span>
-            <span className="text-[10px] text-slate-400 block mt-0.5">nhóm thủ tục</span>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
-            <span className="text-[11px] text-slate-500 block">Tổng số Thủ tục hành chính</span>
-            <span className="text-lg font-extrabold text-blue-600 font-mono">{stats.totalFields}</span>
-            <span className="text-[10px] text-slate-400 block mt-0.5">thủ tục trên địa bàn</span>
-          </div>
-
-          <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-150">
-            <span className="text-[11px] text-emerald-700 block">Đã phân công Đơn vị</span>
-            <span className="text-lg font-extrabold text-emerald-800 font-mono">{stats.assignedCount}</span>
-            <span className="text-[10px] text-emerald-600 block mt-0.5">
-              {stats.totalFields > 0 ? ((stats.assignedCount / stats.totalFields) * 100).toFixed(0) : 0}% danh mục
-            </span>
-          </div>
-
-          <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-150">
-            <span className="text-[11px] text-amber-800 block">Chưa phân công</span>
-            <span className="text-lg font-extrabold text-amber-900 font-mono">{stats.unassignedCount}</span>
-            <span className="text-[10px] text-amber-700 block mt-0.5">cần phân công phụ trách</span>
-          </div>
-        </div>
-
         {/* NAVIGATION TABS (Multi-Tab Interface as requested) */}
         <div className="flex items-center gap-2 border-b border-slate-200 pt-2 -mb-2">
           {/* TAB 1: Grouped Table (Primary requested view) */}
@@ -490,7 +448,7 @@ export const FieldsAdminPage: React.FC = () => {
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Bảng phân nhóm Lĩnh vực & Thủ tục</span>
+            <span>Bảng phân nhóm Lĩnh vực và Thủ tục</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
               {stats.totalFields}
             </span>
@@ -524,11 +482,7 @@ export const FieldsAdminPage: React.FC = () => {
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>Import & Đồng bộ tệp Excel</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 flex items-center gap-0.5">
-              <Sparkles className="w-2.5 h-2.5" />
-              <span>Chuẩn 11 cột</span>
-            </span>
+            <span>Import và Đồng bộ tệp Excel</span>
           </button>
         </div>
       </div>
@@ -735,7 +689,7 @@ export const FieldsAdminPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Phí & Lệ phí</label>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Phí và Lệ phí</label>
                     <input
                       type="text"
                       value={formData.phi_le_phi}
@@ -744,6 +698,19 @@ export const FieldsAdminPage: React.FC = () => {
                       placeholder="VD: Có thu phí, Không quy định, Miễn phí"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Liên kết Cổng DVC Quốc gia (Tùy chọn - Tự động tạo theo Mã TTHC nếu để trống)
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.dvc_link}
+                    onChange={(e) => setFormData({ ...formData, dvc_link: e.target.value })}
+                    className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    placeholder="https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=2.000206"
+                  />
                 </div>
               </div>
 

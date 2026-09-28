@@ -1,12 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { store } from '../../services/store';
+import { store, sortReportsByPeriodEndDesc } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
 import {
   calcChangeAbsolute,
   calcChangePercent,
   calcCompletionRate,
   calcOnTimeRate,
+  calcLateRate,
+  calcPendingLateRate,
+  calcOverdueRateQD776,
   calcOnlineRate
 } from '../../features/analysis/formulas';
 import { GitCompare, ArrowUpRight, ArrowDownRight, TrendingUp, Calendar, Filter } from 'lucide-react';
@@ -77,9 +80,9 @@ export const CompareAnalysisPage: React.FC = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [reports]);
 
-  // Filtered reports matching active Year and Month
+  // Filtered reports matching active Year and Month (Sorted newest period_end first)
   const filteredReports = useMemo(() => {
-    return reports.filter((r) => {
+    const list = reports.filter((r) => {
       const d = r.data_as_of || r.period_end || r.period_start || '';
       if (selectedYear !== 'ALL' && !d.startsWith(selectedYear)) return false;
       if (selectedMonth !== 'ALL') {
@@ -88,6 +91,7 @@ export const CompareAnalysisPage: React.FC = () => {
       }
       return true;
     });
+    return sortReportsByPeriodEndDesc(list);
   }, [reports, selectedYear, selectedMonth]);
 
   // Synchronize repAId and repBId if they fall outside filteredReports
@@ -118,6 +122,7 @@ export const CompareAnalysisPage: React.FC = () => {
     let onTime = 0;
     let late = 0;
     let pend = 0;
+    let pendLate = 0;
 
     items.forEach((s) => {
       rec += s.received_total;
@@ -128,13 +133,17 @@ export const CompareAnalysisPage: React.FC = () => {
       onTime += s.completed_on_time;
       late += s.completed_late;
       pend += s.pending_total;
+      pendLate += s.pending_late;
     });
 
     const onTimeRate = calcOnTimeRate(early, onTime, comp);
+    const compLateRate = calcLateRate(late, comp);
+    const pendLateRate = calcPendingLateRate(pendLate, pend);
+    const qd776Rate = calcOverdueRateQD776(late, pendLate, rec);
     const onlineRate = calcOnlineRate(online, offline);
     const compRate = calcCompletionRate(comp, rec);
 
-    return { rec, online, comp, late, pend, onTimeRate, onlineRate, compRate };
+    return { rec, online, comp, late, compLateRate, pend, pendLate, pendLateRate, onTimeRate, onlineRate, compRate, qd776Rate };
   };
 
   const totalsA = useMemo(() => aggregateStats(statsA), [statsA]);
@@ -151,11 +160,14 @@ export const CompareAnalysisPage: React.FC = () => {
   const diffOnlinePct = calcChangePercent(totalsA.online, totalsB.online);
 
   const diffOnTimeRate = totalsA.onTimeRate - totalsB.onTimeRate;
+  const diffQD776Rate = totalsA.qd776Rate - totalsB.qd776Rate;
 
   // Bar Chart comparison data
   const chartData = [
     { name: 'Tiếp nhận', [repA?.report_code || 'Kỳ A']: totalsA.rec, [repB?.report_code || 'Kỳ B']: totalsB.rec },
     { name: 'Đã giải quyết', [repA?.report_code || 'Kỳ A']: totalsA.comp, [repB?.report_code || 'Kỳ B']: totalsB.comp },
+    { name: 'Quá hạn đã GQ', [repA?.report_code || 'Kỳ A']: totalsA.late, [repB?.report_code || 'Kỳ B']: totalsB.late },
+    { name: 'Quá hạn đang GQ', [repA?.report_code || 'Kỳ A']: totalsA.pendLate, [repB?.report_code || 'Kỳ B']: totalsB.pendLate },
     { name: 'Trực tuyến', [repA?.report_code || 'Kỳ A']: totalsA.online, [repB?.report_code || 'Kỳ B']: totalsB.online },
     { name: 'Đang xử lý', [repA?.report_code || 'Kỳ A']: totalsA.pend, [repB?.report_code || 'Kỳ B']: totalsB.pend }
   ];
@@ -391,7 +403,7 @@ export const CompareAnalysisPage: React.FC = () => {
       </div>
 
       {/* Comparison Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Tiếp nhận */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
           <span className="text-xs font-semibold text-slate-500 uppercase">Hồ sơ Tiếp nhận</span>
@@ -471,6 +483,28 @@ export const CompareAnalysisPage: React.FC = () => {
             <span>
               {diffOnTimeRate >= 0 ? '+' : ''}
               {diffOnTimeRate.toFixed(1)}% điểm
+            </span>
+          </div>
+        </div>
+
+        {/* % Quá hạn (theo QĐ 776) */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500 uppercase">% Quá hạn (QĐ 776)</span>
+          <div className="flex items-baseline justify-between mt-2">
+            <span className={`text-xl font-black ${totalsA.qd776Rate > 2 ? 'text-rose-600' : 'text-slate-800'}`}>
+              {formatPercent(totalsA.qd776Rate)}
+            </span>
+            <span className="text-xs text-slate-400">Gốc: {formatPercent(totalsB.qd776Rate)}</span>
+          </div>
+          <div
+            className={`mt-2 flex items-center gap-1 text-xs font-bold ${
+              diffQD776Rate <= 0 ? 'text-emerald-600' : 'text-rose-600'
+            }`}
+          >
+            {diffQD776Rate > 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+            <span>
+              {diffQD776Rate >= 0 ? '+' : ''}
+              {diffQD776Rate.toFixed(1)}% điểm
             </span>
           </div>
         </div>

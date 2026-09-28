@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { store } from '../../services/store';
+import { store, RolePermissionRule } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
 import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building, UserPlus } from 'lucide-react';
 
@@ -120,40 +120,93 @@ export const UsersAdminPage: React.FC = () => {
     {
       role: 'admin',
       title: 'Quản trị viên hệ thống (Admin)',
-      description: 'Toàn quyền cấu hình danh mục Đơn vị, Lĩnh vực, Chỉ tiêu; Khóa Snapshot báo cáo; Mở khóa kỳ; Xem toàn bộ Audit Logs.',
+      description: 'Toàn quyền cấu hình hệ thống, logo, màu sắc, sắp xếp menu, kiểm soát TTHC, phân quyền RBAC, khóa Snapshot và xem Nhật ký Audit.',
       badgeColor: 'bg-rose-50 text-rose-700 border-rose-200',
     },
     {
       role: 'analyst',
       title: 'Chuyên viên Phân tích (Analyst)',
-      description: 'Xem toàn bộ số liệu, phê duyệt báo cáo, sinh phân tích nhận xét AI (Gemini), điều chỉnh báo cáo trước khi trình lãnh đạo.',
+      description: 'Xem toàn bộ số liệu, phân tích chuyên sâu (đơn vị/lĩnh vực/so sánh), đôn đốc hồ sơ, sinh phân tích AI (Gemini), xuất báo cáo và nhập liệu.',
       badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
     },
     {
       role: 'data_entry',
       title: 'Chuyên viên Nhập liệu (Data Entry)',
-      description: 'Khởi tạo kỳ báo cáo mới, tải file Excel, ánh xạ cột và lĩnh vực, trình duyệt số liệu. Không thể duyệt hoặc khóa kỳ.',
+      description: 'Khởi tạo kỳ báo cáo mới, tải file Excel, ánh xạ cột và lĩnh vực, tra cứu hồ sơ đôn đốc và nộp báo cáo. Không thể duyệt hoặc khóa kỳ.',
       badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
     },
     {
       role: 'viewer',
       title: 'Người xem / Lãnh đạo (Viewer)',
-      description: 'Chỉ đọc toàn bộ Dashboard và Báo cáo, xem biểu đồ, xuất file Excel/CSV báo cáo phục vụ hội nghị.',
+      description: 'Tra cứu, theo dõi Dashboard tổng quan, Màn hình TV Kiosk, xem báo cáo, phân tích và xuất dữ liệu Excel/CSV (Chế độ chỉ đọc).',
       badgeColor: 'bg-slate-100 text-slate-700 border-slate-200',
     },
   ];
 
-  const permissionsMatrix = [
-    { feature: 'Xem Tổng quan Dashboard & Báo cáo', admin: true, analyst: true, data_entry: true, viewer: true },
-    { feature: 'Xuất file Excel & CSV', admin: true, analyst: true, data_entry: true, viewer: true },
-    { feature: 'Khởi tạo kỳ báo cáo mới', admin: true, analyst: true, data_entry: true, viewer: false },
-    { feature: 'Nhập dữ liệu Excel & Thẩm định', admin: true, analyst: true, data_entry: true, viewer: false },
-    { feature: 'Trình duyệt báo cáo', admin: true, analyst: true, data_entry: true, viewer: false },
-    { feature: 'Phê duyệt báo cáo', admin: true, analyst: true, data_entry: false, viewer: false },
-    { feature: 'Tạo nhận xét tự động bằng AI', admin: true, analyst: true, data_entry: false, viewer: false },
-    { feature: 'Khóa Báo cáo (Tạo Snapshot bất biến)', admin: true, analyst: false, data_entry: false, viewer: false },
-    { feature: 'Quản trị Danh mục Đơn vị & Lĩnh vực', admin: true, analyst: false, data_entry: false, viewer: false },
-    { feature: 'Xem Nhật ký hệ thống (Audit Logs)', admin: true, analyst: false, data_entry: false, viewer: false },
+  const functionalGroups: Array<{
+    category: string;
+    items: Array<{
+      perm: keyof RolePermissionRule['permissions'];
+      feature: string;
+    }>;
+  }> = [
+    {
+      category: '1. Tổng quan & Kiosk TV',
+      items: [
+        { perm: 'view_dashboard', feature: 'Xem Tổng quan Dashboard & Tỷ lệ đúng hạn TT01 / QĐ766' },
+        { perm: 'view_public_dashboard', feature: 'Truy cập Màn hình TV 55" Kiosk công khai' },
+        { perm: 'customize_dashboard_layout', feature: 'Tùy biến Bố cục, Màu sắc & Biểu đồ Dashboard' },
+      ],
+    },
+    {
+      category: '2. Đôn đốc hồ sơ TTHC',
+      items: [
+        { perm: 'view_dossier_urge', feature: 'Xem danh sách Hồ sơ đôn đốc (quá hạn, sắp đến hạn)' },
+        { perm: 'manage_dossier_urge', feature: 'Xử lý đôn đốc, gửi cảnh báo & xuất phiếu đôn đốc' },
+        { perm: 'config_urge_templates', feature: 'Cấu hình Mẫu văn bản đôn đốc & Quy chuẩn cảnh báo' },
+      ],
+    },
+    {
+      category: '3. Cập nhật Báo cáo & Kho lưu trữ',
+      items: [
+        { perm: 'view_reports', feature: 'Xem Danh sách & Chi tiết Kỳ Báo cáo' },
+        { perm: 'create_reports', feature: 'Khởi tạo kỳ báo cáo thống kê mới' },
+        { perm: 'edit_reports', feature: 'Sửa số liệu & Nộp kỳ báo cáo' },
+        { perm: 'delete_reports', feature: 'Xóa kỳ báo cáo' },
+        { perm: 'import_excel', feature: 'Nhập dữ liệu Excel & Thẩm định tự động' },
+        { perm: 'lock_snapshot', feature: 'Khóa Báo cáo (Tạo Snapshot bất biến) & Mở khóa' },
+        { perm: 'view_archive', feature: 'Khai thác & Tra cứu Kho lưu trữ số liệu' },
+      ],
+    },
+    {
+      category: '4. Phân tích chuyên sâu & Trợ lý AI',
+      items: [
+        { perm: 'view_analysis_units', feature: 'Phân tích chi tiết hiệu quả theo Đơn vị giải quyết' },
+        { perm: 'view_analysis_fields', feature: 'Phân tích chi tiết theo Lĩnh vực TTHC' },
+        { perm: 'view_analysis_compare', feature: 'Phân tích so sánh biến động chỉ tiêu qua các kỳ' },
+        { perm: 'use_ai_analysis', feature: 'Tạo nhận xét & phân tích tự động bằng AI (Gemini)' },
+        { perm: 'export_data', feature: 'Xuất dữ liệu ra file Excel, CSV và PDF' },
+      ],
+    },
+    {
+      category: '5. Kiểm soát TTHC & Danh mục quản trị',
+      items: [
+        { perm: 'manage_procedures_control', feature: 'Kiểm soát TTHC & Quy trình thủ tục đơn vị' },
+        { perm: 'manage_catalogs', feature: 'Quản trị Danh mục tổng quát' },
+        { perm: 'manage_units_catalog', feature: 'Quản lý Danh mục Đơn vị giải quyết TTHC' },
+        { perm: 'manage_indicators_catalog', feature: 'Quản lý Danh mục Chỉ tiêu & Công thức tính' },
+        { perm: 'manage_period_types_catalog', feature: 'Quản lý Danh mục Loại kỳ báo cáo' },
+      ],
+    },
+    {
+      category: '6. Hệ thống, Người dùng & Bảo mật',
+      items: [
+        { perm: 'manage_users', feature: 'Quản trị Tài khoản người dùng & Phân vai trò RBAC' },
+        { perm: 'manage_system_config', feature: 'Thiết lập Tên, Logo, Thứ tự Menu & Giao diện TV' },
+        { perm: 'view_audit_logs', feature: 'Xem Nhật ký hệ thống (Audit Logs)' },
+        { perm: 'manage_database_test', feature: 'Kiểm thử & Quản trị CSDL Supabase' },
+      ],
+    },
   ];
 
   return (
@@ -164,7 +217,7 @@ export const UsersAdminPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Users className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Quản trị Người dùng & Phân quyền (RBAC / RLS)
+              Quản trị Người dùng và Phân quyền (RBAC / RLS)
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -187,7 +240,7 @@ export const UsersAdminPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            Danh sách Tài khoản & Cán bộ chuyên trách ({users.length})
+            Danh sách Tài khoản và Cán bộ chuyên trách ({users.length})
           </h3>
           <span className="text-[11px] text-slate-500">
             Đang đăng nhập với vai: <strong className="text-blue-700 uppercase">{currentUser.role}</strong>
@@ -284,56 +337,89 @@ export const UsersAdminPage: React.FC = () => {
 
       {/* Permission Matrix */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            Ma trận Phân quyền Chức năng (RBAC / RLS Matrix)
-          </h3>
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Ma trận Phân quyền Chức năng & Nhóm quyền (RBAC / RLS Matrix)
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Danh mục quyền được phân nhóm chặt chẽ theo 6 cụm chức năng và cấu trúc Menu hệ thống
+            </p>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
               <tr>
-                <th className="p-3">Tính năng & Thao tác nghiệp vụ</th>
-                <th className="p-3 text-center">Quản trị viên (Admin)</th>
-                <th className="p-3 text-center">Chuyên viên Phân tích</th>
-                <th className="p-3 text-center">Chuyên viên Nhập liệu</th>
-                <th className="p-3 text-center">Người xem (Viewer)</th>
+                <th className="p-3 w-5/12">Chức năng nghiệp vụ & Quyền hạn</th>
+                <th className="p-3 text-center w-[14%]">Quản trị viên (Admin)</th>
+                <th className="p-3 text-center w-[14%]">Chuyên viên Phân tích</th>
+                <th className="p-3 text-center w-[14%]">Chuyên viên Nhập liệu</th>
+                <th className="p-3 text-center w-[14%]">Người xem (Viewer)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {permissionsMatrix.map((row, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-medium text-slate-800">{row.feature}</td>
-                  <td className="p-3 text-center">
-                    {row.admin ? (
-                      <Check className="w-4 h-4 text-emerald-600 mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-slate-300 mx-auto" />
-                    )}
-                  </td>
-                  <td className="p-3 text-center">
-                    {row.analyst ? (
-                      <Check className="w-4 h-4 text-emerald-600 mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-slate-300 mx-auto" />
-                    )}
-                  </td>
-                  <td className="p-3 text-center">
-                    {row.data_entry ? (
-                      <Check className="w-4 h-4 text-emerald-600 mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-slate-300 mx-auto" />
-                    )}
-                  </td>
-                  <td className="p-3 text-center">
-                    {row.viewer ? (
-                      <Check className="w-4 h-4 text-emerald-600 mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-slate-300 mx-auto" />
-                    )}
-                  </td>
-                </tr>
+              {functionalGroups.map((group, groupIdx) => (
+                <React.Fragment key={groupIdx}>
+                  <tr className="bg-slate-50/90 font-bold border-y border-slate-200 text-slate-900">
+                    <td colSpan={5} className="px-3.5 py-2 font-bold text-slate-800 text-xs">
+                      {group.category}
+                    </td>
+                  </tr>
+                  {group.items.map((item, idx) => {
+                    const cfg = store.getSystemConfig();
+                    const adminRule = cfg.rolePermissions.find((r) => r.role === 'admin');
+                    const analystRule = cfg.rolePermissions.find((r) => r.role === 'analyst');
+                    const dataEntryRule = cfg.rolePermissions.find((r) => r.role === 'data_entry');
+                    const viewerRule = cfg.rolePermissions.find((r) => r.role === 'viewer');
+
+                    const permKey = item.perm as keyof RolePermissionRule['permissions'];
+                    const adminVal = adminRule?.permissions?.[permKey] ?? true;
+                    const analystVal = analystRule?.permissions?.[permKey] ?? false;
+                    const dataEntryVal = dataEntryRule?.permissions?.[permKey] ?? false;
+                    const viewerVal = viewerRule?.permissions?.[permKey] ?? false;
+
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3 pl-6 font-medium text-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                            <span>{item.feature}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-center">
+                          {adminVal ? (
+                            <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                          ) : (
+                            <X className="w-4 h-4 text-slate-300 mx-auto" />
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          {analystVal ? (
+                            <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                          ) : (
+                            <X className="w-4 h-4 text-slate-300 mx-auto" />
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          {dataEntryVal ? (
+                            <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                          ) : (
+                            <X className="w-4 h-4 text-slate-300 mx-auto" />
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          {viewerVal ? (
+                            <Check className="w-4 h-4 text-emerald-600 mx-auto" />
+                          ) : (
+                            <X className="w-4 h-4 text-slate-300 mx-auto" />
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

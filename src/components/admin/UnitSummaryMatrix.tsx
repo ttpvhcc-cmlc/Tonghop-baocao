@@ -105,47 +105,6 @@ export const UnitSummaryMatrix: React.FC<UnitSummaryMatrixProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* OVERVIEW HEADER */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-blue-600" />
-            Ma trận phân bổ Thủ tục hành chính theo Đơn vị giải quyết
-          </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Tổng cộng: <strong className="text-slate-800">{unitStats.totalFieldsCount}</strong> thủ tục trên địa bàn xã/phường được phân bổ cho{' '}
-            <strong className="text-slate-800">{units.length}</strong> đơn vị chủ trì.
-          </p>
-        </div>
-
-        {unitStats.unassigned.fieldsCount > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <div className="text-xs">
-              <span className="font-bold text-amber-900">
-                Có {unitStats.unassigned.fieldsCount} thủ tục chưa được phân công đơn vị!
-              </span>
-              <p className="text-amber-700 text-[11px] mt-0.5">
-                Vui lòng phân bổ cho đơn vị phụ trách để đảm bảo theo dõi tiến độ báo cáo.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                setSelectedUnitForTransfer({
-                  unitId: null,
-                  unitName: 'Chưa phân công',
-                  count: unitStats.unassigned.fieldsCount,
-                })
-              }
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs transition-colors"
-            >
-              Gán nhanh
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* UNIT CARDS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {unitStats.unitsData.map((stat) => {
@@ -160,9 +119,6 @@ export const UnitSummaryMatrix: React.FC<UnitSummaryMatrixProps> = ({
               <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-start justify-between">
                   <div>
-                    <span className="inline-block font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 mb-1.5">
-                      Mã: {stat.unit.code}
-                    </span>
                     <h4 className="text-sm font-bold text-slate-900 leading-tight">
                       {stat.unit.name}
                     </h4>
@@ -189,9 +145,6 @@ export const UnitSummaryMatrix: React.FC<UnitSummaryMatrixProps> = ({
                   <div className="flex items-baseline justify-between text-xs mb-1">
                     <span className="font-extrabold text-lg text-slate-900">
                       {stat.fieldsCount} <span className="text-xs font-normal text-slate-500">thủ tục</span>
-                    </span>
-                    <span className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
-                      {stat.percentage}% toàn xã
                     </span>
                   </div>
                   <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">

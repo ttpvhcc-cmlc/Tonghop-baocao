@@ -213,7 +213,7 @@ export const UnitsAdminPage: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="VD: Văn phòng HĐND & UBND"
+                  placeholder="VD: Văn phòng HĐND và UBND"
                 />
               </div>
 

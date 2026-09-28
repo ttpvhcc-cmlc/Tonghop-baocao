@@ -32,6 +32,20 @@ export interface Unit {
   updated_at?: string;
 }
 
+// 2b. report_period_types
+export interface ReportPeriodType {
+  id: string;
+  code: string;
+  name: string;
+  frequency: string;
+  description?: string;
+  display_order: number;
+  active: boolean;
+  deadline_days?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // 3. fields (Each FIELD belongs to at most ONE UNIT, nullable before assignment)
 export interface Field {
   id: string;
@@ -52,6 +66,7 @@ export interface Field {
   muc_do_cung_cap?: string;
   phi_le_phi?: string;
   linh_vuc?: string;
+  dvc_link?: string;
 }
 
 // 4. reports (Central report table)
@@ -159,6 +174,9 @@ export interface IndicatorDefinition {
   description?: string;
   calculation_key?: string;
   formula_key?: string; // alias
+  custom_formula?: string; // e.g. ([completed_early] + [completed_on_time]) / [completed_total] * 100
+  formula_type?: 'preset' | 'custom';
+  data_fields?: string[]; // list of used field keys
   unit?: string;
   unit_measure?: string; // alias
   display_order?: number;

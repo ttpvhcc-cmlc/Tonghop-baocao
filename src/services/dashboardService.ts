@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Unit, Field, ReportingPeriod, ReportSource, ReportStatistic } from '../types/database';
-import { deduplicateById } from './store';
+import { deduplicateById, sortReportsByPeriodEndDesc } from './store';
 
 export interface MathValidationReport {
   formula1Passed: boolean; // received_total = online + offline + forward
@@ -101,11 +101,11 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
   }
 
   try {
-    // 1. Fetch Reports from Supabase
+    // 1. Fetch Reports from Supabase (Sorted newest period_end first)
     const reportsRes = await supabase
       .from('reports')
       .select('*')
-      .order('period_start', { ascending: false });
+      .order('period_end', { ascending: false });
 
     if (reportsRes.error) {
       if (reportsRes.error.code === 'PGRST205' || reportsRes.error.message.includes('schema cache')) {
@@ -130,7 +130,7 @@ export async function fetchLiveDashboardData(selectedReportId?: string): Promise
     const dbReports: ReportingPeriod[] = Array.from(
       new Map((reportsRes.data || []).map((r: any) => [r.id, r])).values()
     );
-    const reports = deduplicateById(dbReports);
+    const reports = sortReportsByPeriodEndDesc(deduplicateById(dbReports));
 
     const activeReport = selectedReportId
       ? reports.find((r) => r.id === selectedReportId) || reports[0] || null

@@ -314,7 +314,7 @@ async function startServer() {
     }
   });
 
-  // Helper to generate comprehensive rule-based analysis
+  // Helper to generate comprehensive rule-based analysis following the 4-part exemplar template
   function generateFallbackAnalysis(
     reportName: string,
     period: string,
@@ -322,51 +322,82 @@ async function startServer() {
     promptScope: string
   ): string {
     const totals = metricsSummary?.totals || {};
+    const prev = metricsSummary?.previousPeriodSummary;
+    const urge = metricsSummary?.urgeSummary;
     const unitBreakdown: any[] = metricsSummary?.unitBreakdown || [];
+    const fieldBreakdown: any[] = metricsSummary?.fieldBreakdown || [];
     const notableWarnings: string[] = metricsSummary?.notableWarnings || [];
 
     const rec = Number(totals.received || 0);
     const online = Number(totals.online || 0);
+    const offline = Number(totals.offline || (rec - online > 0 ? rec - online : 0));
+    const carried = Number(totals.carried || 0);
     const onlineRate = totals.onlineRate || (rec > 0 ? ((online / rec) * 100).toFixed(1) : "0.0");
     const comp = Number(totals.completed || 0);
     const compRate = totals.completionRate || (rec > 0 ? ((comp / rec) * 100).toFixed(1) : "0.0");
-    const onTimeRate = totals.onTimeRate || "100.0";
+    const ahead = Number(totals.aheadOfTime || 0);
+    const onTime = Number(totals.onTime || comp);
     const late = Number(totals.late || 0);
+    const onTimeRate = totals.onTimeRate || (comp > 0 ? (((comp - late) / comp) * 100).toFixed(1) : "100.0");
     const pending = Number(totals.pending || 0);
+    const pendingOnTime = Number(totals.pendingOnTime || pending);
     const pendingLate = Number(totals.pendingLate || 0);
 
     const sortedByLate = [...unitBreakdown].sort((a, b) => Number(b.late || 0) - Number(a.late || 0));
     const highLateUnit = sortedByLate[0];
     const sortedByRec = [...unitBreakdown].sort((a, b) => Number(b.received || 0) - Number(a.received || 0));
     const topUnit = sortedByRec[0];
+    const sortedFields = [...fieldBreakdown].sort((a, b) => Number(b.received || 0) - Number(a.received || 0));
+    const topField = sortedFields[0];
 
-    return `I. ĐÁNH GIÁ KHÁI QUÁT KẾT QUẢ ĐẠT ĐƯỢC
-- Trong kỳ báo cáo (${period || "kỳ này"}), toàn hệ thống đã tiếp nhận tổng số ${rec.toLocaleString("vi-VN")} hồ sơ TTHC, trong đó hình thức nộp trực tuyến đạt ${online.toLocaleString("vi-VN")} hồ sơ (chiếm tỷ lệ ${onlineRate}%).
-- Khối lượng hồ sơ đã hoàn thành giải quyết là ${comp.toLocaleString("vi-VN")} hồ sơ (đạt tỷ lệ giải quyết ${compRate}% so với tổng tiếp nhận).
-- Tỷ lệ giải quyết hồ sơ đúng hạn và trước hạn đạt ${onTimeRate}%, cho thấy tinh thần trách nhiệm và tính kỷ luật hành chính cao của các bộ phận chuyên môn.
+    // Previous period evaluation
+    let comparisonText = "";
+    if (prev && prev.received !== undefined) {
+      const recDeltaStr = (prev.deltaReceived || 0) >= 0 ? `tăng ${Math.abs(prev.deltaReceived || 0).toLocaleString("vi-VN")} hồ sơ` : `giảm ${Math.abs(prev.deltaReceived || 0).toLocaleString("vi-VN")} hồ sơ`;
+      const recDeltaPctStr = prev.deltaReceivedPercent !== undefined ? ` (${prev.deltaReceivedPercent >= 0 ? "+" : ""}${prev.deltaReceivedPercent.toFixed(1)}%)` : "";
+      const onlineDeltaStr = (prev.deltaOnlineRate || 0) >= 0 ? `tăng ${(prev.deltaOnlineRate || 0).toFixed(1)} điểm %` : `giảm ${Math.abs(prev.deltaOnlineRate || 0).toFixed(1)} điểm %`;
+      const onTimeDeltaStr = (prev.deltaOnTimeRate || 0) >= 0 ? `tăng ${(prev.deltaOnTimeRate || 0).toFixed(1)} điểm %` : `giảm ${Math.abs(prev.deltaOnTimeRate || 0).toFixed(1)} điểm %`;
+      const lateDeltaStr = (prev.deltaLate || 0) <= 0 ? `giảm ${Math.abs(prev.deltaLate || 0).toLocaleString("vi-VN")} hồ sơ (chuyển biến tích cực)` : `tăng ${(prev.deltaLate || 0).toLocaleString("vi-VN")} hồ sơ (cần chấn chỉnh)`;
 
-II. TỒN TẠI, HẠN CHẾ VÀ ĐIỂM NGHẼN
-${
-  late > 0 && highLateUnit && highLateUnit.late > 0
-    ? `- Về hồ sơ trễ hạn: Toàn hệ thống phát sinh ${late.toLocaleString("vi-VN")} hồ sơ quá hạn, tập trung chủ yếu tại đơn vị ${highLateUnit.unitName} (${highLateUnit.late} hồ sơ).`
-    : `- Về cơ bản, các đơn vị giải quyết hồ sơ đúng hạn, không để xảy ra tình trạng trễ hạn kéo dài hoặc gây phiền hà cho người dân.`
-}
-${
-  notableWarnings.length > 0
-    ? `- Cảnh báo chênh lệch/sai lệch số liệu đối soát: ${notableWarnings.join("; ")}.`
-    : ""
-}
-- Tình hình hồ sơ đang xử lý (tồn đọng): Còn ${pending.toLocaleString("vi-VN")} hồ sơ đang giải quyết trong hạn và ${pendingLate.toLocaleString("vi-VN")} hồ sơ đang giải quyết quá hạn cần tập trung đôn đốc.
+      comparisonText = `\n- Đánh giá so với kỳ trước (${prev.period || prev.reportName || "kỳ liền kề"}): Khối lượng tiếp nhận ${recDeltaStr}${recDeltaPctStr}; Tỷ lệ hồ sơ trực tuyến ${onlineDeltaStr}; Tỷ lệ giải quyết đúng hạn ${onTimeDeltaStr}; Số hồ sơ quá hạn ${lateDeltaStr}. Nhìn chung ${prev.comparisonAssessment || "chất lượng phục vụ tiếp tục duy trì ổn định"}.`;
+    }
 
-III. NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM
-1. Biểu dương ${topUnit?.unitName || "các đơn vị dẫn đầu"} đã xử lý khối lượng lớn hồ sơ kịp thời; tiếp tục đẩy mạnh số hóa quy trình và khuyến khích người dân nộp hồ sơ dịch vụ công trực tuyến toàn trình.
-2. Đề nghị lãnh đạo các phòng ban/đơn vị có hồ sơ quá hạn khẩn trương rà soát từng khâu thẩm định, xác định rõ nguyên nhân, trách nhiệm cá nhân và thực hiện quy trình xin lỗi người dân theo đúng quy định.
-3. Thường xuyên đối soát và chuẩn hóa danh mục Lĩnh vực TTHC giữa 2 hệ thống (Hệ thống các Bộ và Hệ thống thành phố) nhằm đảm bảo số liệu báo cáo luôn nhất quán, chính xác.`;
+    // Urge metrics evaluation
+    let urgeText = "";
+    if (urge && urge.totalUrges !== undefined) {
+      const topUrgedUnitStr = urge.topUrgedUnits && urge.topUrgedUnits.length > 0
+        ? ` Đơn vị phát sinh nhiều lượt đôn đốc nhất là ${urge.topUrgedUnits[0].unitName} (${urge.topUrgedUnits[0].count} lượt).`
+        : "";
+      urgeText = `\n- Công tác đôn đốc và giám sát tiến độ giải quyết: Trong kỳ báo cáo, Bộ phận Tiếp nhận và Trả kết quả đã ghi nhận và phát hành ${Number(urge.totalUrges).toLocaleString("vi-VN")} lượt đôn đốc đối với ${Number(urge.uniqueUrgedDossiers).toLocaleString("vi-VN")} hồ sơ.${urge.multipleUrges > 0 ? ` Có ${urge.multipleUrges} hồ sơ bị đôn đốc nhiều lần (≥ 2 lần) cần chỉ đạo xử lý khẩn cấp.` : " Không có hồ sơ nào bị đôn đốc từ 2 lần trở lên."} Đã giải quyết hoàn tất ${urge.resolvedUrges} lượt đôn đốc (đạt ${(urge.urgeResolutionRate || 100).toFixed(1)}%), hiện còn ${Number(urge.inProgressUrges || 0) + Number(urge.pendingUrges || 0)} lượt đang được theo dõi xử lý.${topUrgedUnitStr}`;
+    }
+
+    return `I. ĐÁNH GIÁ TỔNG QUÁT TÌNH HÌNH TIẾP NHẬN VÀ GIẢI QUYẾT TTHC
+- Khái quát tình hình tiếp nhận: Trong kỳ báo cáo (${period || "kỳ này"}), toàn hệ thống đã tiếp nhận tổng số ${rec.toLocaleString("vi-VN")} hồ sơ TTHC (bao gồm: trực tuyến ${online.toLocaleString("vi-VN")} hồ sơ, đạt tỷ lệ ${onlineRate}%; trực tiếp và bưu chính ${offline.toLocaleString("vi-VN")} hồ sơ; tồn đọng từ kỳ trước chuyển qua ${carried.toLocaleString("vi-VN")} hồ sơ).
+- Kết quả giải quyết: Đã hoàn thành giải quyết ${comp.toLocaleString("vi-VN")} hồ sơ (đạt tỷ lệ giải quyết ${compRate}%), trong đó giải quyết Trước hạn ${ahead.toLocaleString("vi-VN")} hồ sơ, Đúng hạn ${onTime.toLocaleString("vi-VN")} hồ sơ, Quá hạn ${late.toLocaleString("vi-VN")} hồ sơ.
+- Đánh giá chất lượng phục vụ: Tỷ lệ giải quyết đúng và trước hạn toàn hệ thống đạt ${onTimeRate}%, phản ánh sự nỗ lực, trách nhiệm và tính chủ động của các cơ quan, đơn vị trong công tác phục vụ người dân, doanh nghiệp.
+- Tình hình hồ sơ đang xử lý: Hiện có ${pending.toLocaleString("vi-VN")} hồ sơ đang trong quy trình giải quyết (trong đó trong hạn: ${pendingOnTime.toLocaleString("vi-VN")} hồ sơ; quá hạn đang xử lý: ${pendingLate.toLocaleString("vi-VN")} hồ sơ).${comparisonText}${urgeText}
+
+II. KẾT QUẢ NỔI BẬT THEO CÁC ĐƠN VỊ VÀ LĨNH VỰC
+- Về đơn vị giải quyết: ${topUnit ? `Đơn vị ${topUnit.unitName} có khối lượng tiếp nhận lớn nhất với ${Number(topUnit.received).toLocaleString("vi-VN")} hồ sơ, tỷ lệ đúng hạn đạt ${topUnit.onTimeRate}%.` : "Các phòng ban, đơn vị triển khai thực hiện đồng bộ, đáp ứng nhu cầu giải quyết TTHC của tổ chức, cá nhân."}
+- Về lĩnh vực TTHC: ${topField ? `Lĩnh vực "${topField.fieldName}" chiếm tỷ trọng phát sinh hồ sơ cao nhất (${Number(topField.received).toLocaleString("vi-VN")} hồ sơ, đạt tỷ lệ đúng hạn ${topField.onTimeRate}%).` : "Các lĩnh vực TTHC được phân bổ và xử lý theo đúng quy trình chuyên môn."}
+
+III. TỒN TẠI, HẠN CHẾ, ĐIỂM NGHẼN VÀ NGUY CƠ CHẬM TRỄ
+- Vấn đề hồ sơ trễ hạn và quá hạn: ${late > 0 && highLateUnit && highLateUnit.late > 0 ? `Toàn hệ thống phát sinh ${late.toLocaleString("vi-VN")} hồ sơ quá hạn, tập trung chủ yếu tại đơn vị ${highLateUnit.unitName} (${highLateUnit.late} hồ sơ). Cần khẩn trương làm rõ nguyên nhân để khắc phục dứt điểm.` : "Về cơ bản, các đơn vị giải quyết hồ sơ đúng hạn, không để xảy ra tình trạng trễ hạn kéo dài hoặc gây phiền hà cho người dân."}
+- Tỷ lệ dịch vụ công trực tuyến: Tỷ lệ nộp hồ sơ trực tuyến đạt ${onlineRate}%, cần tiếp tục đẩy mạnh công tác tuyên truyền và nâng cao tỷ lệ hồ sơ toàn trình.
+${urge && urge.multipleUrges > 0 ? `- Vấn đề đôn đốc hồ sơ chậm muộn: Phát hiện ${urge.multipleUrges} hồ sơ bị người dân/cán bộ đôn đốc từ 2 lần trở lên chưa hoàn tất, gây ảnh hưởng đến mức độ hài lòng.` : ""}
+${notableWarnings.length > 0 ? `- Cảnh báo chênh lệch và đối soát dữ liệu: ${notableWarnings.join("; ")}.` : ""}
+
+IV. PHƯƠNG HƯỚNG, NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM KỲ TỚI
+1. Tiếp tục duy trì và nâng cao tỷ lệ giải quyết hồ sơ đúng và trước hạn, phấn đấu đạt trên 98% trên tất cả các lĩnh vực.
+2. Yêu cầu thủ trưởng các phòng ban, đơn vị có hồ sơ quá hạn và các hồ sơ có phát sinh đôn đốc nhiều lần khẩn trương rà soát từng bước quy trình, xác định rõ trách nhiệm cá nhân, chấn chỉnh ngay công tác thẩm định và thực hiện nghiêm túc việc gửi văn bản/thư xin lỗi người dân theo đúng quy định.
+3. Đẩy mạnh công tác tuyên truyền, hỗ trợ người dân và doanh nghiệp nộp hồ sơ dịch vụ công trực tuyến toàn trình, tăng cường số hóa hồ sơ và tái sử dụng dữ liệu điện tử.
+4. Tăng cường theo dõi sát sao bảng điều khiển Đôn đốc hồ sơ, bảo đảm 100% phiếu đôn đốc được các phòng ban chuyên môn tiếp nhận và xử lý dứt điểm trong vòng 24 giờ.
+5. Thường xuyên kiểm tra, đối soát và chuẩn hóa danh mục Lĩnh vực TTHC giữa 2 hệ thống nguồn nhằm bảo đảm số liệu thống kê luôn chính xác, khách quan và minh bạch.`;
   }
 
   // Server-side Gemini AI Analysis Route with robust retry, model fallback & rule-engine fallback
   app.post("/api/gemini/generate-analysis", async (req, res) => {
-    const { reportName, period, metricsSummary, promptScope } = req.body;
+    const { reportName, period, metricsSummary, promptScope, exemplarTemplate } = req.body;
 
     if (!metricsSummary) {
       return res.status(400).json({ error: "Missing metricsSummary in request body" });
@@ -393,29 +424,54 @@ III. NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM
       },
     });
 
-    const systemInstruction = `Bạn là chuyên gia phân tích số liệu hành chính công cao cấp của Văn phòng UBND.
-Nhiệm vụ của bạn là đưa ra nhận xét, đánh giá chuyên môn chính xác về tình hình tiếp nhận và giải quyết thủ tục hành chính (TTHC) dựa trên số liệu tính toán được cung cấp.
+    const systemInstruction = `Bạn là chuyên gia phân tích số liệu hành chính công cao cấp của Văn phòng UBND và Tổ công tác Cải cách TTHC.
+Nhiệm vụ của bạn là học theo MẪU BÁO CÁO ĐÁNH GIÁ (EXEMPLAR_TEMPLATE), đưa ra nhận xét, đánh giá chuyên môn sâu sắc, chính xác về tình hình tiếp nhận và giải quyết thủ tục hành chính (TTHC) dựa trên số liệu chi tiết (METRICS_DATA) được cung cấp.
 
 QUY TẮC BẮT BUỘC:
-1. CHỈ SỬ DỤNG số liệu được cung cấp trong phần METRICS_DATA.
-2. TUYỆT ĐỐI KHÔNG tự tạo ra số liệu mới hoặc suy diễn các số không có trong dữ liệu.
-3. TUYỆT ĐỐI KHÔNG sửa đổi các chỉ số tính toán.
-4. KHÔNG suy đoán nguyên nhân chủ quan nếu trong dữ liệu không thể hiện.
-5. Định dạng đầu ra gồm 3 mục rõ ràng:
-   I. ĐÁNH GIÁ KHÁI QUÁT KẾT QUẢ ĐẠT ĐƯỢC (tỷ lệ giải quyết, tỷ lệ đúng hạn/trước hạn, tỷ lệ nộp hồ sơ trực tuyến).
-   II. TỒN TẠI, HẠN CHẾ VÀ ĐIỂM NGHẼN (lĩnh vực/đơn vị có hồ sơ quá hạn, mất cân đối số liệu, hoặc tồn đọng cao).
-   III. ĐỀ XUẤT NHIỆM VỤ TRỌNG TÂM KỲ TỚI (chỉ đạo cụ thể cho các đơn vị).
-6. Sử dụng văn phong hành chính nhà nước Việt Nam, trang trọng, cô đọng, khúc chiết.`;
+1. HỌC THEO CẤU TRÚC, VĂN PHONG VÀ BỐ CỤC 4 PHẦN CỦA MẪU CHUẨN:
+   I. ĐÁNH GIÁ TỔNG QUÁT TÌNH HÌNH TIẾP NHẬN VÀ GIẢI QUYẾT TTHC
+   II. KẾT QUẢ NỔI BẬT THEO CÁC ĐƠN VỊ VÀ LĨNH VỰC
+   III. TỒN TẠI, HẠN CHẾ, ĐIỂM NGHẼN VÀ NGUY CƠ CHẬM TRỄ
+   IV. PHƯƠNG HƯỚNG, NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM KỲ TỚI
+2. CHỈ SỬ DỤNG số liệu có trong phần METRICS_DATA, thay thế các chỉ số [Số liệu] trong mẫu bằng số liệu thực tế đã tính toán.
+3. TUYỆT ĐỐI KHÔNG tự bịa hoặc suy diễn các số không có trong METRICS_DATA.
+4. Trích dẫn đầy đủ: Tỷ lệ đúng hạn, tỷ lệ nộp trực tuyến, số lượng trước hạn, đúng hạn, quá hạn, hồ sơ đang xử lý, đơn vị/lĩnh vực có kết quả tốt nhất và đơn vị có hồ sơ quá hạn.
+5. Sử dụng văn phong hành chính công Việt Nam: chuẩn mực, trang trọng, khúc chiết, mang tính chỉ đạo điều hành thực tiễn.`;
 
-    const prompt = `Hãy phân tích tình hình tiếp nhận và giải quyết TTHC cho báo cáo sau:
-Tên báo cáo: ${reportName || "Báo cáo kỳ"}
-Thời gian: ${period || "Kỳ báo cáo"}
-Phạm vi đánh giá: ${promptScope || "Toàn diện hệ thống"}
+    const prompt = `Hãy học theo MẪU NHẬN XÉT ĐÁNH GIÁ dưới đây và phân tích dữ liệu số liệu TTHC được cung cấp để tạo ra báo cáo đánh giá hoàn chỉnh:
 
-METRICS_DATA:
+MẪU NHẬN XÉT CHUẨN (EXEMPLAR_TEMPLATE):
+${exemplarTemplate || `I. ĐÁNH GIÁ TỔNG QUÁT TÌNH HÌNH TIẾP NHẬN VÀ GIẢI QUYẾT TTHC
+- Khái quát tình hình tiếp nhận: Trong kỳ báo cáo, toàn hệ thống đã tiếp nhận tổng số [Tổng tiếp nhận] hồ sơ TTHC (bao gồm: trực tuyến [Số hồ sơ trực tuyến] hồ sơ, đạt tỷ lệ [Tỷ lệ trực tuyến]%; trực tiếp và bưu chính [Số hồ sơ trực tiếp] hồ sơ; tồn đọng từ kỳ trước chuyển qua [Số hồ sơ kỳ trước] hồ sơ).
+- Kết quả giải quyết: Đã hoàn thành giải quyết [Tổng số đã giải quyết] hồ sơ (đạt tỷ lệ giải quyết [Tỷ lệ hoàn thành]%), trong đó giải quyết Trước hạn [Số hồ sơ trước hạn] hồ sơ, Đúng hạn [Số hồ sơ đúng hạn] hồ sơ, Quá hạn [Số hồ sơ quá hạn] hồ sơ.
+- Đánh giá chất lượng phục vụ: Tỷ lệ giải quyết đúng và trước hạn toàn hệ thống đạt [Tỷ lệ đúng hạn]%, phản ánh sự nỗ lực, trách nhiệm và tính chủ động của các cơ quan, đơn vị trong công tác phục vụ người dân, doanh nghiệp.
+- Tình hình hồ sơ đang xử lý: Hiện có [Tổng số đang giải quyết] hồ sơ đang trong quy trình giải quyết (trong đó trong hạn: [Số hồ sơ trong hạn] hồ sơ; quá hạn đang xử lý: [Số hồ sơ quá hạn đang xử lý] hồ sơ).
+
+II. KẾT QUẢ NỔI BẬT THEO CÁC ĐƠN VỊ VÀ LĨNH VỰC
+- Về đơn vị giải quyết: [Nêu các đơn vị có khối lượng tiếp nhận lớn, tỷ lệ giải quyết đúng hạn đạt 100% hoặc có tỷ lệ hồ sơ nộp trực tuyến cao vượt bậc].
+- Về lĩnh vực TTHC: [Nêu các lĩnh vực TTHC chiếm tỷ trọng hồ sơ phát sinh cao nhất và các lĩnh vực đạt hiệu suất xử lý tốt].
+
+III. TỒN TẠI, HẠN CHẾ, ĐIỂM NGHẼN VÀ NGUY CƠ CHẬM TRỄ
+- Vấn đề hồ sơ trễ hạn và quá hạn: [Chỉ rõ các đơn vị, lĩnh vực còn hồ sơ giải quyết quá hạn hoặc hồ sơ đang tồn đọng quá hạn chưa hoàn thành].
+- Tỷ lệ dịch vụ công trực tuyến: [Phân tích các lĩnh vực/đơn vị còn tỷ lệ nộp trực tuyến thấp, cần đẩy mạnh tuyên truyền, hướng dẫn].
+- Cảnh báo chênh lệch và đồng bộ dữ liệu: [Nêu cảnh báo về tính đồng nhất số liệu giữa Hệ thống các Bộ và Hệ thống thành phố nếu có chênh lệch].
+
+IV. PHƯƠNG HƯỚNG, NHIỆM VỤ VÀ GIẢI PHÁP CHỈ ĐẠO TRỌNG TÂM KỲ TỚI
+1. Tiếp tục duy trì và nâng cao tỷ lệ giải quyết hồ sơ đúng và trước hạn, phấn đấu đạt trên 98% trên tất cả các lĩnh vực.
+2. Yêu cầu thủ trưởng các phòng ban, đơn vị có hồ sơ quá hạn khẩn trương rà soát từng bước quy trình, xác định rõ trách nhiệm cá nhân, chấn chỉnh ngay công tác thẩm định và thực hiện nghiêm túc việc gửi văn bản/thư xin lỗi người dân theo đúng quy định.
+3. Đẩy mạnh công tác tuyên truyền, hỗ trợ người dân và doanh nghiệp nộp hồ sơ dịch vụ công trực tuyến toàn trình, tăng cường số hóa hồ sơ và tái sử dụng dữ liệu điện tử.
+4. Thường xuyên kiểm tra, đối soát và chuẩn hóa danh mục Lĩnh vực TTHC giữa 2 hệ thống nguồn nhằm bảo đảm số liệu thống kê luôn chính xác, khách quan và minh bạch.`}
+
+---
+THÔNG TIN KỲ BÁO CÁO:
+- Tên báo cáo: ${reportName || "Báo cáo thống kê TTHC"}
+- Thời gian: ${period || "Kỳ báo cáo"}
+- Phạm vi đánh giá: ${promptScope || "Toàn diện hệ thống"}
+
+DỮ LIỆU ĐẦY ĐỦ (METRICS_DATA):
 ${JSON.stringify(metricsSummary, null, 2)}
 
-Hãy xuất nhận xét phân tích sắc bén, nêu bật các chỉ số quan trọng, đơn vị làm tốt và các điểm nghẽn cần chỉ đạo xử lý.`;
+Hãy xuất nhận xét phân tích hoàn chỉnh theo đúng 4 phần chuẩn trên.`;
 
     // Try primary and fallback models with retry logic for 503/429
     const candidateModels = ["gemini-3.8-flash", "gemini-3.1-flash-lite"];

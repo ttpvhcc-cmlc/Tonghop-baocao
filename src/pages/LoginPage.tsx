@@ -129,7 +129,7 @@ export const LoginPage: React.FC = () => {
       case 'emerald':
         return 'bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-950';
       case 'crimson':
-        return 'bg-gradient-to-br from-stone-950 via-red-950 to-rose-950';
+        return 'bg-gradient-to-br from-stone-950 via-stone-900 to-zinc-900';
       case 'slate':
         return 'bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900';
       case 'dark':
@@ -299,19 +299,19 @@ export const LoginPage: React.FC = () => {
 
             {/* Error & Warning Notification */}
             {errorMessage && (
-              <div className="mb-5 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2.5 animate-fade-in">
+              <div className="mb-5 p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 space-y-2.5 animate-fade-in">
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
                   <div className="text-xs leading-relaxed flex-1">
                     {errorMessage.includes('Email not confirmed') ? (
                       <div className="space-y-2">
-                        <p className="font-bold text-rose-900">
+                        <p className="font-bold text-slate-900">
                           Tài khoản chưa được kích hoạt Email trong Supabase
                         </p>
                         <p className="text-[11px] text-slate-700 leading-normal">
                           Supabase đang bật chế độ bắt buộc xác thực email đăng ký. Bạn có thể giải quyết nhanh:
                         </p>
-                        <div className="p-2.5 bg-white rounded-lg border border-rose-100 text-[10.5px] text-slate-700 space-y-1.5">
+                        <div className="p-2.5 bg-white rounded-lg border border-slate-100 text-[10.5px] text-slate-700 space-y-1.5">
                           <p>
                             <strong>👉 Cách 1:</strong> Vào <strong>Supabase Dashboard</strong> &gt; <strong>Authentication</strong> &gt; <strong>Providers</strong> &gt; <strong>Email</strong> &gt; Tắt mục <strong>"Confirm email"</strong> để cho phép đăng nhập ngay.
                           </p>
@@ -321,18 +321,18 @@ export const LoginPage: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <p className="font-semibold text-rose-900">{errorMessage}</p>
+                      <p className="font-semibold text-slate-900">{errorMessage}</p>
                     )}
                   </div>
                 </div>
 
                 {errorMessage.includes('Email not confirmed') && (
-                  <div className="pt-1 border-t border-rose-100 flex flex-col gap-1.5">
+                  <div className="pt-1 border-t border-slate-100 flex flex-col gap-1.5">
                     <button
                       type="button"
                       disabled={resendStatus === 'busy'}
                       onClick={handleResendActivation}
-                      className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="w-full py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
                       {resendStatus === 'busy' ? (
                         <>
@@ -345,7 +345,7 @@ export const LoginPage: React.FC = () => {
                     </button>
                     {resendMessage && (
                       <p className={`text-[11px] font-bold text-center ${
-                        resendStatus === 'success' ? 'text-emerald-700' : 'text-rose-700'
+                        resendStatus === 'success' ? 'text-emerald-700' : 'text-slate-700'
                       }`}>
                         {resendMessage}
                       </p>
@@ -360,7 +360,7 @@ export const LoginPage: React.FC = () => {
               {/* Email Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Email công vụ <span className="text-rose-600">*</span>
+                  Email công vụ <span className="text-slate-600">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -380,7 +380,7 @@ export const LoginPage: React.FC = () => {
               {/* Password Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Mật khẩu <span className="text-rose-600">*</span>
+                  Mật khẩu <span className="text-slate-600">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">

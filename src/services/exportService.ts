@@ -25,11 +25,13 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
     'Trước hạn (8)',
     'Đúng hạn (9)',
     'Quá hạn (10)',
-    'Tổng đang giải quyết (11)',
-    'Trong hạn (12)',
-    'Quá hạn (13)',
-    'Tỷ lệ đúng hạn (%)',
-    'Tỷ lệ trực tuyến (%)',
+    '% Quá hạn (11)',
+    'Tổng đang giải quyết (12)',
+    'Trong hạn (13)',
+    'Quá hạn (14)',
+    '% Quá hạn (15)',
+    '% Quá hạn (theo QĐ 776) (16)',
+    'Tỷ lệ trực tuyến (%) (17)',
     'Ghi chú',
   ];
 
@@ -72,13 +74,21 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
     const sourceName = srcObj?.source_name || s.source_id;
     const linhVuc = resolveLinhVuc(s.field_name_snapshot || s.field_name || '', s.field_id, fields);
 
-    const onTimeRate = s.completed_total > 0
-      ? (((s.completed_early + s.completed_on_time) / s.completed_total) * 100).toFixed(1) + '%'
-      : '100%';
+    const compLateRate = s.completed_total > 0
+      ? ((s.completed_late / s.completed_total) * 100).toFixed(2) + '%'
+      : '0.00%';
+
+    const pendLateRate = s.pending_total > 0
+      ? ((s.pending_late / s.pending_total) * 100).toFixed(2) + '%'
+      : '0.00%';
+
+    const qd776Rate = s.received_total > 0
+      ? (((s.completed_late + s.pending_late) / s.received_total) * 100).toFixed(2) + '%'
+      : '0.00%';
 
     const onlineRate = (s.received_online + s.received_offline) > 0
-      ? ((s.received_online / (s.received_online + s.received_offline)) * 100).toFixed(1) + '%'
-      : '0%';
+      ? ((s.received_online / (s.received_online + s.received_offline)) * 100).toFixed(2) + '%'
+      : '0.00%';
 
     rows.push([
       idx + 1,
@@ -93,23 +103,33 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
       s.completed_early,
       s.completed_on_time,
       s.completed_late,
+      compLateRate,
       s.pending_total,
       s.pending_on_time,
       s.pending_late,
-      onTimeRate,
+      pendLateRate,
+      qd776Rate,
       onlineRate,
       s.notes || '',
     ]);
   });
 
-  // Calculate overall dynamic total row (KHÔNG PHẢI RAW ROW!)
-  const totalOnTimeRate = sumCompTotal > 0
-    ? (((sumCompEarly + sumCompOnTime) / sumCompTotal) * 100).toFixed(1) + '%'
-    : '100%';
+  // Calculate overall dynamic total row
+  const totalCompLateRate = sumCompTotal > 0
+    ? ((sumCompLate / sumCompTotal) * 100).toFixed(2) + '%'
+    : '0.00%';
+
+  const totalPendLateRate = sumPendTotal > 0
+    ? ((sumPendLate / sumPendTotal) * 100).toFixed(2) + '%'
+    : '0.00%';
+
+  const totalQD776Rate = sumRecTotal > 0
+    ? (((sumCompLate + sumPendLate) / sumRecTotal) * 100).toFixed(2) + '%'
+    : '0.00%';
 
   const totalOnlineRate = (sumRecOnline + sumRecOffline) > 0
-    ? ((sumRecOnline / (sumRecOnline + sumRecOffline)) * 100).toFixed(1) + '%'
-    : '0%';
+    ? ((sumRecOnline / (sumRecOnline + sumRecOffline)) * 100).toFixed(2) + '%'
+    : '0.00%';
 
   rows.push([]);
   rows.push([
@@ -125,10 +145,12 @@ export function exportReportToExcel(report: Report, stats: ReportFieldStatistic[
     sumCompEarly,
     sumCompOnTime,
     sumCompLate,
+    totalCompLateRate,
     sumPendTotal,
     sumPendOnTime,
     sumPendLate,
-    totalOnTimeRate,
+    totalPendLateRate,
+    totalQD776Rate,
     totalOnlineRate,
     'Số liệu tổng hợp tự động từ hệ thống',
   ]);

@@ -1,11 +1,55 @@
+import { store } from '../services/store';
+
 export function formatNumber(val: number | null | undefined): string {
   if (val === null || val === undefined || isNaN(val)) return '0';
   return Number(val).toLocaleString('vi-VN');
 }
 
-export function formatPercent(val: number | null | undefined): string {
-  if (val === null || val === undefined || isNaN(val)) return '0%';
-  return `${Number(val).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+export function roundNumber(
+  val: number,
+  decimals: number,
+  mode: 'half_up' | 'floor' | 'ceil' = 'half_up'
+): number {
+  const factor = Math.pow(10, decimals);
+  if (mode === 'floor') {
+    return Math.floor(val * factor + 0.000000001) / factor;
+  }
+  if (mode === 'ceil') {
+    return Math.ceil(val * factor - 0.000000001) / factor;
+  }
+  // half_up
+  return Math.round(val * factor) / factor;
+}
+
+export function getSystemRoundingConfig() {
+  try {
+    const cfg = store.getSystemConfig();
+    return {
+      decimals: typeof cfg?.percentRoundingDecimals === 'number' ? cfg.percentRoundingDecimals : 2,
+      mode: cfg?.percentRoundingMode || 'half_up',
+      keepTrailingZeros: cfg?.percentRoundingTrailingZeros ?? true,
+    };
+  } catch {
+    return { decimals: 2, mode: 'half_up' as const, keepTrailingZeros: true };
+  }
+}
+
+export function formatPercent(val: number | null | undefined, overrideDecimals?: number): string {
+  if (val === null || val === undefined || isNaN(val)) return '-';
+  const num = Number(val);
+  if (Math.abs(num - 100) < 0.00001) return '100%';
+  if (Math.abs(num) < 0.00001) return '0%';
+
+  const sysCfg = getSystemRoundingConfig();
+  const decimals = typeof overrideDecimals === 'number' ? overrideDecimals : sysCfg.decimals;
+  const rounded = roundNumber(num, decimals, sysCfg.mode);
+
+  const minDigits = sysCfg.keepTrailingZeros ? decimals : 0;
+  return `${rounded.toLocaleString('vi-VN', { minimumFractionDigits: minDigits, maximumFractionDigits: decimals })}%`;
+}
+
+export function formatRatePercent(val: number | null | undefined, overrideDecimals?: number): string {
+  return formatPercent(val, overrideDecimals);
 }
 
 export function formatDate(dateStr: string | null | undefined): string {

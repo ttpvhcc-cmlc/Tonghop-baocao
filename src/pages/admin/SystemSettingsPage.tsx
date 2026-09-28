@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
 import { store, SystemConfig, RolePermissionRule, DEFAULT_SYSTEM_CONFIG } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
+import { roundNumber } from '../../utils/format';
+import { PublicDisplayConfigTab } from './PublicDisplayConfigTab';
 import {
   Settings,
   Palette,
@@ -32,6 +35,22 @@ import {
   Briefcase,
   Sparkles,
   Mail,
+  Tv,
+  SlidersHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  LayoutDashboard,
+  BellRing,
+  FileText,
+  Archive,
+  BarChart3,
+  GitCompare,
+  CalendarRange,
+  History,
+  Database,
+  Download,
+  CheckSquare,
+  Search,
 } from 'lucide-react';
 
 export const SystemSettingsPage: React.FC = () => {
@@ -39,10 +58,11 @@ export const SystemSettingsPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
   const [users, setUsers] = useState<Profile[]>(store.getUsers());
   const units = store.getUnits();
-  const [activeTab, setActiveTab] = useState<'ui' | 'navigation' | 'permissions' | 'users'>('ui');
-  const [uiSubTab, setUiSubTab] = useState<'branding' | 'login' | 'theme'>('branding');
+  const [activeTab, setActiveTab] = useState<'ui' | 'navigation' | 'ai_template' | 'urge_templates' | 'permissions' | 'users' | 'public_display'>('ui');
+  const [uiSubTab, setUiSubTab] = useState<'branding' | 'login' | 'theme' | 'rounding'>('branding');
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [permSearchKeyword, setPermSearchKeyword] = useState('');
+  const [selectedPermCategory, setSelectedPermCategory] = useState<string>('all');
 
   // User edit state
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
@@ -96,28 +116,6 @@ export const SystemSettingsPage: React.FC = () => {
     }
   };
 
-  const handleResetConfig = async () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
-    setErrorMessage(null);
-    try {
-      const res = await store.resetSystemConfig();
-      setConfig(store.getSystemConfig());
-      setResetModalOpen(false);
-      if (res.success) {
-        setSaveMessage(res.message || 'Đã khôi phục cài đặt mặc định.');
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 5000);
-      } else {
-        setErrorMessage(res.message || 'Không thể khôi phục cài đặt trên Supabase.');
-      }
-    } catch (err: any) {
-      setErrorMessage('Lỗi hệ thống khi khôi phục: ' + err.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleTogglePermission = (roleIndex: number, permKey: keyof RolePermissionRule['permissions']) => {
     const updatedPermissions = [...config.rolePermissions];
     updatedPermissions[roleIndex] = {
@@ -131,6 +129,48 @@ export const SystemSettingsPage: React.FC = () => {
       ...config,
       rolePermissions: updatedPermissions,
     });
+  };
+
+  const handleToggleAllForRole = (roleIndex: number, enable: boolean) => {
+    const updatedPermissions = [...config.rolePermissions];
+    const role = updatedPermissions[roleIndex];
+    const newPerms = { ...role.permissions };
+    allPermissionsList.forEach((p) => {
+      newPerms[p.key] = enable;
+    });
+    updatedPermissions[roleIndex] = {
+      ...role,
+      permissions: newPerms,
+    };
+    setConfig({
+      ...config,
+      rolePermissions: updatedPermissions,
+    });
+  };
+
+  const handleResetRolePermissionsToDefault = (roleIndex?: number) => {
+    if (typeof roleIndex === 'number') {
+      const targetRole = config.rolePermissions[roleIndex];
+      const defaultRole = DEFAULT_SYSTEM_CONFIG.rolePermissions.find((r) => r.role === targetRole.role);
+      if (!defaultRole) return;
+      const updatedPermissions = [...config.rolePermissions];
+      updatedPermissions[roleIndex] = {
+        ...targetRole,
+        permissions: { ...defaultRole.permissions },
+      };
+      setConfig({
+        ...config,
+        rolePermissions: updatedPermissions,
+      });
+    } else {
+      setConfig({
+        ...config,
+        rolePermissions: DEFAULT_SYSTEM_CONFIG.rolePermissions.map((r) => ({
+          ...r,
+          permissions: { ...r.permissions },
+        })),
+      });
+    }
   };
 
   const handleOpenCreateUser = () => {
@@ -157,6 +197,33 @@ export const SystemSettingsPage: React.FC = () => {
       password: '',
     });
     setIsUserModalOpen(true);
+  };
+
+  const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsSaving(true);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `logos/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
+      setConfig({ ...config, logoUrl: data.publicUrl, logoType: 'custom_url' });
+      setSaveMessage('Đã tải ảnh lên thành công!');
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err: any) {
+      setErrorMessage('Lỗi khi tải ảnh: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSaveUser = async (e: React.FormEvent) => {
@@ -322,19 +389,203 @@ export const SystemSettingsPage: React.FC = () => {
     },
   ];
 
-  const permissionLabels: Array<{ key: keyof RolePermissionRule['permissions']; title: string; desc: string }> = [
-    { key: 'view_dashboard', title: 'Xem Dashboard / Tổng quan', desc: 'Cho phép truy cập màn hình Tổng quan chỉ tiêu TTHC' },
-    { key: 'view_reports', title: 'Xem Danh sách Kỳ Báo cáo', desc: 'Cho phép xem và tra cứu danh sách báo cáo' },
-    { key: 'create_reports', title: 'Tạo Kỳ Báo cáo mới', desc: 'Cho phép khởi tạo kỳ báo cáo thống kê mới' },
-    { key: 'edit_reports', title: 'Sửa & Nhập liệu Kỳ Báo cáo', desc: 'Cho phép chỉnh sửa số liệu và nộp báo cáo' },
-    { key: 'delete_reports', title: 'Xóa Kỳ Báo cáo', desc: 'Cho phép xóa báo cáo khỏi hệ thống' },
-    { key: 'import_excel', title: 'Nhập Dữ liệu Excel', desc: 'Cho phép tải file Excel để trích xuất số liệu tự động' },
-    { key: 'lock_snapshot', title: 'Khóa / Mở khóa Snapshot', desc: 'Quyền chốt sổ niêm phong báo cáo chính thức' },
-    { key: 'manage_catalogs', title: 'Quản lý Danh mục (Đơn vị, Lĩnh vực, Chỉ tiêu)', desc: 'Chỉnh sửa danh mục nghiệp vụ' },
-    { key: 'manage_users', title: 'Quản lý Tài khoản Người dùng', desc: 'Thêm, sửa, kích hoạt tài khoản hệ thống' },
-    { key: 'manage_system_config', title: 'Thiết lập Tên, Logo, Menu & Giao diện', desc: 'Quyền admin toàn diện cài đặt hệ thống' },
-    { key: 'view_audit_logs', title: 'Xem Nhật ký hệ thống (Audit Logs)', desc: 'Tra cứu dấu vết thao tác của người dùng' },
+  const permissionCategories: Array<{
+    id: string;
+    title: string;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    permissions: Array<{
+      key: keyof RolePermissionRule['permissions'];
+      title: string;
+      desc: string;
+    }>;
+  }> = [
+    {
+      id: 'dashboard',
+      title: '1. Tổng quan & Kiosk TV',
+      icon: LayoutDashboard,
+      color: 'text-blue-600 bg-blue-50 border-blue-200',
+      permissions: [
+        {
+          key: 'view_dashboard',
+          title: 'Xem Dashboard / Tổng quan',
+          desc: 'Truy cập màn hình Tổng quan chỉ tiêu TTHC (tiếp nhận, giải quyết, đúng hạn TT01 & QĐ766)',
+        },
+        {
+          key: 'view_public_dashboard',
+          title: 'Xem Màn hình TV 55" Kiosk',
+          desc: 'Truy cập giao diện Kiosk công khai trình chiếu số liệu thời gian thực',
+        },
+        {
+          key: 'customize_dashboard_layout',
+          title: 'Tùy biến Bố cục & Biểu đồ',
+          desc: 'Sắp xếp, ẩn/hiện, thay đổi màu sắc, chú giải và ghi chú chân biểu đồ Dashboard',
+        },
+      ],
+    },
+    {
+      id: 'dossier_urge',
+      title: '2. Đôn đốc hồ sơ TTHC',
+      icon: BellRing,
+      color: 'text-amber-600 bg-amber-50 border-amber-200',
+      permissions: [
+        {
+          key: 'view_dossier_urge',
+          title: 'Xem Danh sách Hồ sơ đôn đốc',
+          desc: 'Tra cứu danh sách hồ sơ quá hạn, sắp đến hạn theo từng đơn vị và lĩnh vực',
+        },
+        {
+          key: 'manage_dossier_urge',
+          title: 'Xử lý & Xuất phiếu đôn đốc',
+          desc: 'Thực hiện đôn đốc, gửi cảnh báo, ghi chú tiến độ và xuất văn bản/phiếu đôn đốc',
+        },
+        {
+          key: 'config_urge_templates',
+          title: 'Cấu hình Mẫu văn bản đôn đốc',
+          desc: 'Tùy chỉnh mẫu phiếu cảnh báo, thời hạn ngưỡng đôn đốc và quy chuẩn ban hành',
+        },
+      ],
+    },
+    {
+      id: 'reports',
+      title: '3. Cập nhật Báo cáo & Kho lưu trữ',
+      icon: FileText,
+      color: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+      permissions: [
+        {
+          key: 'view_reports',
+          title: 'Xem Danh sách & Chi tiết Kỳ Báo cáo',
+          desc: 'Tra cứu danh sách các kỳ báo cáo thống kê tình hình TTHC đã tạo',
+        },
+        {
+          key: 'create_reports',
+          title: 'Khởi tạo Kỳ Báo cáo mới',
+          desc: 'Tạo kỳ báo cáo thống kê mới (tháng, quý, năm, chuyên đề đột xuất)',
+        },
+        {
+          key: 'edit_reports',
+          title: 'Sửa số liệu & Nộp Báo cáo',
+          desc: 'Chỉnh sửa, cập nhật số liệu chỉ tiêu và nộp kỳ báo cáo',
+        },
+        {
+          key: 'delete_reports',
+          title: 'Xóa Kỳ Báo cáo',
+          desc: 'Quyền xóa bỏ kỳ báo cáo chưa khóa khỏi hệ thống',
+        },
+        {
+          key: 'import_excel',
+          title: 'Nhập Dữ liệu Báo cáo Excel',
+          desc: 'Tải file Excel để trích xuất số liệu tự động, ánh xạ cột và kiểm tra hợp lệ',
+        },
+        {
+          key: 'lock_snapshot',
+          title: 'Khóa / Mở khóa Snapshot',
+          desc: 'Quyền chốt sổ niêm phong báo cáo chính thức và tạo bản ghi snapshot bất biến',
+        },
+        {
+          key: 'view_archive',
+          title: 'Khai thác Kho lưu trữ',
+          desc: 'Truy cập và tra cứu kho lưu trữ số liệu các kỳ báo cáo lịch sử',
+        },
+      ],
+    },
+    {
+      id: 'analysis',
+      title: '4. Phân tích chuyên sâu & Trợ lý AI',
+      icon: BarChart3,
+      color: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+      permissions: [
+        {
+          key: 'view_analysis_units',
+          title: 'Phân tích theo Đơn vị giải quyết',
+          desc: 'Xem chi tiết hiệu suất, tỷ lệ đúng hạn và xếp hạng theo từng đơn vị',
+        },
+        {
+          key: 'view_analysis_fields',
+          title: 'Phân tích theo Lĩnh vực TTHC',
+          desc: 'Xem cơ cấu hồ sơ tiếp nhận, giải quyết và phân bổ chất lượng theo lĩnh vực',
+        },
+        {
+          key: 'view_analysis_compare',
+          title: 'Phân tích So sánh Biến động',
+          desc: 'Đối chiếu xu hướng tăng giảm chỉ tiêu giữa các kỳ báo cáo khác nhau',
+        },
+        {
+          key: 'use_ai_analysis',
+          title: 'Sử dụng Trợ lý AI (Gemini)',
+          desc: 'Tự động tạo nhận xét, phân tích số liệu thông minh và khuyến nghị điều hành',
+        },
+        {
+          key: 'export_data',
+          title: 'Xuất Dữ liệu & Báo cáo (Excel / PDF)',
+          desc: 'Tải xuất dữ liệu phân tích ra file Excel, CSV, in ấn và xuất tài liệu PDF',
+        },
+      ],
+    },
+    {
+      id: 'catalogs',
+      title: '5. Kiểm soát TTHC & Danh mục quản trị',
+      icon: FolderKanban,
+      color: 'text-teal-600 bg-teal-50 border-teal-200',
+      permissions: [
+        {
+          key: 'manage_procedures_control',
+          title: 'Kiểm soát Thủ tục Hành chính (TTHC)',
+          desc: 'Quản lý danh mục thủ tục hành chính, quy trình và lĩnh vực thuộc đơn vị',
+        },
+        {
+          key: 'manage_catalogs',
+          title: 'Quản lý Danh mục chung',
+          desc: 'Quyền quản trị tổng quát toàn bộ các danh mục nghiệp vụ trong hệ thống',
+        },
+        {
+          key: 'manage_units_catalog',
+          title: 'Quản lý Danh mục Đơn vị giải quyết',
+          desc: 'Thêm mới, sửa đổi, kích hoạt và sắp xếp thứ tự đơn vị tiếp nhận/giải quyết',
+        },
+        {
+          key: 'manage_indicators_catalog',
+          title: 'Quản lý Chỉ tiêu & Công thức tính',
+          desc: 'Cấu hình mã chỉ tiêu, thứ tự và công thức tính toán QĐ 766 & TT 01',
+        },
+        {
+          key: 'manage_period_types_catalog',
+          title: 'Quản lý Loại kỳ báo cáo',
+          desc: 'Thiết lập chu kỳ báo cáo (tháng, quý, năm) và hạn mức ngày nộp báo cáo',
+        },
+      ],
+    },
+    {
+      id: 'system',
+      title: '6. Hệ thống, Người dùng & Bảo mật',
+      icon: ShieldCheck,
+      color: 'text-rose-600 bg-rose-50 border-rose-200',
+      permissions: [
+        {
+          key: 'manage_users',
+          title: 'Quản trị Tài khoản & Phân quyền',
+          desc: 'Thêm, sửa tài khoản, đổi mật khẩu, gán đơn vị trực thuộc và phân vai trò',
+        },
+        {
+          key: 'manage_system_config',
+          title: 'Thiết lập Tên, Logo, Menu & Giao diện',
+          desc: 'Quyền cấu hình tên cơ quan, logo, bảng màu, sắp xếp menu và màn hình TV',
+        },
+        {
+          key: 'view_audit_logs',
+          title: 'Xem Nhật ký hệ thống (Audit Logs)',
+          desc: 'Tra cứu lịch sử thao tác, dấu vết đăng nhập và biến động dữ liệu',
+        },
+        {
+          key: 'manage_database_test',
+          title: 'Kiểm thử & Quản trị CSDL Supabase',
+          desc: 'Kiểm tra trạng thái kết nối và cấu trúc dữ liệu Supabase',
+        },
+      ],
+    },
   ];
+
+  const allPermissionsList = permissionCategories.flatMap((c) => c.permissions);
 
   return (
     <div className="space-y-6 pb-12">
@@ -346,7 +597,7 @@ export const SystemSettingsPage: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Thiết lập Hệ thống
+              Thiết lập Hệ thống & Giao diện
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               Cấu hình Tên hệ thống, Logo, Màu sắc, Tên Menu, Tiêu đề màn hình, Quản trị Người dùng và Phân quyền Cán bộ
@@ -358,18 +609,8 @@ export const SystemSettingsPage: React.FC = () => {
           <button
             type="button"
             disabled={isSaving}
-            onClick={() => setResetModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-xl transition-colors"
-          >
-            <RotateCcw className="w-4 h-4 text-slate-500" />
-            Khôi phục mặc định
-          </button>
-
-          <button
-            type="button"
-            disabled={isSaving}
             onClick={handleSaveConfig}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             {isSaving ? (
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -428,7 +669,33 @@ export const SystemSettingsPage: React.FC = () => {
           }`}
         >
           <Menu className="w-4 h-4" />
-          Tên Menu & Tiêu đề Giao diện
+          Tên Menu và Tiêu đề Giao diện
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('ai_template')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'ai_template'
+              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-indigo-600" />
+          Mẫu nhận xét AI
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('urge_templates')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'urge_templates'
+              ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Edit3 className="w-4 h-4 text-blue-600" />
+          Mẫu Đôn đốc & Đề nghị
         </button>
 
         <button
@@ -456,7 +723,28 @@ export const SystemSettingsPage: React.FC = () => {
           <Users className="w-4 h-4" />
           Quản lý Người dùng ({users.length})
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('public_display')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'public_display'
+              ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Tv className="w-4 h-4 text-slate-600" />
+          <span>Màn hình TV 55" (Kiosk)</span>
+          <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
+            Trình chiếu
+          </span>
+        </button>
       </div>
+
+      {/* TAB MÀN HÌNH TV 55" (KIOSK DISPLAY) */}
+      {activeTab === 'public_display' && (
+        <PublicDisplayConfigTab config={config} onChange={setConfig} />
+      )}
 
       {/* TAB GIAO DIỆN (Bao gồm: Thương hiệu & Header, Giao diện Trang Đăng nhập, Màu sắc & Theme) */}
       {activeTab === 'ui' && (
@@ -473,7 +761,7 @@ export const SystemSettingsPage: React.FC = () => {
               }`}
             >
               <Building2 className="w-3.5 h-3.5 text-blue-600" />
-              1. Thương hiệu & Header
+              1. Thương hiệu và Header
             </button>
 
             <button
@@ -499,7 +787,20 @@ export const SystemSettingsPage: React.FC = () => {
               }`}
             >
               <Palette className="w-3.5 h-3.5 text-blue-600" />
-              3. Màu sắc & Giao diện
+              3. Màu sắc và Giao diện
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUiSubTab('rounding')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                uiSubTab === 'rounding'
+                  ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+              4. Làm tròn Số liệu Tỷ lệ (%)
             </button>
           </div>
 
@@ -509,7 +810,7 @@ export const SystemSettingsPage: React.FC = () => {
           <div className="lg:col-span-2 space-y-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
               <Building2 className="w-5 h-5 text-blue-600" />
-              Thông tin Thương hiệu & Logo Hệ thống
+              Thông tin Thương hiệu và Logo Hệ thống
             </h2>
 
             <div className="space-y-4">
@@ -517,7 +818,7 @@ export const SystemSettingsPage: React.FC = () => {
               <div className="space-y-5 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                   <Palette className="w-4 h-4 text-blue-600" />
-                  Tùy chỉnh Font chữ & Màu sắc Thương hiệu (Vùng khoanh đỏ Header)
+                  Tùy chỉnh Font chữ và Màu sắc Thương hiệu (Vùng khoanh đỏ Header)
                 </h3>
 
                 {/* 1. System Name Config */}
@@ -696,7 +997,7 @@ export const SystemSettingsPage: React.FC = () => {
                       onChange={() => setConfig({ ...config, logoType: 'custom_url' })}
                       className="text-blue-600 focus:ring-blue-500"
                     />
-                    Nhập URL ảnh Logo tùy chỉnh
+                    Tải logo lên từ máy tính
                   </label>
                 </div>
 
@@ -732,15 +1033,19 @@ export const SystemSettingsPage: React.FC = () => {
                 ) : (
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Đường dẫn URL ảnh Logo (HTTPS):
+                      Chọn file ảnh Logo (PNG, JPG, SVG):
                     </label>
                     <input
-                      type="text"
-                      value={config.logoUrl || ''}
-                      onChange={(e) => setConfig({ ...config, logoUrl: e.target.value })}
-                      placeholder="https://example.com/logo-ubnd.png"
-                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadLogo}
+                      className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                     />
+                    {config.logoUrl && (
+                      <div className="mt-2 text-[10px] text-slate-500 truncate">
+                        URL hiện tại: {config.logoUrl}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -751,7 +1056,7 @@ export const SystemSettingsPage: React.FC = () => {
           <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg border border-slate-800 space-y-4 h-fit">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-800 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-blue-400" />
-              Xem trước Thương hiệu & Bố trí Giao diện
+              Xem trước Thương hiệu và Bố trí Giao diện
             </h3>
 
             {/* Header Preview */}
@@ -821,7 +1126,7 @@ export const SystemSettingsPage: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-900">Đồng bộ Nhanh Thiết lập Thương hiệu</h4>
-                  <p className="text-[11px] text-slate-500">Sao chép cấu hình tiêu đề, logo & màu sắc trong 1 chạm</p>
+                  <p className="text-[11px] text-slate-500">Sao chép cấu hình tiêu đề, logo và màu sắc trong 1 chạm</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -876,7 +1181,7 @@ export const SystemSettingsPage: React.FC = () => {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Type className="w-4 h-4 text-blue-600" />
-                  1. Tên Hệ thống & Tiêu đề Trang Đăng nhập
+                  1. Tên Hệ thống và Tiêu đề Trang Đăng nhập
                 </h2>
                 <button
                   type="button"
@@ -1046,7 +1351,7 @@ export const SystemSettingsPage: React.FC = () => {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  2. Bổ sung Biểu tượng & Logo Trang Đăng nhập
+                  2. Bổ sung Biểu tượng và Logo Trang Đăng nhập
                 </h2>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -1273,7 +1578,7 @@ export const SystemSettingsPage: React.FC = () => {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Palette className="w-4 h-4 text-blue-600" />
-                  4. Thiết lập Màu nền & Phong cách Banner (Background Theme)
+                  4. Thiết lập Màu nền và Phong cách Banner (Background Theme)
                 </h2>
               </div>
 
@@ -1507,13 +1812,13 @@ export const SystemSettingsPage: React.FC = () => {
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
               <Palette className="w-5 h-5 text-blue-600" />
-              Màu sắc Chủ đạo & Theme Giao diện
+              Màu sắc Chủ đạo và Theme Giao diện
             </h2>
 
             {/* Primary Accent Color */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
-                1. Tông màu Nút bấm & Điểm nhấn Chủ đạo (Primary Color)
+                1. Tông màu Nút bấm và Điểm nhấn Chủ đạo (Primary Color)
               </label>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1568,11 +1873,203 @@ export const SystemSettingsPage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-1.5 opacity-60 text-[10px]">
                         <span className="w-2 h-2 rounded-full bg-current"></span>
-                        <span>Menu & Icon</span>
+                        <span>Menu và Icon</span>
                       </div>
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 4: LÀM TRÒN SỐ LIỆU TỶ LỆ (%) */}
+      {uiSubTab === 'rounding' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Cấu hình Thiết lập Làm tròn Tỷ lệ (%) Toàn Hệ thống
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Quy định số chữ số thập phân, phương pháp làm tròn và định dạng hiển thị % áp dụng đồng bộ cho tất cả báo cáo & bảng thống kê
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {/* 1. KÍCH THƯỚC CHỮ SỐ THẬP PHÂN */}
+              <div className="space-y-3 bg-slate-50/80 p-4.5 rounded-xl border border-slate-200">
+                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  1. Số chữ số thập phân muốn hiển thị (Decimal Precision)
+                </label>
+                <p className="text-xs text-slate-500">
+                  Chọn số chữ số sau dấu phẩy cho các con số % (Tỷ lệ đúng hạn, Tỷ lệ quá hạn, Tỷ lệ trực tuyến...).
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  {[
+                    { val: 0, label: '0 chữ số', eg: '98%' },
+                    { val: 1, label: '1 chữ số', eg: '98,5%' },
+                    { val: 2, label: '2 chữ số (Mặc định)', eg: '98,53%' },
+                    { val: 3, label: '3 chữ số', eg: '98,526%' },
+                    { val: 4, label: '4 chữ số', eg: '98,5264%' },
+                  ].map((item) => {
+                    const isSelected = (config.percentRoundingDecimals ?? 2) === item.val;
+                    return (
+                      <button
+                        key={item.val}
+                        type="button"
+                        onClick={() => setConfig({ ...config, percentRoundingDecimals: item.val })}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/90 ring-2 ring-blue-500/20 text-blue-900 font-bold'
+                            : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-medium'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{item.label}</div>
+                        <div className="text-[11px] text-slate-500 font-mono mt-1">VD: {item.eg}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. QUY TẮC LÀM TRÒN */}
+              <div className="space-y-3 bg-slate-50/80 p-4.5 rounded-xl border border-slate-200">
+                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  2. Phương pháp làm tròn toán học (Rounding Method)
+                </label>
+                <p className="text-xs text-slate-500">
+                  Quy định cách thức xử lý làm tròn các con số thập phân dư.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    {
+                      id: 'half_up',
+                      title: 'Làm tròn thông thường (Half Up)',
+                      desc: 'Phần thập phân tiếp theo ≥ 0.5 làm tròn lên, < 0.5 làm tròn xuống (Tiêu chuẩn)',
+                    },
+                    {
+                      id: 'floor',
+                      title: 'Làm tròn xuống (Floor)',
+                      desc: 'Luôn cắt bỏ các chữ số thập phân thừa mà không làm tăng hàng trước đó',
+                    },
+                    {
+                      id: 'ceil',
+                      title: 'Làm tròn lên (Ceil)',
+                      desc: 'Luôn tăng hàng thập phân tiếp theo nếu có bất kỳ số dư lẻ nào',
+                    },
+                  ].map((m) => {
+                    const isSelected = (config.percentRoundingMode || 'half_up') === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() =>
+                          setConfig({ ...config, percentRoundingMode: m.id as 'half_up' | 'floor' | 'ceil' })
+                        }
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50/90 ring-2 ring-blue-500/20 text-blue-900'
+                            : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <div className="text-xs font-bold flex items-center justify-between">
+                            <span>{m.title}</span>
+                            {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                          </div>
+                          <p className="text-[11px] text-slate-500 leading-relaxed mt-1.5">{m.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. HIỂN THỊ SỐ 0 PHÍA SAU */}
+              <div className="bg-slate-50/80 p-4.5 rounded-xl border border-slate-200 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Giữ cố định số chữ số 0 thừa phía sau (Trailing Zeros)
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Ví dụ khi chọn 2 chữ số thập phân: Nếu bật, giá trị tròn sẽ hiển thị <code className="bg-slate-200 px-1 rounded text-slate-800 font-mono">98,50%</code>; nếu tắt, sẽ rút gọn thành <code className="bg-slate-200 px-1 rounded text-slate-800 font-mono">98,5%</code>.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={config.percentRoundingTrailingZeros ?? true}
+                    onChange={(e) =>
+                      setConfig({ ...config, percentRoundingTrailingZeros: e.target.checked })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* LIVE DEMO PREVIEW CARD */}
+          <div className="space-y-4">
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white p-5 rounded-2xl shadow-md border border-slate-700">
+              <div className="flex items-center gap-2 pb-3 border-b border-slate-700/80 mb-4">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
+                  Minh họa Xem trước Thực tế
+                </h3>
+              </div>
+
+              <p className="text-xs text-slate-300 mb-4">
+                Xem ngay kết quả định dạng tỷ lệ % theo cấu hình làm tròn đang chọn:
+              </p>
+
+              <div className="space-y-2.5 font-sans">
+                {[
+                  { label: 'Tỷ lệ giải quyết Đúng hạn', raw: 98.5264 },
+                  { label: 'Tỷ lệ Hồ sơ Quá hạn (QĐ 776)', raw: 3.14159 },
+                  { label: 'Tỷ lệ Trực tuyến tròn 1/2', raw: 50.5 },
+                  { label: 'Tỷ lệ Hoàn thành tuyệt đối', raw: 100 },
+                  { label: 'Tỷ lệ Quá hạn khi không có lỗi', raw: 0 },
+                ].map((sample) => {
+                  const decimals = config.percentRoundingDecimals ?? 2;
+                  const mode = config.percentRoundingMode || 'half_up';
+                  const trailing = config.percentRoundingTrailingZeros ?? true;
+
+                  let formatted = '-';
+                  if (sample.raw === 100) formatted = '100%';
+                  else if (sample.raw === 0) formatted = '0%';
+                  else {
+                    const r = roundNumber(sample.raw, decimals, mode);
+                    const minD = trailing ? decimals : 0;
+                    formatted = `${r.toLocaleString('vi-VN', {
+                      minimumFractionDigits: minD,
+                      maximumFractionDigits: decimals,
+                    })}%`;
+                  }
+
+                  return (
+                    <div key={sample.label} className="flex items-center justify-between p-2.5 bg-white/10 rounded-xl backdrop-blur-xs border border-white/10 text-xs">
+                      <span className="text-slate-300">{sample.label}</span>
+                      <span className="font-extrabold font-mono text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded border border-emerald-500/30">
+                        {formatted}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 p-3 rounded-xl bg-blue-900/40 border border-blue-500/30 text-[11px] text-blue-200 leading-relaxed">
+                💡 <strong>Áp dụng:</strong> Thiết lập này tự động đồng bộ CSDL và áp dụng trực tiếp cho Bảng Chi tiết Số liệu, Dashboard Tổng quan, Bản in PDF, Xuất file Excel và Trợ lý AI.
               </div>
             </div>
           </div>
@@ -1673,11 +2170,71 @@ export const SystemSettingsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu So sánh nhiều kỳ:</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Kiểm soát TTHC (Trực thuộc menu chính):</label>
                 <input
                   type="text"
-                  value={config.menuLabels.analysis_compare}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_compare: e.target.value } })}
+                  value={config.menuLabels.procedures_control || 'Kiểm soát TTHC'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, procedures_control: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Danh mục Quản trị:</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.catalog_group || 'Danh mục quản trị'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_group: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Quản lý Loại kỳ báo cáo:</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.catalog_period_types || 'Loại kỳ báo cáo'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_period_types: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Quản lý Đơn vị:</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.catalog_units || 'Cơ quan, đơn vị'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_units: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Chỉ tiêu và Công thức:</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.catalog_indicators || 'Chỉ tiêu và Công thức'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_indicators: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Thiết lập Hệ thống & Giao diện:</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.system_config || 'Thiết lập Hệ thống & Giao diện'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, system_config: e.target.value } })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Nhật ký hệ thống (Audit):</label>
+                <input
+                  type="text"
+                  value={config.menuLabels.system_audit || 'Nhật ký hệ thống (Audit)'}
+                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, system_audit: e.target.value } })}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -1743,69 +2300,424 @@ export const SystemSettingsPage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Left Sidebar Behavior Settings */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
+              <SlidersHorizontal className="w-5 h-5 text-indigo-600" />
+              Tùy biến Hành vi Menu Trái (Sidebar Navigation)
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Default Load State */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">Trạng thái Menu khi tải trang</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Chọn trạng thái hiển thị ban đầu của Menu trái khi người dùng truy cập hoặc tải lại trang.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, sidebarDefaultCollapsed: true })}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      config.sidebarDefaultCollapsed !== false
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <PanelLeftClose className="w-4 h-4" />
+                    Thu nhỏ (Mặc định)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, sidebarDefaultCollapsed: false })}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      config.sidebarDefaultCollapsed === false
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <PanelLeftOpen className="w-4 h-4" />
+                    Mở rộng đầy đủ
+                  </button>
+                </div>
+              </div>
+
+              {/* Auto Hide / Hover Expand */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">Tự động ẩn & Mở rộng khi rê chuột</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Khi ở chế độ thu nhỏ, Menu sẽ tự động mở rộng khi rê chuột qua và tự động thu nhỏ lại khi rời chuột.
+                  </p>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs font-medium text-slate-700">
+                    {config.sidebarAutoHide !== false ? 'Đang BẬT tự động ẩn / mở rộng' : 'Đang TẮT (Chỉ ẩn khi bấm nút)'}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.sidebarAutoHide !== false}
+                      onChange={(e) => setConfig({ ...config, sidebarAutoHide: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: MẪU BÁO CÁO NHẬN XÉT VÀ ĐÁNH GIÁ AI */}
+      {activeTab === 'ai_template' && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                Mẫu Nhận xét và Đánh giá AI (AI Analysis Exemplar Template)
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                AI sẽ học theo cấu trúc, văn phong và bố cục 4 phần của mẫu này khi sinh nhận xét tự động cho từng kỳ báo cáo, phân tích đơn vị và lĩnh vực.
+              </p>
+            </div>
+          </div>
+
+          {/* Variables guide */}
+          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-2">
+            <div className="font-bold flex items-center gap-1.5 text-amber-950">
+              <AlertCircle className="w-4 h-4 text-amber-600" />
+              Các tham số và trường số liệu AI sẽ tự động thay thế từ dữ liệu tính toán:
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] font-mono text-slate-700">
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tổng tiếp nhận]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ trực tuyến]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tỷ lệ trực tuyến]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ trực tiếp]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ kỳ trước]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tổng số đã giải quyết]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tỷ lệ hoàn thành]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ trước hạn]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ đúng hạn]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ quá hạn]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tỷ lệ đúng hạn]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Tổng số đang giải quyết]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ trong hạn]</span>
+              <span className="bg-white/80 px-2 py-1 rounded border border-amber-200">[Số hồ sơ quá hạn đang xử lý]</span>
+            </div>
+          </div>
+
+          {/* Template text area */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800">
+                Nội dung mẫu báo cáo chuẩn (Có thể chỉnh sửa theo nhu cầu cơ quan):
+              </label>
+              <span className="text-[11px] text-slate-400">
+                Hỗ trợ định dạng văn bản Markdown chuẩn
+              </span>
+            </div>
+            <textarea
+              rows={18}
+              value={config.aiAnalysisExemplarTemplate || DEFAULT_SYSTEM_CONFIG.aiAnalysisExemplarTemplate}
+              onChange={(e) => setConfig({ ...config, aiAnalysisExemplarTemplate: e.target.value })}
+              className="w-full font-mono text-xs p-4 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-900 text-slate-100 leading-relaxed"
+              placeholder="Nhập mẫu nhận xét đánh giá AI..."
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-slate-500">
+              * Sau khi điều chỉnh, vui lòng nhấn <strong className="text-slate-700">"Lưu toàn bộ thiết lập"</strong> ở góc trên để áp dụng vào toàn hệ thống.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: MẪU ĐÔN ĐỐC (SMS) & MẪU ĐỀ NGHỊ */}
+      {activeTab === 'urge_templates' && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+          <div className="pb-4 border-b border-slate-100">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-blue-600" />
+              Tùy chỉnh Mẫu Nội dung Đôn đốc (SMS Đôn đốc) & Mẫu Đề nghị
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Cấu hình các mẫu tin nhắn đôn đốc và nội dung đề nghị gửi đơn vị chủ trì. Hệ thống sẽ tự động thay thế các tham số tương ứng khi thực hiện đôn đốc.
+            </p>
+          </div>
+
+          {/* Hướng dẫn biến số */}
+          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-blue-900 space-y-2">
+            <div className="font-bold flex items-center gap-1.5 text-blue-950">
+              <AlertCircle className="w-4 h-4 text-blue-600" />
+              Các tham số động có thể sử dụng trong mẫu tin nhắn:
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono text-slate-800">
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{status_tag}`} : Trạng thái tiếp nhận</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{dossier_code}`} : Mã hồ sơ</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{citizen_name}`} : Tên công dân</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{phone}`} : Điện thoại</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{notes}`} : Ghi chú</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{procedure_name}`} : Tên thủ tục</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{received_date}`} : Ngày nhận</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{appointment_date}`} : Hạn trả</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{assigned_unit}`} : Đơn vị chủ trì</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{unit}`} : Đơn vị</span>
+              <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{reception_time}`} : Thời gian tiếp nhận</span>
+            </div>
+          </div>
+
+          {/* 1. Mẫu nội dung SMS Đôn đốc */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-800">
+              1. Mẫu nội dung SMS Đôn đốc (Tạo tự động sau khi đôn đốc):
+            </label>
+            <textarea
+              rows={4}
+              value={config.urgeContentTemplate ?? DEFAULT_SYSTEM_CONFIG.urgeContentTemplate}
+              onChange={(e) => setConfig({ ...config, urgeContentTemplate: e.target.value })}
+              className="w-full font-mono text-xs p-3.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-slate-50 text-slate-900 leading-relaxed"
+              placeholder="[BPTN&TKQ] Đôn đốc giải quyết hồ sơ {dossier_code} của {citizen_name}..."
+            />
+          </div>
+
+
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-slate-500">
+              * Sau khi điều chỉnh, vui lòng nhấn <strong className="text-slate-700">"Lưu toàn bộ thiết lập"</strong> ở góc trên để áp dụng vào toàn hệ thống.
+            </div>
+          </div>
         </div>
       )}
 
       {/* TAB 4: PHÂN QUYỀN NHÓM NGƯỜI DÙNG (RBAC MATRIX) */}
       {activeTab === 'permissions' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Lock className="w-5 h-5 text-blue-600" />
                 Ma trận Phân quyền theo Nhóm Người dùng (RBAC Matrix)
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Bật/tắt các quyền thao tác cho từng nhóm vai trò trong toàn bộ ứng dụng
+                Cấu hình phân quyền chi tiết dựa trên toàn bộ 6 nhóm chức năng và Menu hệ thống ({allPermissionsList.length} quyền hạn)
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleResetRolePermissionsToDefault()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
+                title="Khôi phục phân quyền gốc cho tất cả các vai trò"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                Khôi phục chuẩn mặc định
+              </button>
             </div>
           </div>
 
+          {/* Search and Category Filter Toolbar */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedPermCategory('all')}
+                className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  selectedPermCategory === 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                Tất cả nhóm ({allPermissionsList.length})
+              </button>
+              {permissionCategories.map((cat) => {
+                const Icon = cat.icon;
+                const isSelected = selectedPermCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedPermCategory(cat.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span>{cat.title.split('. ')[1] || cat.title}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-blue-800/60 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                      {cat.permissions.length}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative min-w-[220px]">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Tìm quyền thao tác..."
+                value={permSearchKeyword}
+                onChange={(e) => setPermSearchKeyword(e.target.value)}
+                className="w-full text-xs pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+              {permSearchKeyword && (
+                <button
+                  type="button"
+                  onClick={() => setPermSearchKeyword('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Matrix Table */}
           <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-2xs">
-            <table className="w-full text-left border-collapse min-w-[700px]">
+            <table className="w-full text-left border-collapse min-w-[850px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  <th className="p-4 w-2/5">Tên Quyền & Mức độ Quyền hạn</th>
-                  {config.rolePermissions.map((r) => (
-                    <th key={r.role} className="p-4 text-center w-1/5">
-                      <div className="font-bold text-slate-900">{r.roleName}</div>
+                  <th className="p-4 w-5/12">Danh mục Quyền theo Chức năng</th>
+                  {config.rolePermissions.map((r, roleIdx) => (
+                    <th key={r.role} className="p-4 text-center w-[14%]">
+                      <div className="font-bold text-slate-900 text-xs truncate" title={r.roleName}>
+                        {r.roleName.split(' (')[0]}
+                      </div>
                       <div className="text-[10px] font-normal text-slate-500 tracking-normal capitalize">
                         Role: {r.role}
+                      </div>
+
+                      {/* Quick Bulk Toggle Actions per Role */}
+                      <div className="flex items-center justify-center gap-1 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAllForRole(roleIdx, true)}
+                          className="px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 cursor-pointer"
+                          title="Bật tất cả quyền cho vai trò này"
+                        >
+                          Bật hết
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAllForRole(roleIdx, false)}
+                          className="px-1.5 py-0.5 text-[9px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 cursor-pointer"
+                          title="Tắt tất cả quyền cho vai trò này"
+                        >
+                          Tắt hết
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResetRolePermissionsToDefault(roleIdx)}
+                          className="p-0.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
+                          title="Khôi phục mặc định vai trò này"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        </button>
                       </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                {permissionLabels.map((perm) => (
-                  <tr key={perm.key} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-4">
-                      <div className="font-bold text-slate-900 text-xs">{perm.title}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">{perm.desc}</div>
-                    </td>
-
-                    {config.rolePermissions.map((r, roleIdx) => {
-                      const isChecked = r.permissions[perm.key];
+                {permissionCategories
+                  .filter((cat) => selectedPermCategory === 'all' || selectedPermCategory === cat.id)
+                  .map((cat) => {
+                    const filteredPerms = cat.permissions.filter((p) => {
+                      if (!permSearchKeyword) return true;
+                      const kw = permSearchKeyword.toLowerCase();
                       return (
-                        <td key={r.role} className="p-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleTogglePermission(roleIdx, perm.key)}
-                            className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all ${
-                              isChecked
-                                ? 'bg-emerald-500 text-white shadow-2xs hover:bg-emerald-600'
-                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
-                            }`}
-                          >
-                            {isChecked ? <Check className="w-4 h-4 stroke-[3]" /> : <X className="w-3.5 h-3.5" />}
-                          </button>
-                        </td>
+                        p.title.toLowerCase().includes(kw) ||
+                        p.desc.toLowerCase().includes(kw) ||
+                        p.key.toLowerCase().includes(kw)
                       );
-                    })}
-                  </tr>
-                ))}
+                    });
+
+                    if (filteredPerms.length === 0) return null;
+                    const Icon = cat.icon;
+
+                    return (
+                      <React.Fragment key={cat.id}>
+                        {/* Category Section Header Row */}
+                        <tr className="bg-slate-100/90 font-bold border-y border-slate-200">
+                          <td colSpan={1 + config.rolePermissions.length} className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className={`p-1.5 rounded-lg border text-xs ${cat.color}`}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </span>
+                              <span className="text-slate-900 font-bold tracking-tight text-xs uppercase">
+                                {cat.title}
+                              </span>
+                              <span className="text-[11px] font-normal text-slate-500">
+                                ({filteredPerms.length} quyền hạn)
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Permission rows */}
+                        {filteredPerms.map((perm) => (
+                          <tr key={perm.key} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="p-3.5 pl-6">
+                              <div className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0"></span>
+                                <div>
+                                  <div className="font-bold text-slate-900 text-xs flex items-center gap-2">
+                                    <span>{perm.title}</span>
+                                    <code className="text-[10px] font-normal text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                      {perm.key}
+                                    </code>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 mt-0.5">{perm.desc}</div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {config.rolePermissions.map((r, roleIdx) => {
+                              const isChecked = !!r.permissions[perm.key];
+                              return (
+                                <td key={r.role} className="p-3.5 text-center align-middle">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTogglePermission(roleIdx, perm.key)}
+                                    className={`w-7 h-7 rounded-lg inline-flex items-center justify-center transition-all cursor-pointer ${
+                                      isChecked
+                                        ? 'bg-emerald-500 text-white shadow-2xs hover:bg-emerald-600'
+                                        : 'bg-slate-100 text-slate-300 hover:bg-slate-200 hover:text-slate-500'
+                                    }`}
+                                    title={`${isChecked ? 'Đang bật' : 'Đang tắt'} - Nhấn để đổi trạng thái`}
+                                  >
+                                    {isChecked ? <Check className="w-4 h-4 stroke-[3]" /> : <X className="w-3.5 h-3.5" />}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-slate-500">
+              * Sau khi điều chỉnh phân quyền, vui lòng nhấn <strong className="text-slate-700">"Lưu toàn bộ thiết lập"</strong> ở góc trên bên phải để ghi nhận vào CSDL.
+            </div>
           </div>
         </div>
       )}
@@ -1817,7 +2729,7 @@ export const SystemSettingsPage: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-5 h-5 text-blue-600" />
-                Danh sách Tài khoản Người dùng & Nhóm Quyền
+                Danh sách Tài khoản Người dùng và Nhóm Quyền
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Chỉnh sửa thông tin tài khoản, gán đơn vị trực thuộc và phân nhóm vai trò
@@ -1839,7 +2751,7 @@ export const SystemSettingsPage: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider">
-                  <th className="p-3.5">Họ & Tên</th>
+                  <th className="p-3.5">Họ và Tên</th>
                   <th className="p-3.5">Email</th>
                   <th className="p-3.5">Nhóm Vai trò (Role)</th>
                   <th className="p-3.5">Đơn vị</th>
@@ -2004,34 +2916,6 @@ export const SystemSettingsPage: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Reset Confirmation */}
-      {resetModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">Xác nhận khôi phục mặc định?</h3>
-            <p className="text-xs text-slate-600">
-              Hành động này sẽ đặt lại tất cả Tên hệ thống, Logo, Màu sắc, Tên Menu và Ma trận Phân quyền về giá trị chuẩn ban đầu của hệ thống.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setResetModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleResetConfig}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs"
-              >
-                Đồng ý khôi phục
-              </button>
-            </div>
           </div>
         </div>
       )}

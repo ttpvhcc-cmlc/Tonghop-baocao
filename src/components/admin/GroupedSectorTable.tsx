@@ -13,6 +13,7 @@ import {
   FolderOpen,
   ArrowUpDown,
   RotateCcw,
+  ExternalLink,
 } from 'lucide-react';
 import type { Field, Unit } from '../../types/database';
 
@@ -384,7 +385,7 @@ export const GroupedSectorTable: React.FC<GroupedSectorTableProps> = ({
                               </span>
                               <div>
                                 <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                                  <span>LĨNH VỰC: {group.sectorName}</span>
+                                  <span>{(group.sectorName || '').toUpperCase()}</span>
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-white text-slate-700 border border-slate-300 shadow-2xs">
                                     {group.totalCount} thủ tục
                                   </span>
@@ -469,9 +470,21 @@ export const GroupedSectorTable: React.FC<GroupedSectorTableProps> = ({
 
                               {/* Tên Thủ tục */}
                               <td className="p-3">
-                                <div className="font-semibold text-slate-800 leading-snug">
-                                  {field.name}
-                                </div>
+                                {(() => {
+                                  const dvcUrl = field.dvc_link?.trim() || (field.code ? `https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=${encodeURIComponent(field.code.trim())}` : 'https://dichvucong.gov.vn');
+                                  return (
+                                    <a
+                                      href={dvcUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-semibold text-slate-800 hover:text-blue-700 hover:underline leading-snug inline-flex items-center gap-1.5 group/dvc"
+                                      title={`Mở trên Cổng Dịch vụ công Quốc gia: ${dvcUrl}`}
+                                    >
+                                      <span>{field.name}</span>
+                                      <ExternalLink className="w-3.5 h-3.5 text-blue-600 opacity-70 group-hover/dvc:opacity-100 shrink-0 transition-opacity" />
+                                    </a>
+                                  );
+                                })()}
                               </td>
 
                               {/* Cơ quan công bố */}

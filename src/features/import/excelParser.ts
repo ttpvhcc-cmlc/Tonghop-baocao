@@ -63,6 +63,32 @@ export interface ParseResult {
   unmappedFieldsCount: number;
 }
 
+// Robust parser for numbers from Excel (handles Vietnamese dot thousands separators e.g. 4.606, 1.170, comma 4,606, spaces, negatives, etc.)
+export function parseExcelNumber(rawVal: any): number {
+  if (rawVal === undefined || rawVal === null || rawVal === '') return 0;
+  if (typeof rawVal === 'number') {
+    if (isNaN(rawVal)) return 0;
+    return Math.round(rawVal);
+  }
+  let str = String(rawVal).trim();
+  if (str === '-' || str === '—' || str === '–') return 0;
+
+  // If thousand separator with dot (e.g. "4.606", "1.170", "4.586.000")
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(str)) {
+    str = str.replace(/\./g, '');
+  } else if (/^-?\d{1,3}(,\d{3})+$/.test(str)) {
+    str = str.replace(/,/g, '');
+  } else if (/^-?\d{1,3}(\s\d{3})+$/.test(str)) {
+    str = str.replace(/\s/g, '');
+  } else {
+    // If decimal number like "4.5" or raw string
+    str = str.replace(/[^0-9.-]/g, '');
+  }
+
+  const num = Number(str);
+  return isNaN(num) ? 0 : Math.round(num);
+}
+
 // Normalize Vietnamese string for fuzzy match comparison
 export function normalizeVietnamese(str: string): string {
   if (!str) return '';
@@ -325,7 +351,7 @@ export function parseSheetToDrafts(
     const numValues: number[] = [];
     for (let c = 2; c <= 13; c++) {
       const rawVal = row[c];
-      const parsedVal = typeof rawVal === 'number' ? rawVal : Number(String(rawVal).replace(/[^0-9.-]/g, '')) || 0;
+      const parsedVal = parseExcelNumber(rawVal);
       numValues.push(parsedVal);
     }
 

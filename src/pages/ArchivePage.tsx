@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { store } from '../services/store';
+import { store, sortReportsByPeriodEndDesc } from '../services/store';
 import { formatNumber, formatDate, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
 import {
@@ -48,7 +48,7 @@ export const ArchivePage: React.FC = () => {
   }, [reports]);
 
   const filteredReports = useMemo(() => {
-    return reports.filter((r) => {
+    const list = reports.filter((r) => {
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
       if (yearFilter !== 'ALL' && !r.period_start.startsWith(yearFilter)) return false;
       if (monthFilter !== 'ALL') {
@@ -65,6 +65,7 @@ export const ArchivePage: React.FC = () => {
       }
       return true;
     });
+    return sortReportsByPeriodEndDesc(list);
   }, [reports, search, yearFilter, monthFilter, statusFilter]);
 
   const handleExport = (reportId: string, type: 'excel' | 'csv') => {

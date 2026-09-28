@@ -13,6 +13,7 @@ export interface ParsedProcedureRow {
   muc_do_cung_cap: string;
   phi_le_phi: string;
   raw_unit_name: string;
+  dvc_link?: string;
   matched_unit_id?: string | null;
   matched_unit_name?: string;
   matched_unit_code?: string;
@@ -179,6 +180,7 @@ export function parseProceduresExcel(
     unitColIdx !== -1
       ? unitColIdx
       : findCol(['đơn vị giải quyết', 'đơn vị thực hiện', 'đơn vị phụ trách', 'đơn vị'], 10);
+  const dvcLinkIdx = findCol(['liên kết cổng dvcqg', 'liên kết dvc', 'link dvc', 'liên kết', 'dvc link', 'url'], 11);
 
   const existingCodesMap = new Map(existingFields.map((f) => [normalizeKey(f.code), f]));
 
@@ -208,8 +210,10 @@ export function parseProceduresExcel(
     }
 
     const rawUnit = unitIdx !== -1 ? String(row[unitIdx] ?? '').trim() : '';
+    const rawDvcLink = dvcLinkIdx !== -1 ? String(row[dvcLinkIdx] ?? '').trim() : '';
     const cleanCode = code || `TTHC-${i}`;
     const codeKey = normalizeKey(cleanCode);
+    const dvc_link = rawDvcLink || (cleanCode ? `https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=${encodeURIComponent(cleanCode)}` : '');
 
     // Match unit from Excel strictly against public.units
     const matchResult = matchUnitFromExcel(rawUnit, units);
@@ -235,6 +239,7 @@ export function parseProceduresExcel(
       muc_do_cung_cap: String(row[mucDoIdx] ?? '').trim(),
       phi_le_phi: String(row[phiIdx] ?? '').trim(),
       raw_unit_name: rawUnit,
+      dvc_link: dvc_link,
       matched_unit_id: matchResult.unit ? matchResult.unit.id : null,
       matched_unit_name: matchResult.unit ? matchResult.unit.name : undefined,
       matched_unit_code: matchResult.unit ? matchResult.unit.code : undefined,
@@ -343,6 +348,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     'Mức độ cung cấp',
     'Phí - lệ phí',
     'Đơn vị giải quyết',
+    'Liên kết Cổng DVCQG',
   ];
 
   // Filter out any test codes and sort
@@ -367,6 +373,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     f.muc_do_cung_cap || '',
     f.phi_le_phi || '',
     f.unit_id ? unitsMap.get(f.unit_id) || '' : '',
+    f.dvc_link || (f.code ? `https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=${encodeURIComponent(f.code)}` : ''),
   ]);
 
   const worksheetData = [headers, ...dataRows];
@@ -384,6 +391,7 @@ export function exportCatalogToExcel(fields: Field[], units: Unit[], fileName = 
     { wch: 18 },
     { wch: 16 },
     { wch: 28 },
+    { wch: 60 },
   ];
 
   const wb = XLSX.utils.book_new();
@@ -407,9 +415,27 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
     'Mức độ cung cấp',
     'Phí - lệ phí',
     'Đơn vị giải quyết',
+    'Liên kết Cổng DVCQG',
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet([headers]);
+  const sampleRows = [
+    [
+      1,
+      '2.000206',
+      'Thẩm định, phê duyệt phương án ứng phó thiên tai cho công trình vùng hạ du đập thủy điện thuộc thẩm quyền phê duyệt của Ủy ban nhân dân cấp xã',
+      'An toàn đập, hồ chứa thuỷ điện',
+      'Bộ Công thương',
+      'TTHC Tiêu chuẩn',
+      'Bộ Công thương',
+      'Cấp Xã',
+      'Toàn trình',
+      'Không quy định',
+      'Phòng Kinh tế',
+      'https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=2.000206',
+    ],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
 
   ws['!cols'] = [
     { wch: 6 },
@@ -423,6 +449,7 @@ export function downloadSampleExcelTemplate(fileName = 'Mau_Import_LinhVuc_TTHC.
     { wch: 18 },
     { wch: 16 },
     { wch: 28 },
+    { wch: 60 },
   ];
 
   const wb = XLSX.utils.book_new();

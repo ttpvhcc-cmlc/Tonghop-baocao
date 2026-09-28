@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { store, Profile } from '../services/store';
-import { formatNumber, formatPercent, getStatusBadge } from '../utils/format';
+import { store, Profile, sortReportsByPeriodEndDesc, DEFAULT_TABLE_HEADERS } from '../services/store';
+import { dossierUrgeStore } from '../services/dossierUrgeStore';
+import { formatNumber, formatPercent, formatRatePercent, getStatusBadge } from '../utils/format';
 import { resolveLinhVuc } from '../utils/fieldResolver';
 import {
   calcCompletionRate,
   calcOnTimeRate,
   calcLateRate,
+  calcPendingLateRate,
+  calcOverdueRateQD776,
   calcOnlineRate,
   calcPendingRate
 } from '../features/analysis/formulas';
@@ -56,9 +59,17 @@ import {
   Layers,
   Filter,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  FolderKanban,
+  Tv,
+  Download,
+  Printer,
+  BookOpen,
+  Info
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { exportElementToPDF, triggerBrowserPrint } from '../utils/pdfExport';
+import { DossierUrgeRecord } from '../types/dossierUrge';
 
 interface ChartConfig {
   id: string;
@@ -69,6 +80,7 @@ interface ChartConfig {
   visible: boolean;
   widthPercent?: number;
   height?: number;
+  customOptions?: Record<string, any>;
 }
 
 const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
@@ -84,13 +96,31 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
   },
   {
     id: 'quality',
-    title: '2. Cơ cấu chất lượng giải quyết (QĐ 766)',
-    subtitle: 'Tỷ trọng Trước hạn, Đúng hạn và Quá hạn (Chỉ tiêu đúng hạn > 95%)',
+    title: '2. Cơ cấu chất lượng giải quyết (TT 01 vs QĐ 766)',
+    subtitle: 'So sánh cơ cấu chất lượng theo Thông tư 01 (Đã giải quyết) và Quyết định 766 (Toàn diện hệ thống)',
     width: 'half',
     widthPercent: 49,
     height: 420,
     order: 1,
     visible: true,
+    customOptions: {
+      viewMode: 'both',
+      tt01Header: 'Thông tư 01/2018 (Đã giải quyết)',
+      qd766Header: 'Quyết định 766 (Toàn diện hệ thống)',
+      tt01EarlyName: 'Trước hạn',
+      tt01EarlyColor: '#10b981',
+      tt01OnTimeName: 'Đúng hạn',
+      tt01OnTimeColor: '#0ea5e9',
+      tt01LateName: 'Quá hạn',
+      tt01LateColor: '#f43f5e',
+      qd766OnTimeName: 'Đã GQ đúng hạn',
+      qd766OnTimeColor: '#10b981',
+      qd766PendingInTermName: 'Đang trong hạn',
+      qd766PendingInTermColor: '#3b82f6',
+      qd766OverdueName: 'Tổng quá hạn (Đã + Đang trễ)',
+      qd766OverdueColor: '#ef4444',
+      chartNote: '',
+    },
   },
   {
     id: 'channels',
@@ -111,11 +141,46 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
     height: 420,
     order: 3,
     visible: true,
+    customOptions: {
+      tab1Label: 'Đối chiếu 2 cách tính',
+      tab2Label: 'QĐ 766 (Toàn diện)',
+      tab3Label: 'TT 01 (Đã giải quyết)',
+      chartNote: '',
+      compBarName: 'Đã giải quyết trước + đúng hạn (hồ sơ)',
+      compBarColor: '#10b981',
+      qd766BarName: 'Đã giải quyết đúng hạn theo cách tính của 766',
+      qd766BarColor: '#3b82f6',
+      onTimeLineName: 'Tỷ lệ đúng hạn TT 01 (%)',
+      onTimeLineColor: '#e11d48',
+      qd766LineName: 'Tỷ lệ theo QĐ 766 (%)',
+      qd766LineColor: '#2563eb',
+      qd766TabOnTimeBarName: 'Đạt chuẩn hạn theo QĐ 766',
+      qd766TabOnTimeBarColor: '#2563eb',
+      qd766TabOverdueBarName: 'Tổng quá hạn (Đã trễ + Đang trễ)',
+      qd766TabOverdueBarColor: '#ef4444',
+      qd766TabLineName: 'Tỷ lệ đúng hạn QĐ 766 (%)',
+      qd766TabLineColor: '#2563eb',
+      tt01TabOnTimeBarName: 'Đã giải quyết Đúng & Trước hạn',
+      tt01TabOnTimeBarColor: '#10b981',
+      tt01TabLateBarName: 'Đã giải quyết Quá hạn',
+      tt01TabLateBarColor: '#f43f5e',
+      tt01TabLineName: 'Tỷ lệ đúng hạn TT 01 (%)',
+      tt01TabLineColor: '#059669',
+      showCompBar: true,
+      showQd766Bar: true,
+      showOnTimeLine: true,
+      showQd766Line: true,
+      showRefLine: false,
+      refLineValue: 95,
+      refLineLabel: '',
+      refLineColor: '#f43f5e',
+      qd766CalcMode: 'standard',
+    },
   },
   {
     id: 'thematic_pending',
     title: 'TỔNG HỢP TIẾN ĐỘ HỒ SƠ ĐANG GIẢI QUYẾT',
-    subtitle: 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn & Đang giải quyết Quá hạn',
+    subtitle: 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn và Đang giải quyết Quá hạn',
     width: 'full',
     widthPercent: 100,
     height: 480,
@@ -125,7 +190,7 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
   {
     id: 'thematic_received',
     title: 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ TIẾP NHẬN',
-    subtitle: 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến & Trực tiếp',
+    subtitle: 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến và Trực tiếp',
     width: 'full',
     widthPercent: 100,
     height: 480,
@@ -135,11 +200,21 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
   {
     id: 'thematic_completed',
     title: 'TỔNG HỢP SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT',
-    subtitle: 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn & Trước hạn vs Trễ hạn (Quá hạn)',
+    subtitle: 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn và Trước hạn vs Trễ hạn (Quá hạn)',
     width: 'full',
     widthPercent: 100,
     height: 480,
     order: 6,
+    visible: true,
+  },
+  {
+    id: 'urge_statistics',
+    title: '5. Thống kê tình hình Đôn đốc hồ sơ theo Đơn vị chủ trì',
+    subtitle: 'Tổng hợp số lượng phiếu đôn đốc phát sinh trong khoảng thời gian của kỳ báo cáo được chọn',
+    width: 'full',
+    widthPercent: 100,
+    height: 380,
+    order: 7,
     visible: true,
   },
   {
@@ -149,8 +224,71 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
     width: 'full',
     widthPercent: 100,
     height: 480,
-    order: 7,
+    order: 8,
     visible: true,
+  },
+];
+
+export interface SubCardConfigItem {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
+export interface KpiCardConfigItem {
+  id: string; // 'received' | 'resolved' | 'pending' | 'qd766' | 'online'
+  title: string;
+  subtitle: string;
+  visible: boolean;
+  order: number;
+  subCards?: SubCardConfigItem[];
+}
+
+const DEFAULT_KPI_CARDS: KpiCardConfigItem[] = [
+  {
+    id: 'received',
+    title: 'Tổng tiếp nhận',
+    subtitle: 'online + tt + trước',
+    visible: true,
+    order: 1,
+    subCards: [
+      { id: 'rec_online', title: 'Nộp trực tuyến', subtitle: 'online / tổng' },
+      { id: 'rec_offline', title: 'Nộp trực tiếp', subtitle: 'trực tiếp / bưu chính' },
+      { id: 'rec_carried', title: 'Từ kỳ trước', subtitle: 'chuyển sang' },
+    ],
+  },
+  {
+    id: 'resolved',
+    title: 'Đã giải quyết',
+    subtitle: 'sớm + đúng + trễ',
+    visible: true,
+    order: 2,
+    subCards: [
+      { id: 'comp_ontime', title: 'Đúng hạn', subtitle: 'trước hạn + đúng hạn' },
+      { id: 'comp_late', title: 'Quá hạn', subtitle: 'trễ hạn' },
+    ],
+  },
+  {
+    id: 'pending',
+    title: 'Đang giải quyết',
+    subtitle: 'trong hạn + trễ hạn',
+    visible: true,
+    order: 3,
+    subCards: [
+      { id: 'pending_interm', title: 'Tồn trong hạn', subtitle: 'trong hạn' },
+      { id: 'pending_late', title: 'Tồn quá hạn', subtitle: 'quá hạn' },
+    ],
+  },
+  {
+    id: 'qd766',
+    title: 'THEO QĐ 766',
+    subtitle: 'Đánh giá tỷ lệ đúng hạn QĐ 766',
+    visible: true,
+    order: 4,
+    subCards: [
+      { id: 'qd766_ontime_group', title: 'Đã giải quyết trước, đúng hạn + Đang giải quyết trong hạn', subtitle: 'sớm + đúng + tồn trong hạn' },
+      { id: 'qd766_late_group', title: 'Đã giải quyết trễ hạn + Đang giải quyết quá hạn', subtitle: 'trễ + tồn quá hạn' },
+    ],
   },
 ];
 
@@ -171,6 +309,45 @@ const mergeWithDefaultCharts = (savedCharts?: any[]): ChartConfig[] => {
       height: found.height ?? def.height,
       order: found.order ?? def.order,
       visible: found.visible !== undefined ? found.visible : def.visible,
+      customOptions: {
+        ...(def.customOptions || {}),
+        ...(found.customOptions || {}),
+      },
+    };
+  }).sort((a, b) => a.order - b.order);
+};
+
+const mergeWithDefaultKpiCards = (savedKpis?: any[]): KpiCardConfigItem[] => {
+  if (!Array.isArray(savedKpis) || savedKpis.length === 0) {
+    return DEFAULT_KPI_CARDS;
+  }
+  return DEFAULT_KPI_CARDS.map((def) => {
+    const found = savedKpis.find((s) => s.id === def.id);
+    if (!found) return def;
+    return {
+      ...def,
+      ...found,
+      title: found.title || def.title,
+      subtitle: found.subtitle !== undefined ? found.subtitle : def.subtitle,
+      order: found.order ?? def.order,
+      visible: found.visible !== undefined ? found.visible : def.visible,
+      subCards: def.subCards ? def.subCards.map((defSub) => {
+        const foundSub = found.subCards?.find((s: any) =>
+          s.id === defSub.id ||
+          (defSub.id === 'comp_ontime' && (s.id === 'ontime_rate' || s.title?.includes('Đúng hạn'))) ||
+          (defSub.id === 'comp_late' && (s.id === 'overdue_rate' || s.title?.includes('Quá hạn')))
+        );
+        if (!foundSub) return defSub;
+        let title = foundSub.title || defSub.title;
+        if (title === 'TL Đúng hạn') title = 'Đúng hạn';
+        if (title === 'TL Quá hạn') title = 'Quá hạn';
+        return {
+          ...defSub,
+          ...foundSub,
+          title,
+          subtitle: foundSub.subtitle !== undefined ? foundSub.subtitle : defSub.subtitle,
+        };
+      }) : (found.subCards || def.subCards)
     };
   }).sort((a, b) => a.order - b.order);
 };
@@ -199,6 +376,16 @@ export const DashboardPage: React.FC = () => {
     return unsub;
   }, []);
 
+  const [urges, setUrges] = useState<DossierUrgeRecord[]>([]);
+
+  useEffect(() => {
+    const loadUrges = () => {
+      setUrges(dossierUrgeStore.getUrges());
+    };
+    loadUrges();
+    return dossierUrgeStore.subscribe(loadUrges);
+  }, []);
+
   const isAuthenticated = currentUser.id !== 'guest' && currentUser.active === true;
   const canCreateReport = store.hasPermission('create_reports', currentUser);
   const canImportExcel = store.hasPermission('import_excel', currentUser);
@@ -217,9 +404,11 @@ export const DashboardPage: React.FC = () => {
   const [selectedSourceId, setSelectedSourceId] = useState<string>('ALL');
   const [selectedFieldId, setSelectedFieldId] = useState<string>('ALL');
   const [presentationDimension, setPresentationDimension] = useState<'unit' | 'field'>('unit');
+  const [chartViewType, setChartViewType] = useState<'count' | 'percent'>('count');
 
   // Trend axis granularity ('month' | 'quarter' | 'year') and year selection state
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter' | 'year'>('month');
+  const [trendMetricMode, setTrendMetricMode] = useState<'count' | 'rate'>('count');
   const [selectedTrendYear, setSelectedTrendYear] = useState<number>(() => {
     return new Date().getFullYear();
   });
@@ -259,7 +448,7 @@ export const DashboardPage: React.FC = () => {
   }, [availableTrendYears]);
 
   // Series visibility toggle state for Trend chart (Diễn biến khối lượng theo mốc chốt báo cáo)
-  type TrendSeriesKey = 'received' | 'pendingLate' | 'pending' | 'resolved' | 'resolvedLate';
+  type TrendSeriesKey = 'received' | 'resolved' | 'resolvedLate' | 'pending' | 'pendingLate';
 
   interface TrendSeriesItem {
     key: TrendSeriesKey;
@@ -272,18 +461,18 @@ export const DashboardPage: React.FC = () => {
 
   const TREND_SERIES_LIST: TrendSeriesItem[] = [
     { key: 'received', name: 'Tổng tiếp nhận', color: '#3b82f6', isArea: true, gradientId: 'colorRec' },
-    { key: 'pendingLate', name: 'Đang giải quyết quá hạn', color: '#ef4444', isArea: false, dash: '3 3' },
-    { key: 'pending', name: 'Đang xử lý (Tồn)', color: '#f59e0b', isArea: false, dash: '4 4' },
     { key: 'resolved', name: 'Đã giải quyết', color: '#10b981', isArea: true, gradientId: 'colorSolv' },
     { key: 'resolvedLate', name: 'Đã giải quyết trễ hạn', color: '#b91c1c', isArea: false },
+    { key: 'pending', name: 'Đang giải quyết', color: '#f59e0b', isArea: false, dash: '4 4' },
+    { key: 'pendingLate', name: 'Đang giải quyết quá hạn', color: '#ef4444', isArea: false, dash: '3 3' },
   ];
 
   const [trendSeriesVisibility, setTrendSeriesVisibility] = useState<Record<TrendSeriesKey, boolean>>({
-    received: true,
-    pendingLate: true,
-    pending: true,
-    resolved: true,
+    received: false,
+    resolved: false,
     resolvedLate: true,
+    pending: true,
+    pendingLate: true,
   });
 
   const toggleTrendSeries = (key: TrendSeriesKey) => {
@@ -296,26 +485,27 @@ export const DashboardPage: React.FC = () => {
   const setAllTrendSeries = (visible: boolean) => {
     setTrendSeriesVisibility({
       received: visible,
-      pendingLate: visible,
-      pending: visible,
       resolved: visible,
       resolvedLate: visible,
+      pending: visible,
+      pendingLate: visible,
     });
   };
 
-  // State for Admin Editing Chart Header (Title & Subtitle/Caption)
+  // State for Admin Editing Chart Header (Title & Subtitle/Caption, Colors & Series Labels)
   const [editingChartMeta, setEditingChartMeta] = useState<{
     id: string;
     title: string;
     subtitle: string;
+    customOptions?: Record<string, any>;
   } | null>(null);
 
-  // Detailed Table State: Sorting, Filtering, Grouping by Source
+  // Detailed Table State: Sorting, Filtering, Grouping (field | source)
   const [tableSearchQuery, setTableSearchQuery] = useState<string>('');
   const [tableSourceFilter, setTableSourceFilter] = useState<string>('ALL');
   const [tableValidityFilter, setTableValidityFilter] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
-  const [tableOnlyWithData, setTableOnlyWithData] = useState<boolean>(false);
-  const [tableGroupBySource, setTableGroupBySource] = useState<boolean>(false);
+  const [tableGroupingMode, setTableGroupingMode] = useState<'none' | 'field' | 'source'>('field');
+  const [tableRateMode, setTableRateMode] = useState<'overdue' | 'ontime'>('overdue');
   const [tableSortKey, setTableSortKey] = useState<string>('received_total');
   const [tableSortDirection, setTableSortDirection] = useState<'asc' | 'desc'>('desc');
 
@@ -324,14 +514,121 @@ export const DashboardPage: React.FC = () => {
       setTableSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
       setTableSortKey(key);
-      setTableSortDirection(key === 'field' || key === 'unit' || key === 'source' ? 'asc' : 'desc');
+      setTableSortDirection(key === 'field' || key === 'unit' ? 'asc' : 'desc');
     }
   };
 
   const [isAdminLayoutMode, setIsAdminLayoutMode] = useState<boolean>(false);
   const [resizingChartId, setResizingChartId] = useState<string | null>(null);
 
+  // Chế độ trình diễn xếp hạng đơn vị: 'comparison' (Đối chiếu 2 cách tính), 'qd766' (Toàn diện QĐ 766), 'tt01' (Chỉ Đã giải quyết)
+  const [rankingViewMode, setRankingViewMode] = useState<'comparison' | 'qd766' | 'tt01'>('comparison');
+  // Modal giải thích chuyên sâu bản chất & công thức 2 cách tính (TT 01 vs QĐ 766)
+  const [showMethodologyModal, setShowMethodologyModal] = useState<boolean>(false);
+
   const [chartsLayout, setChartsLayout] = useState<ChartConfig[]>(DEFAULT_CHARTS_LAYOUT);
+  const [kpiCards, setKpiCards] = useState<KpiCardConfigItem[]>(DEFAULT_KPI_CARDS);
+  const [editingKpiId, setEditingKpiId] = useState<string | null>(null);
+  const [editKpiTitle, setEditKpiTitle] = useState('');
+  const [editKpiSubtitle, setEditKpiSubtitle] = useState('');
+  const [editSubCards, setEditSubCards] = useState<SubCardConfigItem[]>([]);
+
+  // Detailed Table Headers Configuration (Admin editable)
+  const [tableHeaders, setTableHeaders] = useState<Record<string, string>>(() => {
+    const cfg = store.getSystemConfig();
+    return { ...DEFAULT_TABLE_HEADERS, ...(cfg.tableHeadersConfig || {}) };
+  });
+  const [isEditingTableHeadersModal, setIsEditingTableHeadersModal] = useState<boolean>(false);
+  const [draftTableHeaders, setDraftTableHeaders] = useState<Record<string, string>>({});
+
+  const handleSaveTableHeaders = async (newHeaders: Record<string, string>) => {
+    setTableHeaders(newHeaders);
+    setIsEditingTableHeadersModal(false);
+    try {
+      const currentConfig = store.getSystemConfig();
+      await store.saveSystemConfig({
+        ...currentConfig,
+        tableHeadersConfig: newHeaders,
+      });
+      setSaveStatus({ type: 'success', message: 'Đã lưu cấu hình tiêu đề các cột bảng thành công!' });
+      setTimeout(() => setSaveStatus(null), 3500);
+    } catch (err: any) {
+      console.error('Failed to save table headers', err);
+    }
+  };
+
+  const handleKpiDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleKpiDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain');
+    if (!sourceId || sourceId === targetId) return;
+
+    const sorted = [...kpiCards].sort((a, b) => a.order - b.order);
+    const sourceIdx = sorted.findIndex(c => c.id === sourceId);
+    const targetIdx = sorted.findIndex(c => c.id === targetId);
+
+    if (sourceIdx !== -1 && targetIdx !== -1) {
+      const [moved] = sorted.splice(sourceIdx, 1);
+      sorted.splice(targetIdx, 0, moved);
+      sorted.forEach((c, i) => { c.order = i + 1; });
+      setKpiCards(sorted);
+    }
+  };
+
+  const moveKpiCard = (id: string, direction: 'up' | 'down') => {
+    const sorted = [...kpiCards].sort((a, b) => a.order - b.order);
+    const idx = sorted.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+
+    const temp = sorted[idx].order;
+    sorted[idx].order = sorted[targetIdx].order;
+    sorted[targetIdx].order = temp;
+
+    sorted.sort((a, b) => a.order - b.order).forEach((c, i) => { c.order = i + 1; });
+    setKpiCards(sorted);
+  };
+
+  const toggleKpiVisibility = (id: string) => {
+    setKpiCards(prev => prev.map(c => c.id === id ? { ...c, visible: !c.visible } : c));
+  };
+
+  const saveKpiEdit = (id: string) => {
+    setKpiCards(prev => prev.map(c => {
+      if (c.id === id) {
+        return {
+          ...c,
+          title: editKpiTitle,
+          subtitle: editKpiSubtitle,
+          subCards: editSubCards.length > 0 ? editSubCards : c.subCards
+        };
+      }
+      return c;
+    }));
+    setEditingKpiId(null);
+  };
+
+  const renderKpiAdminToolbar = (card: KpiCardConfigItem) => (
+    <div className="absolute top-2 right-2 flex items-center bg-white/95 backdrop-blur-xs border border-slate-200 px-1.5 py-0.5 rounded-lg shadow-sm gap-1 z-10">
+      <button onClick={() => moveKpiCard(card.id, 'up')} className="p-0.5 text-slate-500 hover:text-slate-800 cursor-pointer" title="Di chuyển trước"><ArrowUp className="w-3 h-3" /></button>
+      <button onClick={() => moveKpiCard(card.id, 'down')} className="p-0.5 text-slate-500 hover:text-slate-800 cursor-pointer" title="Di chuyển sau"><ArrowDown className="w-3 h-3" /></button>
+      <button onClick={() => {
+        setEditingKpiId(card.id);
+        setEditKpiTitle(card.title);
+        setEditKpiSubtitle(card.subtitle);
+        const defCard = DEFAULT_KPI_CARDS.find(d => d.id === card.id);
+        const activeSubCards = (card.subCards && card.subCards.length > 0) ? card.subCards : (defCard?.subCards || []);
+        setEditSubCards(JSON.parse(JSON.stringify(activeSubCards)));
+      }} className="p-0.5 text-blue-600 hover:text-blue-800 cursor-pointer" title="Tùy chỉnh tiêu đề và chú thích"><Pencil className="w-3 h-3" /></button>
+      <button onClick={() => toggleKpiVisibility(card.id)} className={`p-0.5 cursor-pointer ${card.visible ? 'text-blue-600' : 'text-rose-500'}`} title={card.visible ? 'Ẩn' : 'Hiện'}>
+        {card.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+      </button>
+    </div>
+  );
 
   const handleOpenEditModal = (chartId: string) => {
     const chart = chartsLayout.find(c => c.id === chartId);
@@ -340,6 +637,10 @@ export const DashboardPage: React.FC = () => {
       id: chartId,
       title: chart?.title || def?.title || '',
       subtitle: chart?.subtitle !== undefined ? chart.subtitle : (def?.subtitle || ''),
+      customOptions: {
+        ...(def?.customOptions || {}),
+        ...(chart?.customOptions || {}),
+      },
     });
   };
 
@@ -351,6 +652,7 @@ export const DashboardPage: React.FC = () => {
           ...c,
           title: editingChartMeta.title.trim() || c.title,
           subtitle: editingChartMeta.subtitle.trim(),
+          customOptions: editingChartMeta.customOptions || c.customOptions || {},
         };
       }
       return c;
@@ -365,7 +667,7 @@ export const DashboardPage: React.FC = () => {
         ...currentConfig,
         chartsLayout: updatedLayout,
       });
-      setSaveStatus({ type: 'success', message: 'Đã cập nhật tiêu đề & chú thích biểu đồ thành công!' });
+      setSaveStatus({ type: 'success', message: 'Đã cập nhật tiêu đề, chú giải và màu sắc biểu đồ thành công!' });
       setTimeout(() => setSaveStatus(null), 3500);
     } catch (e) {
       console.error('Failed to auto-save chart meta', e);
@@ -380,6 +682,7 @@ export const DashboardPage: React.FC = () => {
         id: editingChartMeta.id,
         title: def.title,
         subtitle: def.subtitle || '',
+        customOptions: { ...(def.customOptions || {}) },
       });
     }
   };
@@ -468,12 +771,13 @@ export const DashboardPage: React.FC = () => {
       const updatedConfig = {
         ...currentConfig,
         chartsLayout: chartsLayout,
+        kpiCardsLayout: kpiCards,
         trendHistoryLimit: trendHistoryLimit,
       };
       
       const res = await store.saveSystemConfig(updatedConfig);
       if (res.success) {
-        setSaveStatus({ type: 'success', message: 'Đã áp dụng & đồng bộ bố cục thành công!' });
+        setSaveStatus({ type: 'success', message: 'Đã áp dụng và đồng bộ bố cục thành công!' });
         setTimeout(() => setSaveStatus(null), 4000);
       } else {
         setSaveStatus({ type: 'error', message: res.message || 'Lỗi khi lưu bố cục.' });
@@ -575,7 +879,8 @@ export const DashboardPage: React.FC = () => {
         errorMessage: res.errorMessage,
       });
 
-      setLiveReports(res.reports);
+      const sortedReps = sortReportsByPeriodEndDesc(res.reports);
+      setLiveReports(sortedReps);
       setLiveUnits(res.units);
       setLiveFields(res.fields);
 
@@ -585,6 +890,8 @@ export const DashboardPage: React.FC = () => {
 
       if (!selectedReportId && res.currentReport) {
         setSelectedReportId(res.currentReport.id);
+      } else if (!selectedReportId && sortedReps.length > 0) {
+        setSelectedReportId(sortedReps[0].id);
       }
     } catch (err: any) {
       setDbStatus((prev) => ({ ...prev, connected: false, schemaReady: false, errorMessage: err.message }));
@@ -607,8 +914,14 @@ export const DashboardPage: React.FC = () => {
     if (initialConfig.chartsLayout && Array.isArray(initialConfig.chartsLayout) && initialConfig.chartsLayout.length > 0) {
       setChartsLayout(mergeWithDefaultCharts(initialConfig.chartsLayout));
     }
+    if (initialConfig.kpiCardsLayout && Array.isArray(initialConfig.kpiCardsLayout) && initialConfig.kpiCardsLayout.length > 0) {
+      setKpiCards(mergeWithDefaultKpiCards(initialConfig.kpiCardsLayout));
+    }
     if (initialConfig.trendHistoryLimit) {
       setTrendHistoryLimit(initialConfig.trendHistoryLimit);
+    }
+    if (initialConfig.tableHeadersConfig) {
+      setTableHeaders({ ...DEFAULT_TABLE_HEADERS, ...initialConfig.tableHeadersConfig });
     }
 
     const unsub = store.subscribe(() => {
@@ -619,8 +932,14 @@ export const DashboardPage: React.FC = () => {
       if (currentConfig.chartsLayout && Array.isArray(currentConfig.chartsLayout) && currentConfig.chartsLayout.length > 0) {
         setChartsLayout(mergeWithDefaultCharts(currentConfig.chartsLayout));
       }
+      if (currentConfig.kpiCardsLayout && Array.isArray(currentConfig.kpiCardsLayout) && currentConfig.kpiCardsLayout.length > 0) {
+        setKpiCards(mergeWithDefaultKpiCards(currentConfig.kpiCardsLayout));
+      }
       if (currentConfig.trendHistoryLimit) {
         setTrendHistoryLimit(currentConfig.trendHistoryLimit);
+      }
+      if (currentConfig.tableHeadersConfig) {
+        setTableHeaders({ ...DEFAULT_TABLE_HEADERS, ...currentConfig.tableHeadersConfig });
       }
     });
     return () => unsub();
@@ -706,7 +1025,11 @@ export const DashboardPage: React.FC = () => {
     const completionRate = calcCompletionRate(compTotal, recTotal);
     const onTimeRate = calcOnTimeRate(compEarly, compOnTime, compTotal);
     const overdueRate = calcLateRate(compLate, compTotal);
+    const pendingRate = recTotal > 0 ? Number(((pendTotal / recTotal) * 100).toFixed(1)) : 0;
+    const pendingLateRate = calcPendingLateRate(pendLate, pendTotal);
+    const qd776OverdueRate = calcOverdueRateQD776(compLate, pendLate, recTotal);
     const pendingOnTimeRate = calcPendingRate(pendOnTime, pendTotal);
+    const qd766OnTimeRate = recTotal > 0 ? Number((((compEarly + compOnTime + pendOnTime) / recTotal) * 100).toFixed(2)) : 100;
 
     return {
       recTotal,
@@ -720,11 +1043,16 @@ export const DashboardPage: React.FC = () => {
       pendTotal,
       pendOnTime,
       pendLate,
+      pendInTerm: pendOnTime,
       onlineRate,
       completionRate,
       onTimeRate,
       overdueRate,
+      pendingRate,
+      pendingLateRate,
+      qd776OverdueRate,
       pendingOnTimeRate,
+      qd766OnTimeRate,
     };
   }, [filteredStats]);
 
@@ -815,6 +1143,12 @@ export const DashboardPage: React.FC = () => {
         x = Math.round((year + (month - 1 + (day - 1) / daysInMonth) / 12) * 1000) / 1000;
       }
 
+      const recRate = rec > 0 ? 100 : 0;
+      const compRate = rec > 0 ? Math.round((comp / rec) * 1000) / 10 : 0;
+      const compLateRate = comp > 0 ? Math.round((compLate / comp) * 1000) / 10 : (rec > 0 ? Math.round((compLate / rec) * 1000) / 10 : 0);
+      const pendRate = rec > 0 ? Math.round((pend / rec) * 1000) / 10 : 0;
+      const pendLateRate = pend > 0 ? Math.round((pendLate / pend) * 1000) / 10 : (rec > 0 ? Math.round((pendLate / rec) * 1000) / 10 : 0);
+
       return {
         code: rep.report_code,
         name: formattedDate || rep.report_name,
@@ -824,11 +1158,16 @@ export const DashboardPage: React.FC = () => {
         month,
         day,
         x,
-        received: rec,
-        resolved: comp,
-        pending: pend,
-        pendingLate: pendLate,
-        resolvedLate: compLate,
+        received: trendMetricMode === 'rate' ? recRate : rec,
+        resolved: trendMetricMode === 'rate' ? compRate : comp,
+        pending: trendMetricMode === 'rate' ? pendRate : pend,
+        pendingLate: trendMetricMode === 'rate' ? pendLateRate : pendLate,
+        resolvedLate: trendMetricMode === 'rate' ? compLateRate : compLate,
+        rawReceived: rec,
+        rawResolved: comp,
+        rawPending: pend,
+        rawPendingLate: pendLate,
+        rawResolvedLate: compLate,
         sortKey: new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`).getTime() || 0,
       };
     });
@@ -836,16 +1175,57 @@ export const DashboardPage: React.FC = () => {
     // Sort chronologically
     processed.sort((a, b) => a.x - b.x);
     return processed;
-  }, [liveReports, allPeriodStats, trendGranularity, selectedTrendYear, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
+  }, [liveReports, allPeriodStats, trendGranularity, trendMetricMode, selectedTrendYear, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
 
-  // Chart 2: Resolution distribution (early / on time / late)
-  const resolutionDistributionData = useMemo(() => {
+  // Chart 2: Quality & Resolution distribution (TT 01 vs QĐ 766)
+  const qualityChartConfig = useMemo(() => {
+    return chartsLayout.find((c) => c.id === 'quality');
+  }, [chartsLayout]);
+
+  const qualityOptions = useMemo(() => {
+    const defaultOpts = {
+      viewMode: 'both',
+      tt01Header: 'Thông tư 01/2018 (Đã giải quyết)',
+      qd766Header: 'Quyết định 766 (Toàn diện hệ thống)',
+      tt01EarlyName: 'Trước hạn',
+      tt01EarlyColor: '#10b981',
+      tt01OnTimeName: 'Đúng hạn',
+      tt01OnTimeColor: '#0ea5e9',
+      tt01LateName: 'Quá hạn',
+      tt01LateColor: '#f43f5e',
+      qd766OnTimeName: 'Đã GQ đúng hạn',
+      qd766OnTimeColor: '#10b981',
+      qd766PendingInTermName: 'Đang trong hạn',
+      qd766PendingInTermColor: '#3b82f6',
+      qd766OverdueName: 'Tổng quá hạn (Đã + Đang trễ)',
+      qd766OverdueColor: '#ef4444',
+      chartNote: '',
+    };
+    return {
+      ...defaultOpts,
+      ...(qualityChartConfig?.customOptions || {}),
+    };
+  }, [qualityChartConfig]);
+
+  // Resolution distribution TT 01 (Đã giải quyết)
+  const qualityTt01Data = useMemo(() => {
     return [
-      { name: 'Trước hạn', value: totals.compEarly, color: '#10b981' },
-      { name: 'Đúng hạn', value: totals.compOnTime, color: '#0ea5e9' },
-      { name: 'Quá hạn', value: totals.compLate, color: '#f43f5e' },
+      { name: qualityOptions.tt01EarlyName || 'Trước hạn', value: totals.compEarly, color: qualityOptions.tt01EarlyColor || '#10b981' },
+      { name: qualityOptions.tt01OnTimeName || 'Đúng hạn', value: totals.compOnTime, color: qualityOptions.tt01OnTimeColor || '#0ea5e9' },
+      { name: qualityOptions.tt01LateName || 'Quá hạn', value: totals.compLate, color: qualityOptions.tt01LateColor || '#f43f5e' },
     ];
-  }, [totals]);
+  }, [totals, qualityOptions]);
+
+  // Resolution distribution QĐ 766 (Toàn diện hệ thống trên Tổng tiếp nhận)
+  const qualityQd766Data = useMemo(() => {
+    return [
+      { name: qualityOptions.qd766OnTimeName || 'Đã GQ đúng hạn', value: totals.compEarly + totals.compOnTime, color: qualityOptions.qd766OnTimeColor || '#10b981' },
+      { name: qualityOptions.qd766PendingInTermName || 'Đang trong hạn', value: totals.pendOnTime, color: qualityOptions.qd766PendingInTermColor || '#3b82f6' },
+      { name: qualityOptions.qd766OverdueName || 'Tổng quá hạn (Đã + Đang trễ)', value: totals.compLate + totals.pendLate, color: qualityOptions.qd766OverdueColor || '#ef4444' },
+    ];
+  }, [totals, qualityOptions]);
+
+  const resolutionDistributionData = qualityTt01Data;
 
   // Chart 3: Channel mix (online vs in person)
   const channelMixData = useMemo(() => {
@@ -856,30 +1236,153 @@ export const DashboardPage: React.FC = () => {
   }, [totals]);
 
   // Chart 4: Unit performance ranking
+  const rankingChartConfig = useMemo(() => {
+    return chartsLayout.find((c) => c.id === 'ranking');
+  }, [chartsLayout]);
+
+  const rankingOptions = useMemo(() => {
+    const defaultOpts = {
+      tab1Label: 'Đối chiếu 2 cách tính',
+      tab2Label: 'QĐ 766 (Toàn diện)',
+      tab3Label: 'TT 01 (Đã giải quyết)',
+      chartNote: '',
+      compBarName: 'Đã giải quyết trước + đúng hạn (hồ sơ)',
+      compBarColor: '#10b981',
+      qd766BarName: 'Đã giải quyết đúng hạn theo cách tính của 766',
+      qd766BarColor: '#3b82f6',
+      onTimeLineName: 'Tỷ lệ đúng hạn TT 01 (%)',
+      onTimeLineColor: '#e11d48',
+      qd766LineName: 'Tỷ lệ theo QĐ 766 (%)',
+      qd766LineColor: '#2563eb',
+      qd766TabOnTimeBarName: 'Đạt chuẩn hạn theo QĐ 766',
+      qd766TabOnTimeBarColor: '#2563eb',
+      qd766TabOverdueBarName: 'Tổng quá hạn (Đã trễ + Đang trễ)',
+      qd766TabOverdueBarColor: '#ef4444',
+      qd766TabLineName: 'Tỷ lệ đúng hạn QĐ 766 (%)',
+      qd766TabLineColor: '#2563eb',
+      tt01TabOnTimeBarName: 'Đã giải quyết Đúng & Trước hạn',
+      tt01TabOnTimeBarColor: '#10b981',
+      tt01TabLateBarName: 'Đã giải quyết Quá hạn',
+      tt01TabLateBarColor: '#f43f5e',
+      tt01TabLineName: 'Tỷ lệ đúng hạn TT 01 (%)',
+      tt01TabLineColor: '#059669',
+      showCompBar: true,
+      showQd766Bar: true,
+      showOnTimeLine: true,
+      showQd766Line: true,
+      showRefLine: false,
+      refLineValue: 95,
+      refLineLabel: '',
+      refLineColor: '#f43f5e',
+      qd766CalcMode: 'standard',
+    };
+    return {
+      ...defaultOpts,
+      ...(rankingChartConfig?.customOptions || {}),
+    };
+  }, [rankingChartConfig]);
+
   const unitRankingData = useMemo(() => {
-    const map: Record<string, { unitName: string; rec: number; comp: number; pend: number; onTime: number; onTimeRate: number }> = {};
+    const map: Record<
+      string,
+      {
+        unitName: string;
+        rec: number;
+        comp: number;
+        pend: number;
+        onTime: number;
+        compEarly: number;
+        compOnTime: number;
+        compLate: number;
+        pendOnTime: number;
+        pendLate: number;
+        qd766OnTime: number;
+        totalOverdue: number;
+        onTimeRate: number;
+        qd766Rate: number;
+        compRate: number;
+      }
+    > = {};
+
     liveUnits.forEach((u) => {
-      map[u.id] = { unitName: u.name, rec: 0, comp: 0, pend: 0, onTime: 0, onTimeRate: 100 };
+      map[u.id] = {
+        unitName: u.name,
+        rec: 0,
+        comp: 0,
+        pend: 0,
+        onTime: 0,
+        compEarly: 0,
+        compOnTime: 0,
+        compLate: 0,
+        pendOnTime: 0,
+        pendLate: 0,
+        qd766OnTime: 0,
+        totalOverdue: 0,
+        onTimeRate: 100,
+        qd766Rate: 100,
+        compRate: 0,
+      };
     });
 
     liveStats.forEach((s) => {
       if (!map[s.unit_id]) {
-        map[s.unit_id] = { unitName: s.unit_name_snapshot || s.unit_name || 'Đơn vị', rec: 0, comp: 0, pend: 0, onTime: 0, onTimeRate: 100 };
+        map[s.unit_id] = {
+          unitName: s.unit_name_snapshot || s.unit_name || 'Đơn vị',
+          rec: 0,
+          comp: 0,
+          pend: 0,
+          onTime: 0,
+          compEarly: 0,
+          compOnTime: 0,
+          compLate: 0,
+          pendOnTime: 0,
+          pendLate: 0,
+          qd766OnTime: 0,
+          totalOverdue: 0,
+          onTimeRate: 100,
+          qd766Rate: 100,
+          compRate: 0,
+        };
       }
       map[s.unit_id].rec += s.received_total;
       map[s.unit_id].comp += s.completed_total;
       map[s.unit_id].pend += s.pending_total;
       map[s.unit_id].onTime += s.completed_early + s.completed_on_time;
+      map[s.unit_id].compEarly += s.completed_early;
+      map[s.unit_id].compOnTime += s.completed_on_time;
+      map[s.unit_id].compLate += s.completed_late;
+      map[s.unit_id].pendOnTime += s.pending_on_time;
+      map[s.unit_id].pendLate += s.pending_late;
     });
 
+    const isStandard = rankingOptions.qd766CalcMode !== 'resolved_only';
+
     return Object.values(map)
-      .map((item) => ({
-        ...item,
-        onTimeRate: item.comp > 0 ? Number(((item.onTime / item.comp) * 100).toFixed(1)) : 100,
-        compRate: item.rec > 0 ? Number(((item.comp / item.rec) * 100).toFixed(1)) : 0,
-      }))
-      .sort((a, b) => b.onTimeRate - a.onTimeRate);
-  }, [liveUnits, liveStats]);
+      .filter((item) => item.rec > 0 || item.comp > 0 || item.pend > 0)
+      .map((item) => {
+        const qd766OnTime = isStandard
+          ? item.compEarly + item.compOnTime + item.pendOnTime
+          : item.compEarly + item.compOnTime;
+        const totalOverdue = item.compLate + item.pendLate;
+        const qd766Rate = item.rec > 0 ? Number(((qd766OnTime / item.rec) * 100).toFixed(1)) : 100;
+        const onTimeRate = item.comp > 0 ? Number(((item.onTime / item.comp) * 100).toFixed(1)) : 100;
+        const compRate = item.rec > 0 ? Number(((item.comp / item.rec) * 100).toFixed(1)) : 0;
+        return {
+          ...item,
+          qd766OnTime,
+          totalOverdue,
+          qd766Rate,
+          onTimeRate,
+          compRate,
+        };
+      })
+      .sort((a, b) => {
+        if (rankingViewMode === 'tt01') {
+          return b.onTimeRate - a.onTimeRate || b.comp - a.comp;
+        }
+        return b.qd766Rate - a.qd766Rate || b.onTimeRate - a.onTimeRate;
+      });
+  }, [liveUnits, liveStats, rankingOptions, rankingViewMode]);
 
   // Aggregate presentation data grouped by Unit
   const unitPresentationData = useMemo(() => {
@@ -1010,22 +1513,147 @@ export const DashboardPage: React.FC = () => {
     const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
     return base
       .filter((item) => item.received_total > 0)
-      .sort((a, b) => b.received_total - a.received_total);
-  }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+      .sort((a, b) => b.received_total - a.received_total)
+      .map((item) => {
+        const total = item.received_total || 1;
+        const online_pct = Math.round((item.received_online / total) * 1000) / 10;
+        const offline_pct = Math.round((item.received_offline / total) * 1000) / 10;
+        return {
+          ...item,
+          online_pct,
+          offline_pct,
+          online_chart_val: chartViewType === 'percent' ? online_pct : item.received_online,
+          offline_chart_val: chartViewType === 'percent' ? offline_pct : item.received_offline,
+          total_chart_val: chartViewType === 'percent' ? 100 : item.received_total,
+        };
+      });
+  }, [presentationDimension, unitPresentationData, fieldPresentationData, chartViewType]);
 
   const pendingPresentationData = useMemo(() => {
     const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
     return base
       .filter((item) => item.pending_total > 0)
-      .sort((a, b) => b.pending_total - a.pending_total);
-  }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+      .sort((a, b) => b.pending_total - a.pending_total)
+      .map((item) => {
+        const total = item.pending_total || 1;
+        const on_time_pct = Math.round((item.pending_on_time / total) * 1000) / 10;
+        const late_pct = Math.round((item.pending_late / total) * 1000) / 10;
+        return {
+          ...item,
+          on_time_pct,
+          late_pct,
+          on_time_chart_val: chartViewType === 'percent' ? on_time_pct : item.pending_on_time,
+          late_chart_val: chartViewType === 'percent' ? late_pct : item.pending_late,
+          total_chart_val: chartViewType === 'percent' ? 100 : item.pending_total,
+        };
+      });
+  }, [presentationDimension, unitPresentationData, fieldPresentationData, chartViewType]);
 
   const completedPresentationData = useMemo(() => {
     const base = presentationDimension === 'unit' ? unitPresentationData : fieldPresentationData;
     return base
       .filter((item) => item.completed_total > 0)
-      .sort((a, b) => b.completed_total - a.completed_total);
-  }, [presentationDimension, unitPresentationData, fieldPresentationData]);
+      .sort((a, b) => b.completed_total - a.completed_total)
+      .map((item) => {
+        const total = item.completed_total || 1;
+        const on_time_pct = Math.round((item.completed_on_time_and_early / total) * 1000) / 10;
+        const late_pct = Math.round((item.completed_late / total) * 1000) / 10;
+        return {
+          ...item,
+          on_time_pct,
+          late_pct,
+          on_time_chart_val: chartViewType === 'percent' ? on_time_pct : item.completed_on_time_and_early,
+          late_chart_val: chartViewType === 'percent' ? late_pct : item.completed_late,
+          total_chart_val: chartViewType === 'percent' ? 100 : item.completed_total,
+        };
+      });
+  }, [presentationDimension, unitPresentationData, fieldPresentationData, chartViewType]);
+
+  const urgeChartData = useMemo(() => {
+    const allUrges = dossierUrgeStore.getUrges();
+    if (!selectedReport) return [];
+
+    const parseReceptionDate = (dateStr?: string, fallbackIso?: string): Date => {
+      if (dateStr) {
+        const clean = dateStr.trim();
+        const parts = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if (parts) {
+          const day = parseInt(parts[1], 10);
+          const month = parseInt(parts[2], 10) - 1;
+          let year = parseInt(parts[3], 10);
+          if (year < 100) year += 2000;
+          
+          let hour = 12; // default midday to avoid timezone edge cases
+          let min = 0;
+          const timeParts = clean.match(/\s+(\d{1,2}):(\d{1,2})/);
+          if (timeParts) {
+            hour = parseInt(timeParts[1], 10);
+            min = parseInt(timeParts[2], 10);
+          }
+          return new Date(year, month, day, hour, min);
+        }
+      }
+      return fallbackIso ? new Date(fallbackIso) : new Date();
+    };
+
+    const getLocalDateOnly = (dateInput: string | Date): Date => {
+      const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+      if (typeof dateInput === 'string') {
+        const parts = dateInput.split('T')[0].split('-');
+        if (parts.length === 3) {
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          return new Date(year, month, day, 12, 0, 0);
+        }
+      }
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+    };
+
+    const startStr = selectedReport.period_start ? selectedReport.period_start.split('T')[0] : '';
+    const endStr = selectedReport.period_end ? selectedReport.period_end.split('T')[0] : '';
+    
+    let periodUrges: DossierUrgeRecord[] = [];
+
+    if (startStr && endStr) {
+      const startTime = getLocalDateOnly(selectedReport.period_start).getTime() - 12 * 60 * 60 * 1000; // 00:00 local
+      const endTime = getLocalDateOnly(selectedReport.period_end).getTime() + 12 * 60 * 60 * 1000; // 24:00 local
+      periodUrges = allUrges.filter(u => {
+        const uDate = parseReceptionDate(u.reception_time, u.created_at);
+        const uTime = getLocalDateOnly(uDate).getTime();
+        return uTime >= startTime && uTime <= endTime;
+      });
+    } else {
+      const dateStr = selectedReport.period_end || selectedReport.period_start || selectedReport.created_at || '';
+      if (dateStr) {
+        const repDate = getLocalDateOnly(dateStr);
+        const repMonth = repDate.getMonth();
+        const repYear = repDate.getFullYear();
+        periodUrges = allUrges.filter(u => {
+          const uDate = parseReceptionDate(u.reception_time, u.created_at);
+          return uDate.getMonth() === repMonth && uDate.getFullYear() === repYear;
+        });
+      }
+    }
+
+    const uniqueUnits = Array.from(new Set([
+      ...liveUnits.map(u => u.name),
+      ...periodUrges.map(u => u.assigned_unit)
+    ])).filter(Boolean);
+
+    return uniqueUnits.map(unitName => {
+      const unitUrges = periodUrges.filter(u => u.assigned_unit === unitName);
+      const completedCount = unitUrges.filter(u => u.status === 'completed' || u.status === 'responded').length;
+      const pendingCount = unitUrges.filter(u => u.status === 'pending' || u.status === 'in_progress').length;
+      
+      return {
+        unitName,
+        'Tổng số đôn đốc': unitUrges.length,
+        'Đã hoàn thành/phản hồi': completedCount,
+        'Đang đôn đốc/chưa phản hồi': pendingCount,
+      };
+    }).filter(d => d['Tổng số đôn đốc'] > 0);
+  }, [selectedReport, liveUnits, urges]);
 
   // Processed Detailed Table Rows with Search, Filter, and Sort
   const processedTableRows = useMemo(() => {
@@ -1084,12 +1712,7 @@ export const DashboardPage: React.FC = () => {
       list = list.filter((r) => !r.validation.allPassed);
     }
 
-    // 4. Only with data filter
-    if (tableOnlyWithData) {
-      list = list.filter((r) => r.received_total > 0 || r.completed_total > 0 || r.pending_total > 0 || r.carried_forward > 0);
-    }
-
-    // 5. Sorting
+    // 4. Sorting
     list.sort((a, b) => {
       let valA: any = 0;
       let valB: any = 0;
@@ -1103,10 +1726,6 @@ export const DashboardPage: React.FC = () => {
           valA = a.unitName;
           valB = b.unitName;
           break;
-        case 'source':
-          valA = a.sourceName;
-          valB = b.sourceName;
-          break;
         case 'received_total':
           valA = a.received_total;
           valB = b.received_total;
@@ -1114,6 +1733,10 @@ export const DashboardPage: React.FC = () => {
         case 'received_online':
           valA = a.received_online;
           valB = b.received_online;
+          break;
+        case 'received_offline':
+          valA = a.received_offline;
+          valB = b.received_offline;
           break;
         case 'carried_forward':
           valA = a.carried_forward;
@@ -1123,17 +1746,42 @@ export const DashboardPage: React.FC = () => {
           valA = a.completed_total;
           valB = b.completed_total;
           break;
+        case 'completed_early':
+          valA = a.completed_early;
+          valB = b.completed_early;
+          break;
         case 'completed_on_time':
-          valA = a.completed_early + a.completed_on_time;
-          valB = b.completed_early + b.completed_on_time;
+          valA = a.completed_on_time;
+          valB = b.completed_on_time;
+          break;
+        case 'completed_late':
+          valA = a.completed_late;
+          valB = b.completed_late;
+          break;
+        case 'comp_late_rate':
+          valA = a.completed_total > 0 ? a.completed_late / a.completed_total : 0;
+          valB = b.completed_total > 0 ? b.completed_late / b.completed_total : 0;
           break;
         case 'pending_total':
           valA = a.pending_total;
           valB = b.pending_total;
           break;
+        case 'pending_on_time':
+          valA = a.pending_on_time;
+          valB = b.pending_on_time;
+          break;
         case 'pending_late':
           valA = a.pending_late;
           valB = b.pending_late;
+          break;
+        case 'pend_late_rate':
+          valA = a.pending_total > 0 ? a.pending_late / a.pending_total : 0;
+          valB = b.pending_total > 0 ? b.pending_late / b.pending_total : 0;
+          break;
+        case 'on_time_rate':
+        case 'qd776_rate':
+          valA = a.received_total > 0 ? (a.completed_late + a.pending_late) / a.received_total : 0;
+          valB = b.received_total > 0 ? (b.completed_late + b.pending_late) / b.received_total : 0;
           break;
         case 'validity':
           valA = a.validation.allPassed ? 1 : 0;
@@ -1154,11 +1802,204 @@ export const DashboardPage: React.FC = () => {
     });
 
     return list;
-  }, [filteredStats, liveFields, liveSources, tableSearchQuery, tableSourceFilter, tableValidityFilter, tableOnlyWithData, tableSortKey, tableSortDirection]);
+  }, [filteredStats, liveFields, liveSources, tableSearchQuery, tableSourceFilter, tableValidityFilter, tableSortKey, tableSortDirection]);
 
-  // Grouped rows when tableGroupBySource is enabled
-  const groupedTableRows = useMemo(() => {
-    if (!tableGroupBySource) return null;
+  // Grand totals across all processed table rows (Dòng tổng cộng bên dưới tiêu đề bảng)
+  const tableGrandTotals = useMemo(() => {
+    const t = {
+      count: processedTableRows.length,
+      received_total: 0,
+      received_online: 0,
+      received_offline: 0,
+      carried_forward: 0,
+      completed_total: 0,
+      completed_early: 0,
+      completed_on_time: 0,
+      completed_late: 0,
+      pending_total: 0,
+      pending_on_time: 0,
+      pending_late: 0,
+    };
+    processedTableRows.forEach((r) => {
+      t.received_total += r.received_total || 0;
+      t.received_online += r.received_online || 0;
+      t.received_offline += r.received_offline || 0;
+      t.carried_forward += r.carried_forward || 0;
+      t.completed_total += r.completed_total || 0;
+      t.completed_early += r.completed_early || 0;
+      t.completed_on_time += r.completed_on_time || 0;
+      t.completed_late += r.completed_late || 0;
+      t.pending_total += r.pending_total || 0;
+      t.pending_on_time += r.pending_on_time || 0;
+      t.pending_late += r.pending_late || 0;
+    });
+    const onTimeRate = t.completed_total > 0
+      ? ((t.completed_early + t.completed_on_time) / t.completed_total) * 100
+      : 100;
+    const compLateRate = t.completed_total > 0
+      ? (t.completed_late / t.completed_total) * 100
+      : 0;
+    const pendLateRate = t.pending_total > 0
+      ? (t.pending_late / t.pending_total) * 100
+      : 0;
+    const qd776Rate = t.received_total > 0
+      ? ((t.completed_late + t.pending_late) / t.received_total) * 100
+      : 0;
+    return { ...t, onTimeRate, compLateRate, pendLateRate, qd776Rate };
+  }, [processedTableRows]);
+
+  // Grouped rows when tableGroupingMode === 'field'
+  const groupedByFieldRows = useMemo(() => {
+    if (tableGroupingMode !== 'field') return null;
+
+    const groups: Record<string, {
+      fieldKey: string;
+      fieldName: string;
+      rows: typeof processedTableRows;
+      totals: {
+        received_total: number;
+        received_online: number;
+        received_offline: number;
+        carried_forward: number;
+        completed_total: number;
+        completed_early: number;
+        completed_on_time: number;
+        completed_late: number;
+        pending_total: number;
+        pending_on_time: number;
+        pending_late: number;
+      };
+    }> = {};
+
+    processedTableRows.forEach((row) => {
+      const fKey = row.displayName || 'Khác';
+      if (!groups[fKey]) {
+        groups[fKey] = {
+          fieldKey: fKey,
+          fieldName: fKey,
+          rows: [],
+          totals: {
+            received_total: 0,
+            received_online: 0,
+            received_offline: 0,
+            carried_forward: 0,
+            completed_total: 0,
+            completed_early: 0,
+            completed_on_time: 0,
+            completed_late: 0,
+            pending_total: 0,
+            pending_on_time: 0,
+            pending_late: 0,
+          },
+        };
+      }
+      groups[fKey].rows.push(row);
+      groups[fKey].totals.received_total += row.received_total || 0;
+      groups[fKey].totals.received_online += row.received_online || 0;
+      groups[fKey].totals.received_offline += row.received_offline || 0;
+      groups[fKey].totals.carried_forward += row.carried_forward || 0;
+      groups[fKey].totals.completed_total += row.completed_total || 0;
+      groups[fKey].totals.completed_early += row.completed_early || 0;
+      groups[fKey].totals.completed_on_time += row.completed_on_time || 0;
+      groups[fKey].totals.completed_late += row.completed_late || 0;
+      groups[fKey].totals.pending_total += row.pending_total || 0;
+      groups[fKey].totals.pending_on_time += row.pending_on_time || 0;
+      groups[fKey].totals.pending_late += row.pending_late || 0;
+    });
+
+    const list = Object.values(groups);
+    // Sort according to current sortKey
+    list.sort((a, b) => {
+      let valA: any = 0;
+      let valB: any = 0;
+      switch (tableSortKey) {
+        case 'field':
+          valA = a.fieldName;
+          valB = b.fieldName;
+          break;
+        case 'unit': {
+          valA = Array.from(new Set(a.rows.map(r => r.unitName).filter(Boolean))).join(', ');
+          valB = Array.from(new Set(b.rows.map(r => r.unitName).filter(Boolean))).join(', ');
+          break;
+        }
+        case 'received_total':
+          valA = a.totals.received_total;
+          valB = b.totals.received_total;
+          break;
+        case 'received_online':
+          valA = a.totals.received_online;
+          valB = b.totals.received_online;
+          break;
+        case 'received_offline':
+          valA = a.totals.received_offline;
+          valB = b.totals.received_offline;
+          break;
+        case 'carried_forward':
+          valA = a.totals.carried_forward;
+          valB = b.totals.carried_forward;
+          break;
+        case 'completed_total':
+          valA = a.totals.completed_total;
+          valB = b.totals.completed_total;
+          break;
+        case 'completed_early':
+          valA = a.totals.completed_early;
+          valB = b.totals.completed_early;
+          break;
+        case 'completed_on_time':
+          valA = a.totals.completed_on_time;
+          valB = b.totals.completed_on_time;
+          break;
+        case 'completed_late':
+          valA = a.totals.completed_late;
+          valB = b.totals.completed_late;
+          break;
+        case 'comp_late_rate':
+          valA = a.totals.completed_total > 0 ? a.totals.completed_late / a.totals.completed_total : 0;
+          valB = b.totals.completed_total > 0 ? b.totals.completed_late / b.totals.completed_total : 0;
+          break;
+        case 'pending_total':
+          valA = a.totals.pending_total;
+          valB = b.totals.pending_total;
+          break;
+        case 'pending_on_time':
+          valA = a.totals.pending_on_time;
+          valB = b.totals.pending_on_time;
+          break;
+        case 'pending_late':
+          valA = a.totals.pending_late;
+          valB = b.totals.pending_late;
+          break;
+        case 'pend_late_rate':
+          valA = a.totals.pending_total > 0 ? a.totals.pending_late / a.totals.pending_total : 0;
+          valB = b.totals.pending_total > 0 ? b.totals.pending_late / b.totals.pending_total : 0;
+          break;
+        case 'on_time_rate':
+        case 'qd776_rate': {
+          valA = a.totals.received_total > 0 ? (a.totals.completed_late + a.totals.pending_late) / a.totals.received_total : 0;
+          valB = b.totals.received_total > 0 ? (b.totals.completed_late + b.totals.pending_late) / b.totals.received_total : 0;
+          break;
+        }
+        case 'validity':
+          valA = a.rows.every(r => r.validation?.allPassed) ? 1 : 0;
+          valB = b.rows.every(r => r.validation?.allPassed) ? 1 : 0;
+          break;
+        default:
+          valA = a.totals.received_total;
+          valB = b.totals.received_total;
+      }
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return tableSortDirection === 'asc' ? valA.localeCompare(valB, 'vi') : valB.localeCompare(valA, 'vi');
+      }
+      return tableSortDirection === 'asc' ? Number(valA) - Number(valB) : Number(valB) - Number(valA);
+    });
+
+    return list;
+  }, [tableGroupingMode, processedTableRows, tableSortKey, tableSortDirection]);
+
+  // Grouped rows when tableGroupingMode === 'source'
+  const groupedBySourceRows = useMemo(() => {
+    if (tableGroupingMode !== 'source') return null;
 
     const groups: Record<string, {
       sourceId: string;
@@ -1202,21 +2043,83 @@ export const DashboardPage: React.FC = () => {
         };
       }
       groups[sId].rows.push(row);
-      groups[sId].totals.received_total += row.received_total;
-      groups[sId].totals.received_online += row.received_online;
-      groups[sId].totals.received_offline += row.received_offline;
-      groups[sId].totals.carried_forward += row.carried_forward;
-      groups[sId].totals.completed_total += row.completed_total;
-      groups[sId].totals.completed_early += row.completed_early;
-      groups[sId].totals.completed_on_time += row.completed_on_time;
-      groups[sId].totals.completed_late += row.completed_late;
-      groups[sId].totals.pending_total += row.pending_total;
-      groups[sId].totals.pending_on_time += row.pending_on_time;
-      groups[sId].totals.pending_late += row.pending_late;
+      groups[sId].totals.received_total += row.received_total || 0;
+      groups[sId].totals.received_online += row.received_online || 0;
+      groups[sId].totals.received_offline += row.received_offline || 0;
+      groups[sId].totals.carried_forward += row.carried_forward || 0;
+      groups[sId].totals.completed_total += row.completed_total || 0;
+      groups[sId].totals.completed_early += row.completed_early || 0;
+      groups[sId].totals.completed_on_time += row.completed_on_time || 0;
+      groups[sId].totals.completed_late += row.completed_late || 0;
+      groups[sId].totals.pending_total += row.pending_total || 0;
+      groups[sId].totals.pending_on_time += row.pending_on_time || 0;
+      groups[sId].totals.pending_late += row.pending_late || 0;
     });
 
     return Object.values(groups);
-  }, [tableGroupBySource, processedTableRows]);
+  }, [tableGroupingMode, processedTableRows]);
+
+  const CustomRankingTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    const data = payload[0]?.payload;
+    if (!data) return null;
+
+    return (
+      <div className="bg-slate-900/95 text-white backdrop-blur-md border border-slate-700/80 px-3 py-2 rounded-xl shadow-2xl text-[11px] min-w-[250px] max-w-sm pointer-events-none z-50">
+        <div className="font-bold text-white border-b border-slate-700/80 pb-1 mb-1.5 flex items-center justify-between gap-2">
+          <span className="truncate">{data.unitName}</span>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded shrink-0">
+            Tổng nhận: {formatNumber(data.rec)}
+          </span>
+        </div>
+
+        {/* 2 dòng so sánh cốt lõi tinh gọn */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-emerald-300 gap-2">
+            <span className="flex items-center gap-1.5 truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+              <span className="text-slate-300">TT 01 (Trước + Đúng hạn):</span>
+            </span>
+            <span className="font-bold shrink-0">
+              {formatNumber(data.onTime)}/{formatNumber(data.comp)} ({data.onTimeRate}%)
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-blue-300 gap-2">
+            <span className="flex items-center gap-1.5 truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
+              <span className="text-slate-300">QĐ 766 (Đạt chuẩn hạn):</span>
+            </span>
+            <span className="font-bold shrink-0">
+              {formatNumber(data.qd766OnTime)}/{formatNumber(data.rec)} ({data.qd766Rate}%)
+            </span>
+          </div>
+
+          {data.totalOverdue > 0 && (
+            <div className="flex items-center justify-between text-rose-300 text-[10px] pt-1 border-t border-slate-800 gap-2">
+              <span className="text-slate-400">• Quá hạn (Đã trễ: {formatNumber(data.compLate)}, Đang trễ: {formatNumber(data.pendLate)}):</span>
+              <span className="font-bold text-rose-400 shrink-0">-{formatNumber(data.totalOverdue)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderStatCell = (
+    val: number | undefined | null,
+    colorClass?: string,
+    isBold: boolean = false
+  ) => {
+    if (val === undefined || val === null || val === 0) {
+      return <span className="text-slate-400 font-sans font-normal text-xs">-</span>;
+    }
+    return (
+      <span className={`${isBold ? 'font-black text-sm' : 'font-semibold text-sm'} ${colorClass || 'text-slate-800'}`}>
+        {formatNumber(val)}
+      </span>
+    );
+  };
 
   const reportBadge = selectedReport ? getStatusBadge(selectedReport.status) : null;
 
@@ -1235,12 +2138,7 @@ export const DashboardPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-700">Bộ lọc phân tích</span>
-            {!isAuthenticated && (
-              <span className="text-[11px] text-slate-500 font-medium">
-                (Khách vãng lai: Tự do chọn kỳ báo cáo & các tiêu chí để xem trình diễn dữ liệu thật từ Supabase)
-              </span>
-            )}
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Bộ lọc phân tích số liệu</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {canManageLayout && isAuthenticated && (
@@ -1288,6 +2186,35 @@ export const DashboardPage: React.FC = () => {
                 </button>
               </>
             )}
+            <Link
+              to="/public-dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#C4121A] bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all shadow-2xs hover:shadow-xs group"
+              title="Mở giao diện trình chiếu trên TV 55 inch / Kiosk công khai (Không cần đăng nhập)"
+            >
+              <Tv className="w-3.5 h-3.5 text-[#C4121A] group-hover:scale-110 transition-transform" />
+              <span>Màn hình TV 55"</span>
+            </Link>
+
+            {/* Export PDF Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const repCode = selectedReport ? selectedReport.report_code : 'TongHop';
+                void exportElementToPDF({
+                  filename: `Bao_cao_TTHC_Dashboard_${repCode}_${new Date().toISOString().split('T')[0]}.pdf`,
+                  title: 'BÁO CÁO TỔNG HỢP GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH',
+                  subtitle: store.getSystemConfig().systemName || 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
+                });
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+              title="Xuất dữ liệu báo cáo và biểu đồ từ màn hình hiện tại ra file PDF (A4)"
+            >
+              <Download className="w-3.5 h-3.5 text-rose-600" />
+              <span>Xuất PDF</span>
+            </button>
+
             <button
               onClick={() => loadData(selectedReportId)}
               className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
@@ -1396,9 +2323,9 @@ export const DashboardPage: React.FC = () => {
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center space-y-4">
           <Database className="w-12 h-12 text-slate-400 mx-auto" />
           <div>
-            <h3 className="text-base font-bold text-slate-800">Chưa có dữ liệu Báo cáo từ Supabase</h3>
+            <h3 className="text-base font-bold text-slate-800">Chưa có dữ liệu kỳ báo cáo</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-xl mx-auto leading-relaxed">
-              Hệ thống hoạt động theo nguyên tắc 100% dữ liệu thật từ Supabase. Nếu trong cơ sở dữ liệu đã có dữ liệu báo cáo nhưng khách chưa đăng nhập chưa nhìn thấy, vui lòng thực thi câu lệnh SQL trong file migration <code>007_allow_public_read_for_presentation.sql</code> trên Supabase SQL Editor để cấp quyền xem công khai (RLS SELECT) cho khách vãng lai.
+              Vui lòng tạo kỳ báo cáo mới hoặc nhập số liệu Excel để bắt đầu theo dõi và phân tích số liệu.
             </p>
           </div>
           <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -1458,128 +2385,253 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 3. 8 Core KPI Cards Grid */}
+      {/* 3. Core KPI Summary Cards Grid */}
       <div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {/* KPI 1: Total received */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tổng tiếp nhận
-            </div>
-            <div className="text-xl font-black text-slate-900 mt-1">
-              {formatNumber(totals.recTotal)}
-            </div>
-            <div className="text-[10px] text-blue-600 mt-1 font-medium">
-              online + tt + trước
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+          {kpiCards
+            .sort((a, b) => a.order - b.order)
+            .map((card) => {
+              if (!card.visible && !isAdminLayoutMode) return null;
 
-          {/* KPI 2: Total resolved */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Đã giải quyết
-            </div>
-            <div className="text-xl font-black text-emerald-600 mt-1">
-              {formatNumber(totals.compTotal)}
-            </div>
-            <div className="text-[10px] text-emerald-600 mt-1 font-medium">
-              sớm + đúng + trễ
-            </div>
-          </div>
+              if (card.id === 'received') {
+                const subRec0 = card.subCards?.[0] || { title: 'Nộp trực tuyến', subtitle: 'online / tổng' };
+                const subRec1 = card.subCards?.[1] || { title: 'Nộp trực tiếp', subtitle: 'trực tiếp / bưu chính' };
+                const subRec2 = card.subCards?.[2] || { title: 'Từ kỳ trước', subtitle: 'chuyển sang' };
 
-          {/* KPI 3: Total pending */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Đang giải quyết
-            </div>
-            <div className="text-xl font-black text-indigo-600 mt-1">
-              {formatNumber(totals.pendTotal)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              trong hạn + trễ hạn
-            </div>
-          </div>
+                return (
+                  <div
+                    key="received"
+                    draggable={isAdminLayoutMode}
+                    onDragStart={(e) => handleKpiDragStart(e, 'received')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleKpiDrop(e, 'received')}
+                    className={`bg-white rounded-xl border p-4 shadow-xs flex flex-col justify-between relative col-span-1 sm:col-span-2 lg:col-span-3 ${
+                      isAdminLayoutMode ? 'border-blue-300 cursor-grab active:cursor-grabbing hover:shadow-md' : 'border-slate-200'
+                    } ${!card.visible ? 'opacity-40 border-dashed bg-slate-50' : ''}`}
+                  >
+                    {isAdminLayoutMode && renderKpiAdminToolbar(card)}
+                    <div className="flex flex-col justify-between h-full gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {card.title}
+                        </div>
+                        <div className="text-2xl font-black text-slate-900 mt-1">
+                          {formatNumber(totals.recTotal)}
+                        </div>
+                        <div className="text-[11px] text-blue-600 mt-0.5 font-medium">
+                          {card.subtitle}
+                        </div>
+                      </div>
 
-          {/* KPI 4: Online submission rate */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tỷ lệ nộp Online
-            </div>
-            <div className="text-xl font-black text-blue-600 mt-1">
-              {formatPercent(totals.onlineRate)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              online / (online + tt)
-            </div>
-          </div>
+                      {/* 3 Sub-cards inside received */}
+                      <div className="grid grid-cols-3 gap-1.5 pt-2.5 border-t border-slate-100">
+                        <div className="bg-blue-50/70 p-2 rounded-xl text-center flex flex-col justify-center border border-blue-100/60 shadow-2xs">
+                          <div className="text-[9px] text-blue-800 font-bold truncate" title={subRec0.title}>{subRec0.title}</div>
+                          <div className="text-[11px] font-black text-blue-700 mt-1">
+                            {formatNumber(totals.recOnline)} <span className="text-[8px] font-normal">({formatPercent(totals.onlineRate)})</span>
+                          </div>
+                        </div>
 
-          {/* KPI 5: Completion rate */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tỷ lệ giải quyết
-            </div>
-            <div className="text-xl font-black text-slate-900 mt-1">
-              {formatPercent(totals.completionRate)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              resolved / received
-            </div>
-          </div>
+                        <div className="bg-slate-50 p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs border border-slate-200/60">
+                          <div className="text-[9px] text-slate-600 font-semibold truncate" title={subRec1.title}>{subRec1.title}</div>
+                          <div className="text-[11px] font-black text-slate-900 mt-1">
+                            {formatNumber(totals.recOffline)}
+                          </div>
+                        </div>
 
-          {/* KPI 6: On-time completion rate */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tỷ lệ đúng hạn
-            </div>
-            <div className="text-xl font-black text-emerald-600 mt-1">
-              {formatPercent(totals.onTimeRate)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              (sớm + đúng) / tổng
-            </div>
-          </div>
+                        <div className="bg-slate-50 p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs border border-slate-200/60">
+                          <div className="text-[9px] text-slate-600 font-semibold truncate" title={subRec2.title}>{subRec2.title}</div>
+                          <div className="text-[11px] font-black text-slate-900 mt-1">
+                            {formatNumber(totals.carried)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
-          {/* KPI 7: Overdue rate */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tỷ lệ quá hạn
-            </div>
-            <div className={`text-xl font-black mt-1 ${totals.overdueRate > 2 ? 'text-rose-600' : 'text-slate-700'}`}>
-              {formatPercent(totals.overdueRate)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              quá hạn / resolved
-            </div>
-          </div>
+              if (card.id === 'resolved') {
+                const subRes0 = card.subCards?.find((s) => s.id === 'comp_ontime' || s.id === 'ontime_rate') ||
+                  (card.subCards?.length === 2 ? card.subCards[0] : card.subCards?.[1]) ||
+                  { title: 'Đúng hạn', subtitle: 'trước hạn + đúng hạn' };
+                const subRes1 = card.subCards?.find((s) => s.id === 'comp_late' || s.id === 'overdue_rate') ||
+                  (card.subCards?.length === 2 ? card.subCards[1] : card.subCards?.[2]) ||
+                  { title: 'Quá hạn', subtitle: 'trễ hạn' };
 
-          {/* KPI 8: Pending on-time rate */}
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              Tồn trong hạn
-            </div>
-            <div className="text-xl font-black text-teal-600 mt-1">
-              {formatPercent(totals.pendingOnTimeRate)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1 font-medium">
-              trong hạn / pending
-            </div>
-          </div>
+                const subRes0Title = subRes0.title === 'TL Đúng hạn' ? 'Đúng hạn' : (subRes0.title || 'Đúng hạn');
+                const subRes1Title = subRes1.title === 'TL Quá hạn' ? 'Quá hạn' : (subRes1.title || 'Quá hạn');
+
+                const resolvedOnTimeCount = totals.compEarly + totals.compOnTime;
+                const resolvedLateCount = totals.compLate;
+
+                return (
+                  <div
+                    key="resolved"
+                    draggable={isAdminLayoutMode}
+                    onDragStart={(e) => handleKpiDragStart(e, 'resolved')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleKpiDrop(e, 'resolved')}
+                    className={`bg-white rounded-xl border p-4 shadow-xs flex flex-col justify-between relative col-span-1 sm:col-span-2 lg:col-span-3 ${
+                      isAdminLayoutMode ? 'border-blue-300 cursor-grab active:cursor-grabbing hover:shadow-md' : 'border-slate-200'
+                    } ${!card.visible ? 'opacity-40 border-dashed bg-slate-50' : ''}`}
+                  >
+                    {isAdminLayoutMode && renderKpiAdminToolbar(card)}
+                    <div className="flex flex-col justify-between h-full gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {card.title}
+                        </div>
+                        <div className="text-2xl font-black text-emerald-600 mt-1 flex items-baseline gap-1.5 flex-wrap">
+                          <span>{formatNumber(totals.compTotal)}</span>
+                          <span className="text-base font-bold text-emerald-600/90">
+                            ({formatPercent(totals.completionRate)})
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-emerald-600 mt-0.5 font-medium">
+                          {card.subtitle}
+                        </div>
+                      </div>
+
+                      {/* 2 Thẻ con: Đúng hạn & Quá hạn giống như thẻ ĐANG GIẢI QUYẾT */}
+                      <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100">
+                        <div className="bg-emerald-50/70 p-2 rounded-xl text-center flex flex-col justify-center border border-emerald-100/60 shadow-2xs">
+                          <div className="text-[10px] text-emerald-800 font-bold truncate" title={subRes0Title}>
+                            {subRes0Title}
+                          </div>
+                          <div className="text-xs font-black text-emerald-700 mt-1">
+                            {formatNumber(resolvedOnTimeCount)} <span className="text-[9px] font-normal">({formatPercent(totals.onTimeRate)})</span>
+                          </div>
+                        </div>
+
+                        <div className={`p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs ${resolvedLateCount > 0 ? 'bg-rose-50/70 border border-rose-100/60' : 'bg-slate-50 border border-slate-200/60'}`}>
+                          <div className={`text-[10px] font-bold truncate ${resolvedLateCount > 0 ? 'text-rose-800' : 'text-slate-600'}`} title={subRes1Title}>
+                            {subRes1Title}
+                          </div>
+                          <div className={`text-xs font-black mt-1 ${resolvedLateCount > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                            {formatNumber(resolvedLateCount)} <span className="text-[9px] font-normal">({formatPercent(totals.overdueRate)})</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (card.id === 'pending') {
+                const subPend0 = card.subCards?.[0] || { title: 'Tồn trong hạn', subtitle: 'trong hạn' };
+                const subPend1 = card.subCards?.[1] || { title: 'Tồn quá hạn', subtitle: 'quá hạn' };
+
+                return (
+                  <div
+                    key="pending"
+                    draggable={isAdminLayoutMode}
+                    onDragStart={(e) => handleKpiDragStart(e, 'pending')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleKpiDrop(e, 'pending')}
+                    className={`bg-white rounded-xl border p-4 shadow-xs flex flex-col justify-between relative col-span-1 sm:col-span-2 lg:col-span-3 ${
+                      isAdminLayoutMode ? 'border-blue-300 cursor-grab active:cursor-grabbing hover:shadow-md' : 'border-slate-200'
+                    } ${!card.visible ? 'opacity-40 border-dashed bg-slate-50' : ''}`}
+                  >
+                    {isAdminLayoutMode && renderKpiAdminToolbar(card)}
+                    <div className="flex flex-col justify-between h-full gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {card.title}
+                        </div>
+                        <div className="text-2xl font-black text-indigo-600 mt-1 flex items-baseline gap-1.5 flex-wrap">
+                          <span>{formatNumber(totals.pendTotal)}</span>
+                          <span className="text-base font-bold text-indigo-600/90">
+                            ({formatPercent(totals.pendingRate)})
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                          {card.subtitle}
+                        </div>
+                      </div>
+
+                      {/* Tồn trong hạn & Tồn quá hạn sub-blocks */}
+                      <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100">
+                        <div className="bg-teal-50/70 p-2 rounded-xl text-center flex flex-col justify-center border border-teal-100/60 shadow-2xs">
+                          <div className="text-[10px] text-teal-800 font-bold truncate" title={subPend0.title}>{subPend0.title}</div>
+                          <div className="text-xs font-black text-teal-700 mt-1">
+                            {formatNumber(totals.pendInTerm)} <span className="text-[9px] font-normal">({formatPercent(totals.pendingOnTimeRate)})</span>
+                          </div>
+                        </div>
+
+                        <div className={`p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs ${totals.pendLate > 0 ? 'bg-rose-50/70 border border-rose-100/60' : 'bg-slate-50 border border-slate-200/60'}`}>
+                          <div className={`text-[10px] font-bold truncate ${totals.pendLate > 0 ? 'text-rose-800' : 'text-slate-600'}`} title={subPend1.title}>{subPend1.title}</div>
+                          <div className={`text-xs font-black mt-1 ${totals.pendLate > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                            {formatNumber(totals.pendLate)} <span className="text-[9px] font-normal">({formatPercent(totals.pendingLateRate)})</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (card.id === 'qd766') {
+                const subQd0 = card.subCards?.[0] || { title: 'Đã giải quyết trước, đúng hạn + Đang giải quyết trong hạn', subtitle: 'sớm + đúng + tồn trong hạn' };
+                const subQd1 = card.subCards?.[1] || { title: 'Đã giải quyết trễ hạn + Đang giải quyết quá hạn', subtitle: 'trễ + tồn quá hạn' };
+
+                const qd766OntimeSum = totals.compEarly + totals.compOnTime + totals.pendOnTime;
+                const qd766LateSum = totals.compLate + totals.pendLate;
+
+                return (
+                  <div
+                    key="qd766"
+                    draggable={isAdminLayoutMode}
+                    onDragStart={(e) => handleKpiDragStart(e, 'qd766')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleKpiDrop(e, 'qd766')}
+                    className={`bg-white rounded-xl border p-4 shadow-xs flex flex-col justify-between relative col-span-1 sm:col-span-2 lg:col-span-3 ${
+                      isAdminLayoutMode ? 'border-blue-300 cursor-grab active:cursor-grabbing hover:shadow-md' : 'border-slate-200'
+                    } ${!card.visible ? 'opacity-40 border-dashed bg-slate-50' : ''}`}
+                  >
+                    {isAdminLayoutMode && renderKpiAdminToolbar(card)}
+                    <div className="flex flex-col justify-between h-full gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {card.title}
+                        </div>
+                        <div className="text-2xl font-black text-emerald-600 mt-1">
+                          {formatPercent(totals.qd766OnTimeRate)}
+                        </div>
+                        <div className="text-[11px] text-emerald-600 mt-0.5 font-medium">
+                          {card.subtitle}
+                        </div>
+                      </div>
+
+                      {/* 2 Sub-groups for QD 766 */}
+                      <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100">
+                        <div className="bg-emerald-50/70 p-2 rounded-xl text-center flex flex-col justify-center border border-emerald-100/60 shadow-2xs">
+                          <div className="text-[10px] text-emerald-800 font-bold truncate" title={subQd0.title}>{subQd0.title}</div>
+                          <div className="text-xs font-black text-emerald-700 mt-1">
+                            {formatNumber(qd766OntimeSum)}
+                          </div>
+                        </div>
+
+                        <div className={`p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs ${qd766LateSum > 0 ? 'bg-rose-50/70 border border-rose-100/60' : 'bg-slate-50 border border-slate-200/60'}`}>
+                          <div className={`text-[10px] font-bold truncate ${qd766LateSum > 0 ? 'text-rose-800' : 'text-slate-600'}`} title={subQd1.title}>{subQd1.title}</div>
+                          <div className={`text-xs font-black mt-1 ${qd766LateSum > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                            {formatNumber(qd766LateSum)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+
+
+
+
+              return null;
+            })}
         </div>
       </div>
-
-      {canManageLayout && isAdminLayoutMode && (
-        <div className="bg-blue-50/50 border border-blue-200/60 rounded-xl p-4 text-xs text-blue-800 space-y-2 shadow-inner">
-          <div className="font-bold flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-            Hướng dẫn thiết lập bố cục:
-          </div>
-          <ul className="list-disc pl-4 space-y-1 font-medium">
-            <li><strong>Sắp xếp thứ tự</strong>: Kéo thẻ biểu đồ này thả lên thẻ khác để hoán đổi vị trí, hoặc dùng cụm nút mũi tên lên/xuống ở góc mỗi thẻ.</li>
-            <li><strong>Thay đổi kích thước (Resize)</strong>: Di chuột đến cạnh phải, cạnh dưới, hoặc góc dưới-phải của thẻ biểu đồ để kéo dãn kích thước (chiều rộng / chiều cao) trực quan theo ý muốn.</li>
-            <li><strong>Ẩn/Hiện biểu đồ</strong>: Nhấp vào biểu tượng con mắt để ẩn bớt biểu đồ khỏi màn hình chính (biểu đồ ẩn sẽ xuất hiện mờ ở dưới cùng để bạn dễ dàng bật lại).</li>
-          </ul>
-        </div>
-      )}
 
       {/* 4. DYNAMIC CUSTOMIZABLE CHARTS GRID */}
       <div className="flex flex-wrap gap-6 items-stretch w-full">
@@ -1670,7 +2722,7 @@ export const DashboardPage: React.FC = () => {
                     <div
                       onMouseDown={(e) => startResize(e, chart.id, 'both')}
                       className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-blue-400/40 active:bg-blue-500/60 transition-all z-30 flex items-end justify-end p-0.5"
-                      title="Kéo góc này để đổi cả chiều rộng & cao"
+                      title="Kéo góc này để đổi cả chiều rộng và cao"
                     >
                       <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-slate-400 rounded-br-xs" />
                     </div>
@@ -1703,8 +2755,36 @@ export const DashboardPage: React.FC = () => {
                           </p>
                         </div>
 
-                        {/* Top controls: Granularity (Tháng / Quý / Năm) and Year selector */}
+                        {/* Top controls: View mode (Số lượng / Tỷ lệ), Granularity (Tháng / Quý / Năm) and Year selector */}
                         <div className="flex items-center gap-2 shrink-0 z-10 self-start sm:self-center flex-wrap">
+                          {/* Mode Toggle: Số lượng | Tỷ lệ (%) */}
+                          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setTrendMetricMode('count')}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                trendMetricMode === 'count'
+                                  ? 'bg-white text-blue-700 shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Hiển thị theo Số lượng hồ sơ"
+                            >
+                              Số lượng
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTrendMetricMode('rate')}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                trendMetricMode === 'rate'
+                                  ? 'bg-white text-blue-700 shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Hiển thị theo Tỷ lệ phần trăm (%)"
+                            >
+                              Tỷ lệ (%)
+                            </button>
+                          </div>
+
                           {/* Granularity Toggle: Tháng | Quý | Năm */}
                           <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                             <button
@@ -1830,7 +2910,13 @@ export const DashboardPage: React.FC = () => {
                                 />
                               )}
 
-                              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={{ stroke: '#cbd5e1' }} />
+                              <YAxis
+                                tick={{ fontSize: 11, fill: '#64748b' }}
+                                axisLine={{ stroke: '#cbd5e1' }}
+                                tickLine={{ stroke: '#cbd5e1' }}
+                                unit={trendMetricMode === 'rate' ? '%' : ''}
+                                domain={trendMetricMode === 'rate' ? [0, 100] : ['auto', 'auto']}
+                              />
                               
                               <Tooltip
                                 content={({ active, payload }) => {
@@ -1859,7 +2945,7 @@ export const DashboardPage: React.FC = () => {
                                                 <span className="text-[10px]">{entry.name}</span>
                                               </div>
                                               <span className="font-bold text-slate-900 text-[11px]">
-                                                {formatNumber(Number(entry.value))}
+                                                {trendMetricMode === 'rate' ? `${entry.value}%` : formatNumber(Number(entry.value))}
                                               </span>
                                             </div>
                                           );
@@ -1875,6 +2961,7 @@ export const DashboardPage: React.FC = () => {
                                   <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 pt-2 select-none">
                                     {TREND_SERIES_LIST.map((series) => {
                                       const isVisible = trendSeriesVisibility[series.key];
+                                      const displayName = trendMetricMode === 'rate' ? `${series.name} (%)` : series.name;
                                       return (
                                         <button
                                           key={series.key}
@@ -1885,13 +2972,13 @@ export const DashboardPage: React.FC = () => {
                                               ? 'text-slate-700 hover:text-slate-900 opacity-100'
                                               : 'text-slate-400 line-through opacity-40'
                                           }`}
-                                          title={isVisible ? `Nhấn để ẩn "${series.name}"` : `Nhấn để hiện "${series.name}"`}
+                                          title={isVisible ? `Nhấn để ẩn "${displayName}"` : `Nhấn để hiện "${displayName}"`}
                                         >
                                           <span
                                             className="inline-block w-2 h-2 rounded-full shrink-0"
                                             style={{ backgroundColor: series.color }}
                                           />
-                                          <span>{series.name}</span>
+                                          <span>{displayName}</span>
                                         </button>
                                       );
                                     })}
@@ -1903,7 +2990,7 @@ export const DashboardPage: React.FC = () => {
                                 <Area
                                   type="monotone"
                                   dataKey="received"
-                                  name="Tổng tiếp nhận"
+                                  name={trendMetricMode === 'rate' ? 'Tổng tiếp nhận (%)' : 'Tổng tiếp nhận'}
                                   stroke="#3b82f6"
                                   strokeWidth={2.5}
                                   fillOpacity={1}
@@ -1916,7 +3003,7 @@ export const DashboardPage: React.FC = () => {
                                 <Area
                                   type="monotone"
                                   dataKey="resolved"
-                                  name="Đã giải quyết"
+                                  name={trendMetricMode === 'rate' ? 'Tỷ lệ đã giải quyết (%)' : 'Đã giải quyết'}
                                   stroke="#10b981"
                                   strokeWidth={2.5}
                                   fillOpacity={1}
@@ -1925,11 +3012,22 @@ export const DashboardPage: React.FC = () => {
                                   activeDot={{ r: 7, fill: '#047857', stroke: '#ffffff', strokeWidth: 2 }}
                                 />
                               )}
+                              {trendSeriesVisibility.resolvedLate && (
+                                <Line
+                                  type="monotone"
+                                  dataKey="resolvedLate"
+                                  name={trendMetricMode === 'rate' ? 'Tỷ lệ giải quyết trễ hạn (%)' : 'Đã giải quyết trễ hạn'}
+                                  stroke="#b91c1c"
+                                  strokeWidth={2.5}
+                                  dot={{ r: 4.5, fill: '#b91c1c', stroke: '#ffffff', strokeWidth: 2 }}
+                                  activeDot={{ r: 6.5, fill: '#7f1d1d', stroke: '#ffffff', strokeWidth: 2 }}
+                                />
+                              )}
                               {trendSeriesVisibility.pending && (
                                 <Line
                                   type="monotone"
                                   dataKey="pending"
-                                  name="Đang xử lý (Tồn)"
+                                  name={trendMetricMode === 'rate' ? 'Tỷ lệ đang giải quyết (%)' : 'Đang giải quyết'}
                                   stroke="#f59e0b"
                                   strokeWidth={2}
                                   strokeDasharray="4 4"
@@ -1941,23 +3039,12 @@ export const DashboardPage: React.FC = () => {
                                 <Line
                                   type="monotone"
                                   dataKey="pendingLate"
-                                  name="Đang giải quyết quá hạn"
+                                  name={trendMetricMode === 'rate' ? 'Tỷ lệ đang quá hạn (%)' : 'Đang giải quyết quá hạn'}
                                   stroke="#ef4444"
                                   strokeWidth={2.5}
                                   strokeDasharray="3 3"
                                   dot={{ r: 4.5, fill: '#ef4444', stroke: '#ffffff', strokeWidth: 2 }}
                                   activeDot={{ r: 6.5, fill: '#b91c1c', stroke: '#ffffff', strokeWidth: 2 }}
-                                />
-                              )}
-                              {trendSeriesVisibility.resolvedLate && (
-                                <Line
-                                  type="monotone"
-                                  dataKey="resolvedLate"
-                                  name="Đã giải quyết trễ hạn"
-                                  stroke="#b91c1c"
-                                  strokeWidth={2.5}
-                                  dot={{ r: 4.5, fill: '#b91c1c', stroke: '#ffffff', strokeWidth: 2 }}
-                                  activeDot={{ r: 6.5, fill: '#7f1d1d', stroke: '#ffffff', strokeWidth: 2 }}
                                 />
                               )}
                             </AreaChart>
@@ -1969,57 +3056,129 @@ export const DashboardPage: React.FC = () => {
 
                   {chart.id === 'quality' && (
                     <>
-                      <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex-1 min-w-0 pr-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-sm font-bold text-slate-900">
-                              {getChartTitle('quality', '2. Cơ cấu chất lượng giải quyết (QĐ 766)')}
+                              {getChartTitle('quality', '2. Cơ cấu chất lượng giải quyết (TT 01 vs QĐ 766)')}
                             </h3>
                             {canManageLayout && (
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditModal('quality')}
                                 className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
-                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                                title="Chỉnh sửa Tiêu đề, Chú giải & Màu sắc biểu đồ"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {getChartSubtitle('quality', 'Tỷ trọng Trước hạn, Đúng hạn và Quá hạn (Chỉ tiêu đúng hạn > 95%)')}
+                            {getChartSubtitle('quality', 'So sánh cơ cấu chất lượng theo Thông tư 01 (Đã giải quyết) và Quyết định 766 (Toàn diện hệ thống)')}
                           </p>
                         </div>
                       </div>
-                      <div className="flex-1 min-h-0 w-full relative flex items-center justify-center">
-                        {totals.compTotal > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={resolutionDistributionData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius="55%"
-                                outerRadius="80%"
-                                paddingAngle={4}
-                                dataKey="value"
-                              >
-                                {resolutionDistributionData.map((entry, index) => (
-                                  <Cell key={`cell-res-${index}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(val) => formatNumber(Number(val))} />
-                              <Legend wrapperStyle={{ fontSize: 12 }} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <p className="text-xs text-slate-400">Chưa có dữ liệu giải quyết trong kỳ</p>
-                        )}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                          <div className="text-2xl font-black text-slate-800">{formatPercent(totals.onTimeRate)}</div>
-                          <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đúng hạn</div>
+
+                      {/* Main Chart Presentation: Side by Side TT 01 & QĐ 766 */}
+                      <div className="flex-1 min-h-0 w-full grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                        {/* 1. KHỐI BÊN TRÁI: THÔNG TƯ 01/2018 (ĐÃ GIẢI QUYẾT) */}
+                        <div className="flex flex-col bg-slate-50/50 rounded-xl border border-slate-200/80 p-3 shadow-2xs">
+                          <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-slate-200/70">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                            <h4 className="text-xs font-bold text-slate-800 truncate" title={qualityOptions.tt01Header || 'Thông tư 01/2018 (Đã giải quyết)'}>
+                              {qualityOptions.tt01Header || 'Thông tư 01/2018 (Đã giải quyết)'}
+                            </h4>
+                          </div>
+
+                          <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
+                            {totals.compTotal > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={qualityTt01Data}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius="54%"
+                                    outerRadius="78%"
+                                    paddingAngle={4}
+                                    dataKey="value"
+                                  >
+                                    {qualityTt01Data.map((entry, index) => (
+                                      <Cell key={`cell-tt01-${index}`} fill={entry.color} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(val: any, name: any) => [
+                                      `${formatNumber(Number(val))} hồ sơ (${totals.compTotal > 0 ? ((Number(val) / totals.compTotal) * 100).toFixed(1) : 0}%)`,
+                                      name
+                                    ]}
+                                  />
+                                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <p className="text-xs text-slate-400">Chưa có dữ liệu giải quyết trong kỳ</p>
+                            )}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-6">
+                              <div className="text-xl font-black text-slate-800">{formatPercent(totals.onTimeRate)}</div>
+                              <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đúng hạn TT 01</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2. KHỐI BÊN PHẢI: QUYẾT ĐỊNH 766/QĐ-TTg (TOÀN DIỆN HỆ THỐNG) */}
+                        <div className="flex flex-col bg-slate-50/50 rounded-xl border border-slate-200/80 p-3 shadow-2xs">
+                          <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-slate-200/70">
+                            <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
+                            <h4 className="text-xs font-bold text-slate-800 truncate" title={qualityOptions.qd766Header || 'Quyết định 766/QĐ-TTg (Toàn diện hệ thống)'}>
+                              {qualityOptions.qd766Header || 'Quyết định 766 (Toàn diện hệ thống)'}
+                            </h4>
+                          </div>
+
+                          <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
+                            {totals.recTotal > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={qualityQd766Data}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius="54%"
+                                    outerRadius="78%"
+                                    paddingAngle={4}
+                                    dataKey="value"
+                                  >
+                                    {qualityQd766Data.map((entry, index) => (
+                                      <Cell key={`cell-qd766-${index}`} fill={entry.color} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(val: any, name: any) => [
+                                      `${formatNumber(Number(val))} hồ sơ (${totals.recTotal > 0 ? ((Number(val) / totals.recTotal) * 100).toFixed(1) : 0}%)`,
+                                      name
+                                    ]}
+                                  />
+                                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <p className="text-xs text-slate-400">Chưa có dữ liệu tiếp nhận trong kỳ</p>
+                            )}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-6">
+                              <div className="text-xl font-black text-slate-800">{formatPercent(totals.qd766OnTimeRate)}</div>
+                              <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đúng hạn QĐ 766</div>
+                            </div>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Ghi chú chú thích chân biểu đồ nếu có */}
+                      {qualityOptions.chartNote && (
+                        <div className="mt-3 p-2 bg-blue-50/70 border border-blue-200/80 rounded-lg text-[11px] text-blue-900 flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                          <span>{qualityOptions.chartNote}</span>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -2081,9 +3240,9 @@ export const DashboardPage: React.FC = () => {
 
                   {chart.id === 'ranking' && (
                     <>
-                      <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                         <div className="flex-1 min-w-0 pr-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-sm font-bold text-slate-900">
                               {getChartTitle('ranking', '4. Xếp hạng hiệu năng giải quyết Đơn vị')}
                             </h3>
@@ -2092,37 +3251,285 @@ export const DashboardPage: React.FC = () => {
                                 type="button"
                                 onClick={() => handleOpenEditModal('ranking')}
                                 className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
-                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                                title="Chỉnh sửa Tiêu đề, Chú giải & Màu sắc biểu đồ"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => setShowMethodologyModal(true)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-md transition-colors cursor-pointer shadow-2xs"
+                              title="Xem phân tích chi tiết bản chất 2 cách tính (TT 01 vs QĐ 766)"
+                            >
+                              <BookOpen className="w-3 h-3 text-blue-600" />
+                              <span>Bản chất 2 cách tính</span>
+                            </button>
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
                             {getChartSubtitle('ranking', 'So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị')}
                           </p>
                         </div>
-                        {!isAdminLayoutMode && (
-                          <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-md shrink-0">
-                            Chuẩn 95% Đúng hạn
-                          </span>
-                        )}
+
+                        {/* Bộ chọn góc nhìn phản ánh đúng bản chất (View Mode Selector) */}
+                        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0 self-start text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => setRankingViewMode('comparison')}
+                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                              rankingViewMode === 'comparison'
+                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="Đối chiếu song song 2 phương pháp tính toán"
+                          >
+                            {rankingOptions.tab1Label || 'Đối chiếu 2 cách tính'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRankingViewMode('qd766')}
+                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                              rankingViewMode === 'qd766'
+                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="Góc nhìn toàn diện theo QĐ 766 (Đạt hạn vs Quá hạn)"
+                          >
+                            {rankingOptions.tab2Label || 'QĐ 766 (Toàn diện)'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRankingViewMode('tt01')}
+                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                              rankingViewMode === 'tt01'
+                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="Góc nhìn kết quả đã giải quyết theo TT 01"
+                          >
+                            {rankingOptions.tab3Label || 'TT 01 (Đã giải quyết)'}
+                          </button>
+                        </div>
                       </div>
+
                       <div className="flex-1 min-h-0 w-full relative">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={unitRankingData} margin={{ top: 10, right: 20, left: 10, bottom: 20 }}>
+                          <BarChart data={unitRankingData} margin={{ top: 35, right: 20, left: 10, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis dataKey="unitName" tick={{ fontSize: 11 }} />
                             <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                            <YAxis yAxisId="right" orientation="right" domain={[80, 100]} unit="%" tick={{ fontSize: 11 }} />
-                            <Tooltip formatter={(val, name) => name === 'Tỷ lệ đúng hạn (%)' ? `${val}%` : formatNumber(Number(val))} />
+                            <YAxis yAxisId="right" orientation="right" domain={['auto', 100]} unit="%" tick={{ fontSize: 11 }} />
                             <Legend wrapperStyle={{ fontSize: 12 }} />
-                            <ReferenceLine yAxisId="right" y={95} stroke="#f43f5e" strokeDasharray="3 3" label={{ value: 'Mục tiêu 95%', fill: '#f43f5e', fontSize: 10, position: 'insideTopRight' }} />
-                            <Bar yAxisId="left" dataKey="comp" name="Đã giải quyết (hồ sơ)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                            <Line yAxisId="right" type="monotone" dataKey="onTimeRate" name="Tỷ lệ đúng hạn (%)" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4 }} />
+
+                            {/* Reference Line chỉ hiển thị khi admin chủ động BẬT; nếu tắt hoàn toàn không vẽ */}
+                            {rankingOptions.showRefLine && (
+                              <ReferenceLine
+                                yAxisId="right"
+                                y={rankingOptions.refLineValue ?? 95}
+                                stroke={rankingOptions.refLineColor || '#f43f5e'}
+                                strokeDasharray="3 3"
+                                label={rankingOptions.refLineLabel ? {
+                                  value: rankingOptions.refLineLabel,
+                                  fill: rankingOptions.refLineColor || '#f43f5e',
+                                  fontSize: 10,
+                                  position: 'insideTopRight',
+                                } : undefined}
+                              />
+                            )}
+
+                            {/* 1. CHẾ ĐỘ ĐỐI CHIẾU 2 CÁCH TÍNH (MẶC ĐỊNH) */}
+                            {rankingViewMode === 'comparison' && (
+                              <>
+                                {rankingOptions.showCompBar !== false && (
+                                  <Bar
+                                    yAxisId="left"
+                                    dataKey="onTime"
+                                    name={rankingOptions.compBarName || 'Đã giải quyết trước + đúng hạn (hồ sơ)'}
+                                    fill={rankingOptions.compBarColor || '#10b981'}
+                                    radius={[4, 4, 0, 0]}
+                                  >
+                                    <LabelList
+                                      dataKey="onTime"
+                                      position="top"
+                                      style={{ fontSize: 10, fill: rankingOptions.compBarColor || '#059669', fontWeight: 600 }}
+                                      formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                    />
+                                  </Bar>
+                                )}
+                                {rankingOptions.showQd766Bar !== false && (
+                                  <Bar
+                                    yAxisId="left"
+                                    dataKey="qd766OnTime"
+                                    name={rankingOptions.qd766BarName || 'Đã giải quyết đúng hạn theo cách tính của 766'}
+                                    fill={rankingOptions.qd766BarColor || '#3b82f6'}
+                                    radius={[4, 4, 0, 0]}
+                                  >
+                                    <LabelList
+                                      dataKey="qd766OnTime"
+                                      position="top"
+                                      style={{ fontSize: 10, fill: rankingOptions.qd766BarColor || '#2563eb', fontWeight: 600 }}
+                                      formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                    />
+                                  </Bar>
+                                )}
+                                {rankingOptions.showOnTimeLine !== false && (
+                                  <Line
+                                    yAxisId="right"
+                                    type="monotone"
+                                    dataKey="onTimeRate"
+                                    name={rankingOptions.onTimeLineName || 'Tỷ lệ đúng hạn TT 01 (%)'}
+                                    stroke={rankingOptions.onTimeLineColor || '#e11d48'}
+                                    strokeWidth={2.5}
+                                    dot={{ r: 4, fill: rankingOptions.onTimeLineColor || '#e11d48' }}
+                                    activeDot={{ r: 6 }}
+                                  >
+                                    <LabelList
+                                      dataKey="onTimeRate"
+                                      position="top"
+                                      offset={8}
+                                      style={{ fontSize: 10, fill: rankingOptions.onTimeLineColor || '#e11d48', fontWeight: 700 }}
+                                      formatter={(v: any) => (v !== undefined && v !== null && v !== '' ? `${v}%` : '')}
+                                    />
+                                  </Line>
+                                )}
+                                {rankingOptions.showQd766Line !== false && (
+                                  <Line
+                                    yAxisId="right"
+                                    type="monotone"
+                                    dataKey="qd766Rate"
+                                    name={rankingOptions.qd766LineName || 'Tỷ lệ theo QĐ 766 (%)'}
+                                    stroke={rankingOptions.qd766LineColor || '#2563eb'}
+                                    strokeWidth={2.5}
+                                    strokeDasharray="4 4"
+                                    dot={{ r: 4, fill: rankingOptions.qd766LineColor || '#2563eb' }}
+                                    activeDot={{ r: 6 }}
+                                  >
+                                    <LabelList
+                                      dataKey="qd766Rate"
+                                      position="bottom"
+                                      offset={8}
+                                      style={{ fontSize: 10, fill: rankingOptions.qd766LineColor || '#2563eb', fontWeight: 700 }}
+                                      formatter={(v: any) => (v !== undefined && v !== null && v !== '' ? `${v}%` : '')}
+                                    />
+                                  </Line>
+                                )}
+                              </>
+                            )}
+
+                            {/* 2. CHẾ ĐỘ TOÀN DIỆN THEO QĐ 766 */}
+                            {rankingViewMode === 'qd766' && (
+                              <>
+                                <Bar
+                                  yAxisId="left"
+                                  dataKey="qd766OnTime"
+                                  name={rankingOptions.qd766TabOnTimeBarName || 'Đạt chuẩn hạn theo QĐ 766'}
+                                  fill={rankingOptions.qd766TabOnTimeBarColor || '#2563eb'}
+                                  radius={[4, 4, 0, 0]}
+                                >
+                                  <LabelList
+                                    dataKey="qd766OnTime"
+                                    position="top"
+                                    style={{ fontSize: 10, fill: rankingOptions.qd766TabOnTimeBarColor || '#1d4ed8', fontWeight: 600 }}
+                                    formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                  />
+                                </Bar>
+                                <Bar
+                                  yAxisId="left"
+                                  dataKey="totalOverdue"
+                                  name={rankingOptions.qd766TabOverdueBarName || 'Tổng quá hạn (Đã trễ + Đang trễ)'}
+                                  fill={rankingOptions.qd766TabOverdueBarColor || '#ef4444'}
+                                  radius={[4, 4, 0, 0]}
+                                >
+                                  <LabelList
+                                    dataKey="totalOverdue"
+                                    position="top"
+                                    style={{ fontSize: 10, fill: rankingOptions.qd766TabOverdueBarColor || '#b91c1c', fontWeight: 600 }}
+                                    formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                  />
+                                </Bar>
+                                <Line
+                                  yAxisId="right"
+                                  type="monotone"
+                                  dataKey="qd766Rate"
+                                  name={rankingOptions.qd766TabLineName || 'Tỷ lệ đúng hạn QĐ 766 (%)'}
+                                  stroke={rankingOptions.qd766TabLineColor || '#2563eb'}
+                                  strokeWidth={3}
+                                  dot={{ r: 4, fill: rankingOptions.qd766TabLineColor || '#2563eb' }}
+                                  activeDot={{ r: 6 }}
+                                >
+                                  <LabelList
+                                    dataKey="qd766Rate"
+                                    position="top"
+                                    offset={8}
+                                    style={{ fontSize: 10, fill: rankingOptions.qd766TabLineColor || '#2563eb', fontWeight: 700 }}
+                                    formatter={(v: any) => (v !== undefined && v !== null && v !== '' ? `${v}%` : '')}
+                                  />
+                                </Line>
+                              </>
+                            )}
+
+                            {/* 3. CHẾ ĐỘ KẾT QUẢ ĐÃ GIẢI QUYẾT THEO TT 01 */}
+                            {rankingViewMode === 'tt01' && (
+                              <>
+                                <Bar
+                                  yAxisId="left"
+                                  dataKey="onTime"
+                                  name={rankingOptions.tt01TabOnTimeBarName || 'Đã giải quyết Đúng & Trước hạn'}
+                                  fill={rankingOptions.tt01TabOnTimeBarColor || '#10b981'}
+                                  radius={[4, 4, 0, 0]}
+                                >
+                                  <LabelList
+                                    dataKey="onTime"
+                                    position="top"
+                                    style={{ fontSize: 10, fill: rankingOptions.tt01TabOnTimeBarColor || '#047857', fontWeight: 600 }}
+                                    formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                  />
+                                </Bar>
+                                <Bar
+                                  yAxisId="left"
+                                  dataKey="compLate"
+                                  name={rankingOptions.tt01TabLateBarName || 'Đã giải quyết Quá hạn'}
+                                  fill={rankingOptions.tt01TabLateBarColor || '#f43f5e'}
+                                  radius={[4, 4, 0, 0]}
+                                >
+                                  <LabelList
+                                    dataKey="compLate"
+                                    position="top"
+                                    style={{ fontSize: 10, fill: rankingOptions.tt01TabLateBarColor || '#be123c', fontWeight: 600 }}
+                                    formatter={(v: any) => (v > 0 ? formatNumber(Number(v)) : '')}
+                                  />
+                                </Bar>
+                                <Line
+                                  yAxisId="right"
+                                  type="monotone"
+                                  dataKey="onTimeRate"
+                                  name={rankingOptions.tt01TabLineName || 'Tỷ lệ đúng hạn TT 01 (%)'}
+                                  stroke={rankingOptions.tt01TabLineColor || '#059669'}
+                                  strokeWidth={3}
+                                  dot={{ r: 4, fill: rankingOptions.tt01TabLineColor || '#059669' }}
+                                  activeDot={{ r: 6 }}
+                                >
+                                  <LabelList
+                                    dataKey="onTimeRate"
+                                    position="top"
+                                    offset={8}
+                                    style={{ fontSize: 10, fill: rankingOptions.tt01TabLineColor || '#059669', fontWeight: 700 }}
+                                    formatter={(v: any) => (v !== undefined && v !== null && v !== '' ? `${v}%` : '')}
+                                  />
+                                </Line>
+                              </>
+                            )}
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
+
+                      {/* Ghi chú / Chú thích bổ sung chân biểu đồ nếu có cấu hình */}
+                      {rankingOptions.chartNote && (
+                        <div className="mt-2 text-[11px] text-slate-600 bg-slate-50/90 p-2.5 rounded-lg border border-slate-200/80 leading-relaxed">
+                          <span className="font-bold text-slate-700">📌 Chú thích: </span>
+                          {rankingOptions.chartNote}
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -2146,28 +3553,53 @@ export const DashboardPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {getChartSubtitle('thematic_pending', 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn & Đang giải quyết Quá hạn')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_pending', 'Phân bổ cơ cấu hồ sơ đang xử lý: Đang giải quyết Trong hạn và Đang giải quyết Quá hạn')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
-                        {/* Selector toggle */}
-                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 self-start shrink-0 z-10">
-                          <button
-                            onClick={() => setPresentationDimension('unit')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Đơn vị
-                          </button>
-                          <button
-                            onClick={() => setPresentationDimension('field')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Lĩnh vực
-                          </button>
+                        {/* Selector toggles: View by Count vs Percent AND Dimension */}
+                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('count')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Số lượng
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('percent')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Tỷ lệ (%)
+                            </button>
+                          </div>
+
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('unit')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Đơn vị
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('field')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Lĩnh vực
+                            </button>
+                          </div>
                         </div>
                       </div>
                       
@@ -2183,16 +3615,51 @@ export const DashboardPage: React.FC = () => {
                               height={80}
                               interval={chart.widthPercent && chart.widthPercent < 65 ? 'preserveStartEnd' : 0}
                             />
-                            <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                            <Tooltip formatter={(val, name) => [formatNumber(Number(val)), name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: '#475569' }}
+                              unit={chartViewType === 'percent' ? '%' : ''}
+                              domain={chartViewType === 'percent' ? [0, 100] : ['auto', 'auto']}
+                            />
+                            <Tooltip
+                              formatter={(val, name) => [
+                                chartViewType === 'percent' ? `${val}%` : formatNumber(Number(val)),
+                                name
+                              ]}
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                            />
                             <Legend verticalAlign="top" height={36} iconType="square" iconSize={12} wrapperStyle={{ fontSize: 11, fontWeight: 'bold' }} />
                             
-                            <Bar dataKey="pending_on_time" stackId="pending_stack" name="Đang giải quyết Trong hạn" fill="#3b82f6">
-                              <LabelList dataKey="pending_on_time" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'on_time_pct' : 'pending_on_time'}
+                              stackId="pending_stack"
+                              name={chartViewType === 'percent' ? 'Đang giải quyết Trong hạn (%)' : 'Đang giải quyết Trong hạn'}
+                              fill="#3b82f6"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'on_time_pct' : 'pending_on_time'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
                             </Bar>
-                            <Bar dataKey="pending_late" stackId="pending_stack" name="Đang giải quyết quá hạn" fill="#ef4444">
-                              <LabelList dataKey="pending_late" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
-                              <LabelList dataKey="pending_total" position="top" style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'late_pct' : 'pending_late'}
+                              stackId="pending_stack"
+                              name={chartViewType === 'percent' ? 'Đang giải quyết quá hạn (%)' : 'Đang giải quyết quá hạn'}
+                              fill="#ef4444"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'late_pct' : 'pending_late'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'total_chart_val' : 'pending_total'}
+                                position="top"
+                                style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? '100%' : formatNumber(val)) : ''}
+                              />
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
@@ -2220,28 +3687,53 @@ export const DashboardPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {getChartSubtitle('thematic_received', 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến & Trực tiếp')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_received', 'Phân bổ cơ cấu hình thức tiếp nhận: Trực tuyến và Trực tiếp')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
-                        {/* Selector toggle */}
-                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 self-start shrink-0 z-10">
-                          <button
-                            onClick={() => setPresentationDimension('unit')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Đơn vị
-                          </button>
-                          <button
-                            onClick={() => setPresentationDimension('field')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Lĩnh vực
-                          </button>
+                        {/* Selector toggles: View by Count vs Percent AND Dimension */}
+                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('count')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Số lượng
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('percent')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Tỷ lệ (%)
+                            </button>
+                          </div>
+
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('unit')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Đơn vị
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('field')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Lĩnh vực
+                            </button>
+                          </div>
                         </div>
                       </div>
                       
@@ -2257,16 +3749,51 @@ export const DashboardPage: React.FC = () => {
                               height={80}
                               interval={chart.widthPercent && chart.widthPercent < 65 ? 'preserveStartEnd' : 0}
                             />
-                            <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                            <Tooltip formatter={(val, name) => [formatNumber(Number(val)), name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: '#475569' }}
+                              unit={chartViewType === 'percent' ? '%' : ''}
+                              domain={chartViewType === 'percent' ? [0, 100] : ['auto', 'auto']}
+                            />
+                            <Tooltip
+                              formatter={(val, name) => [
+                                chartViewType === 'percent' ? `${val}%` : formatNumber(Number(val)),
+                                name
+                              ]}
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                            />
                             <Legend verticalAlign="top" height={36} iconType="square" iconSize={12} wrapperStyle={{ fontSize: 11, fontWeight: 'bold' }} />
                             
-                            <Bar dataKey="received_online" stackId="received_stack" name="Trực tuyến" fill="#60a5fa">
-                              <LabelList dataKey="received_online" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'online_pct' : 'received_online'}
+                              stackId="received_stack"
+                              name={chartViewType === 'percent' ? 'Trực tuyến (%)' : 'Trực tuyến'}
+                              fill="#60a5fa"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'online_pct' : 'received_online'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
                             </Bar>
-                            <Bar dataKey="received_offline" stackId="received_stack" name="Trực tiếp" fill="#8b1a1a">
-                              <LabelList dataKey="received_offline" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
-                              <LabelList dataKey="received_total" position="top" style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'offline_pct' : 'received_offline'}
+                              stackId="received_stack"
+                              name={chartViewType === 'percent' ? 'Trực tiếp (%)' : 'Trực tiếp'}
+                              fill="#8b1a1a"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'offline_pct' : 'received_offline'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'total_chart_val' : 'received_total'}
+                                position="top"
+                                style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? '100%' : formatNumber(val)) : ''}
+                              />
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
@@ -2294,28 +3821,53 @@ export const DashboardPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {getChartSubtitle('thematic_completed', 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn & Trước hạn vs Trễ hạn (Quá hạn)')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
+                            {getChartSubtitle('thematic_completed', 'Phân bổ cơ cấu kết quả xử lý: Đúng hạn và Trước hạn vs Trễ hạn (Quá hạn)')} ({presentationDimension === 'unit' ? 'theo Đơn vị' : 'theo Lĩnh vực'})
                           </p>
                         </div>
                         
-                        {/* Selector toggle */}
-                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 self-start shrink-0 z-10">
-                          <button
-                            onClick={() => setPresentationDimension('unit')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Đơn vị
-                          </button>
-                          <button
-                            onClick={() => setPresentationDimension('field')}
-                            className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                              presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            Theo Lĩnh vực
-                          </button>
+                        {/* Selector toggles: View by Count vs Percent AND Dimension */}
+                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('count')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Số lượng
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChartViewType('percent')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Tỷ lệ (%)
+                            </button>
+                          </div>
+
+                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('unit')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Đơn vị
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPresentationDimension('field')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Theo Lĩnh vực
+                            </button>
+                          </div>
                         </div>
                       </div>
                       
@@ -2331,19 +3883,115 @@ export const DashboardPage: React.FC = () => {
                               height={80}
                               interval={chart.widthPercent && chart.widthPercent < 65 ? 'preserveStartEnd' : 0}
                             />
-                            <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                            <Tooltip formatter={(val, name) => [formatNumber(Number(val)), name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: '#475569' }}
+                              unit={chartViewType === 'percent' ? '%' : ''}
+                              domain={chartViewType === 'percent' ? [0, 100] : ['auto', 'auto']}
+                            />
+                            <Tooltip
+                              formatter={(val, name) => [
+                                chartViewType === 'percent' ? `${val}%` : formatNumber(Number(val)),
+                                name
+                              ]}
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                            />
                             <Legend verticalAlign="top" height={36} iconType="square" iconSize={12} wrapperStyle={{ fontSize: 11, fontWeight: 'bold' }} />
                             
-                            <Bar dataKey="completed_on_time_and_early" stackId="completed_stack" name="Đúng hạn &amp; Trước hạn" fill="#10b981">
-                              <LabelList dataKey="completed_on_time_and_early" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'on_time_pct' : 'completed_on_time_and_early'}
+                              stackId="completed_stack"
+                              name={chartViewType === 'percent' ? 'Đúng hạn & Trước hạn (%)' : 'Đúng hạn & Trước hạn'}
+                              fill="#10b981"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'on_time_pct' : 'completed_on_time_and_early'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
                             </Bar>
-                            <Bar dataKey="completed_late" stackId="completed_stack" name="Trễ hạn" fill="#ef4444">
-                              <LabelList dataKey="completed_late" position="center" style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
-                              <LabelList dataKey="completed_total" position="top" style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }} formatter={(val: any) => val > 0 ? formatNumber(val) : ''} />
+                            <Bar
+                              dataKey={chartViewType === 'percent' ? 'late_pct' : 'completed_late'}
+                              stackId="completed_stack"
+                              name={chartViewType === 'percent' ? 'Trễ hạn (%)' : 'Trễ hạn'}
+                              fill="#ef4444"
+                            >
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'late_pct' : 'completed_late'}
+                                position="center"
+                                style={{ fill: '#ffffff', fontSize: 9, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? `${val}%` : formatNumber(val)) : ''}
+                              />
+                              <LabelList
+                                dataKey={chartViewType === 'percent' ? 'total_chart_val' : 'completed_total'}
+                                position="top"
+                                style={{ fill: '#1e293b', fontSize: 11, fontWeight: 'bold' }}
+                                formatter={(val: any) => val > 0 ? (chartViewType === 'percent' ? '100%' : formatNumber(val)) : ''}
+                              />
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
+                      </div>
+                    </>
+                  )}
+
+                  {chart.id === 'urge_statistics' && (
+                    <>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                              {getChartTitle('urge_statistics', '5. Thống kê tình hình Đôn đốc hồ sơ theo Đơn vị chủ trì')}
+                            </h3>
+                            {canManageLayout && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal('urge_statistics')}
+                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getChartSubtitle('urge_statistics', 'Tổng hợp số lượng phiếu đôn đốc phát sinh trong khoảng thời gian của kỳ báo cáo được chọn')}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex-1 min-h-0 w-full relative">
+                        {urgeChartData.length === 0 || urgeChartData.every(d => d['Tổng số đôn đốc'] === 0) ? (
+                          <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center p-6 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                            <p className="text-xs font-semibold text-slate-600 mb-1">
+                              Chưa có số liệu đôn đốc phát sinh trong kỳ báo cáo đang chọn
+                            </p>
+                            <p className="text-[11px] text-slate-400 max-w-sm">
+                              Dữ liệu sẽ được tự động đồng bộ khi cán bộ Một cửa thực hiện lập và phát hành các phiếu đôn đốc hồ sơ TTHC quá hạn.
+                            </p>
+                          </div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={urgeChartData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis
+                                dataKey="unitName"
+                                tick={{ fontSize: 9, fill: '#475569', fontWeight: 500 }}
+                                angle={-15}
+                                textAnchor="end"
+                                height={60}
+                              />
+                              <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
+                              <Tooltip
+                                formatter={(val, name) => [formatNumber(Number(val)), name]}
+                                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                              />
+                              <Legend verticalAlign="top" height={36} iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 11, fontWeight: 'bold' }} />
+                              <Bar dataKey="Đã hoàn thành/phản hồi" name="Đã hoàn thành / Đã phản hồi" fill="#10b981" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="Đang đôn đốc/chưa phản hồi" name="Đang đôn đốc / Chờ xử lý" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        )}
                       </div>
                     </>
                   )}
@@ -2361,23 +4009,66 @@ export const DashboardPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-base font-bold text-slate-900">
-                    {getChartTitle('detailed_table', 'Chi tiết số liệu thống kê')}
+                  <h3 className="text-base font-bold text-slate-900 uppercase tracking-tight">
+                    {getChartTitle('detailed_table', 'BẢNG CHI TIẾT SỐ LIỆU')}
                   </h3>
                   {canManageLayout && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal('detailed_table')}
-                      className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
-                      title="Chỉnh sửa Tiêu đề & Chú thích bảng số liệu"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal('detailed_table')}
+                        className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                        title="Chỉnh sửa Tiêu đề bảng số liệu"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDraftTableHeaders({ ...DEFAULT_TABLE_HEADERS, ...tableHeaders });
+                          setIsEditingTableHeadersModal(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/90 rounded-lg transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        title="Tùy biến tiêu đề tất cả các cột trong bảng"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Sửa header bảng</span>
+                      </button>
+                    </div>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {getChartSubtitle('detailed_table', 'Thống kê chi tiết tình hình tiếp nhận và giải quyết hồ sơ thủ tục hành chính')}
-                </p>
+
+                {/* Dòng Tên của kỳ báo cáo theo kỳ đã chọn ở trên kèm ngày Chốt số liệu */}
+                <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
+                  <span className="font-semibold text-blue-900 bg-blue-50/90 border border-blue-200/90 px-3 py-1.5 rounded-lg inline-flex items-center gap-2 shadow-2xs">
+                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    <span>Kỳ báo cáo: <strong className="text-blue-950 font-bold">{selectedReport ? (selectedReport.report_name || selectedReport.report_code) : 'Chưa chọn kỳ báo cáo'}</strong></span>
+                    {(() => {
+                      const rawDate = selectedReport?.data_as_of || selectedReport?.period_end || selectedReport?.created_at || '';
+                      if (!rawDate) return null;
+                      let formatted = '';
+                      const clean = rawDate.split('T')[0];
+                      const parts = clean.split('-');
+                      if (parts.length === 3) {
+                        formatted = `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+                      } else {
+                        const d = new Date(rawDate);
+                        if (!isNaN(d.getTime())) {
+                          formatted = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                        }
+                      }
+                      if (!formatted) return null;
+                      return (
+                        <>
+                          <span className="text-blue-300 font-normal">|</span>
+                          <span className="text-blue-900 font-medium">
+                            Ngày chốt số liệu: <strong className="text-blue-950 font-bold">{formatted}</strong>
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
@@ -2426,66 +4117,59 @@ export const DashboardPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
-
-                {/* Filter by Data Presence */}
-                <button
-                  type="button"
-                  onClick={() => setTableOnlyWithData(!tableOnlyWithData)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                    tableOnlyWithData
-                      ? 'bg-amber-50 border-amber-300 text-amber-800 shadow-2xs'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Filter className="w-3 h-3" />
-                  Chỉ dòng có số liệu
-                </button>
-
-                {/* Validity filter */}
-                <div className="flex bg-slate-200/70 p-0.5 rounded-lg border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setTableValidityFilter('ALL')}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                      tableValidityFilter === 'ALL' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Tất cả
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTableValidityFilter('VALID')}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                      tableValidityFilter === 'VALID' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Hợp lệ
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTableValidityFilter('INVALID')}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                      tableValidityFilter === 'INVALID' ? 'bg-white text-rose-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Có lỗi
-                  </button>
-                </div>
               </div>
 
-              {/* Group By Source Toggle */}
-              <div className="flex items-center gap-2">
+              {/* Grouping Mode Toggles & Rate View Toggle */}
+              <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setTableGroupBySource(!tableGroupBySource)}
+                  onClick={() => setTableGroupingMode('field')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
-                    tableGroupBySource
+                    tableGroupingMode === 'field'
                       ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
                       : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                   }`}
+                  title="Gộp nhóm các dòng số liệu theo từng Lĩnh vực TTHC"
+                >
+                  <FolderKanban className="w-3.5 h-3.5" />
+                  Nhóm theo Lĩnh vực
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTableGroupingMode('source')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                    tableGroupingMode === 'source'
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                  title="Gộp nhóm các dòng số liệu theo từng Nguồn tiếp nhận"
                 >
                   <Layers className="w-3.5 h-3.5" />
                   Nhóm theo Nguồn
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTableRateMode((prev) => (prev === 'overdue' ? 'ontime' : 'overdue'))}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                    tableRateMode === 'ontime'
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                      : 'bg-amber-600 border-amber-600 text-white shadow-xs'
+                  }`}
+                  title={tableRateMode === 'overdue' ? 'Chuyển sang hiển thị % Đúng hạn' : 'Chuyển sang hiển thị % Quá hạn'}
+                >
+                  {tableRateMode === 'overdue' ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      <span>Xem % Đúng hạn</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                      <span>Xem % Quá hạn</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -2493,196 +4177,279 @@ export const DashboardPage: React.FC = () => {
 
           {/* Table Container */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase font-bold text-[10px] select-none">
-                <tr>
+            <table className="w-full text-left text-xs text-slate-700 border-collapse">
+              {/* TIÊU ĐỀ BẢNG CHUẨN ĐA TẦNG HÀNH CHÍNH NHÀ NƯỚC */}
+              <thead className="bg-slate-50 text-slate-700 select-none border-b-2 border-slate-300 font-sans text-xs">
+                {/* TẦNG 1: CÁC KHỐI CHỨC NĂNG CHÍNH */}
+                <tr className="border-b border-slate-300">
                   <th
+                    rowSpan={3}
+                    className="py-1 px-2 text-center w-10 bg-slate-100 text-slate-900 border-r border-slate-300 font-bold align-middle"
+                  >
+                    {tableHeaders.stt || 'STT'}
+                  </th>
+
+                  {/* Cột 1: LĨNH VỰC */}
+                  <th
+                    rowSpan={3}
                     onClick={() => handleTableSort('field')}
-                    className="px-3.5 py-3 hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                    className="py-1 px-2.5 min-w-[200px] bg-slate-100 text-slate-900 border-r border-slate-300 cursor-pointer hover:bg-slate-200 transition-colors text-left align-middle"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>Lĩnh vực & Đơn vị</span>
-                      {tableSortKey === 'field' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold">{tableHeaders.field || 'Lĩnh vực'}</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {tableSortKey === 'field' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
                     </div>
                   </th>
 
+                  {/* Cột 2: ĐƠN VỊ THỰC HIỆN (ĐÃ TÁCH RIÊNG) */}
                   <th
-                    onClick={() => handleTableSort('source')}
-                    className="px-3.5 py-3 hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                    rowSpan={3}
+                    onClick={() => handleTableSort('unit')}
+                    className="py-1 px-2.5 min-w-[150px] bg-slate-100 text-slate-900 border-r border-slate-300 cursor-pointer hover:bg-slate-200 transition-colors text-left align-middle"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>Nguồn</span>
-                      {tableSortKey === 'source' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold">{tableHeaders.unit || 'Đơn vị thực hiện'}</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {tableSortKey === 'unit' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
                     </div>
                   </th>
 
+                  {/* Khối 1: TIẾP NHẬN */}
                   <th
+                    colSpan={4}
+                    className="py-1 px-2 text-center bg-[#D1E7DD] text-[#0F5132] font-bold uppercase tracking-wide border-r border-b border-[#BADBCC]"
+                  >
+                    {tableHeaders.received_group || 'SỐ HỒ SƠ TIẾP NHẬN'}
+                  </th>
+
+                  {/* Khối 2: ĐÃ GIẢI QUYẾT */}
+                  <th
+                    colSpan={5}
+                    className="py-1 px-2 text-center bg-[#FFF3CD] text-[#664D03] font-bold uppercase tracking-wide border-r border-b border-[#FFECB5]"
+                  >
+                    {tableHeaders.resolved_group || 'SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT'}
+                  </th>
+
+                  {/* Khối 3: ĐANG GIẢI QUYẾT */}
+                  <th
+                    colSpan={4}
+                    className="py-1 px-2 text-center bg-[#CFE2FF] text-[#084298] font-bold uppercase tracking-wide border-r border-b border-[#B6D4FE]"
+                  >
+                    {tableHeaders.pending_group || 'SỐ LƯỢNG HỒ SƠ ĐANG GIẢI QUYẾT'}
+                  </th>
+
+                  {/* Cột % Quá hạn / % Đúng hạn (theo QĐ 776) */}
+                  <th
+                    rowSpan={3}
+                    onClick={() => handleTableSort('qd776_rate')}
+                    className="py-1 px-2 text-right min-w-[90px] bg-slate-100 text-slate-800 border-r border-slate-300 cursor-pointer hover:bg-slate-200 transition-colors align-middle"
+                  >
+                    <div className="flex flex-col items-end justify-center gap-0.5">
+                      <div className="flex items-center gap-1">
+                        <span className="font-bold text-[11px] leading-tight">
+                          {tableRateMode === 'ontime'
+                            ? (tableHeaders.qd776_rate_ontime || '% Đúng hạn')
+                            : (tableHeaders.qd776_rate_overdue || '% Quá hạn')}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          {tableSortKey === 'qd776_rate' || tableSortKey === 'on_time_rate' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-semibold">{tableHeaders.qd776_label || '(QĐ 776)'}</span>
+                    </div>
+                  </th>
+                </tr>
+
+                {/* TẦNG 2: PHÂN BỐ CHI TIẾT */}
+                <tr className="border-b border-slate-300">
+                  {/* Dưới TIẾP NHẬN */}
+                  <th
+                    rowSpan={2}
                     onClick={() => handleTableSort('received_total')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                    className="py-1 px-2 text-right bg-[#E8F4EC] text-[#0F5132] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#D1E7DD] transition-colors align-middle"
                   >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Tiếp nhận (Tổng)</span>
-                      {tableSortKey === 'received_total' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.received_total || 'Tổng số'}</span>
+                      <span className="text-[10px] text-[#0F5132]/60 font-normal">
+                        {tableSortKey === 'received_total' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="py-0.5 px-2 text-center bg-[#E8F4EC] text-[#0F5132] font-bold border-r border-b border-[#BADBCC]"
+                  >
+                    {tableHeaders.received_in_period || 'Trong kỳ'}
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('carried_forward')}
+                    className="py-1 px-2 text-right bg-[#E8F4EC] text-[#0F5132] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#D1E7DD] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.received_carried || 'Từ kỳ trước'}</span>
+                      <span className="text-[10px] text-[#0F5132]/60 font-normal">
+                        {tableSortKey === 'carried_forward' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
                     </div>
                   </th>
 
+                  {/* Dưới ĐÃ GIẢI QUYẾT */}
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('completed_total')}
+                    className="py-1 px-2 text-right bg-[#FFF9E6] text-[#664D03] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#FFF3CD] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.resolved_total || 'Tổng số'}</span>
+                      <span className="text-[10px] text-[#664D03]/60 font-normal">
+                        {tableSortKey === 'completed_total' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('completed_early')}
+                    className="py-1 px-2 text-right bg-[#FFF9E6] text-[#664D03] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#FFF3CD] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.resolved_early || 'Trước hạn'}</span>
+                      <span className="text-[10px] text-[#664D03]/60 font-normal">
+                        {tableSortKey === 'completed_early' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('completed_on_time')}
+                    className="py-1 px-2 text-right bg-[#FFF9E6] text-[#664D03] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#FFF3CD] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.resolved_ontime || 'Đúng hạn'}</span>
+                      <span className="text-[10px] text-[#664D03]/60 font-normal">
+                        {tableSortKey === 'completed_on_time' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('completed_late')}
+                    className="py-1 px-2 text-right bg-[#FFF9E6] text-[#664D03] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#FFF3CD] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.resolved_late || 'Quá hạn'}</span>
+                      <span className="text-[10px] text-[#664D03]/60 font-normal">
+                        {tableSortKey === 'completed_late' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('comp_late_rate')}
+                    className="py-1 px-2 text-right bg-[#FFF9E6] text-[#854D0E] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#FFF3CD] transition-colors align-middle min-w-[70px]"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>
+                        {tableRateMode === 'ontime'
+                          ? (tableHeaders.resolved_rate_ontime || '% Đúng hạn')
+                          : (tableHeaders.resolved_rate_overdue || '% Quá hạn')}
+                      </span>
+                      <span className="text-[10px] text-[#854D0E]/60 font-normal">
+                        {tableSortKey === 'comp_late_rate' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+
+                  {/* Dưới ĐANG GIẢI QUYẾT */}
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('pending_total')}
+                    className="py-1 px-2 text-right bg-[#E7F1FF] text-[#084298] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#CFE2FF] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.pending_total || 'Tổng số'}</span>
+                      <span className="text-[10px] text-[#084298]/60 font-normal">
+                        {tableSortKey === 'pending_total' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('pending_on_time')}
+                    className="py-1 px-2 text-right bg-[#E7F1FF] text-[#084298] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#CFE2FF] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.pending_ontime || 'Trong hạn'}</span>
+                      <span className="text-[10px] text-[#084298]/60 font-normal">
+                        {tableSortKey === 'pending_on_time' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('pending_late')}
+                    className="py-1 px-2 text-right bg-[#E7F1FF] text-[#084298] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#CFE2FF] transition-colors align-middle"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.pending_late || 'Quá hạn'}</span>
+                      <span className="text-[10px] text-[#084298]/60 font-normal">
+                        {tableSortKey === 'pending_late' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                  <th
+                    rowSpan={2}
+                    onClick={() => handleTableSort('pend_late_rate')}
+                    className="py-1 px-2 text-right bg-[#E7F1FF] text-[#075985] font-bold border-r border-slate-300 cursor-pointer hover:bg-[#CFE2FF] transition-colors align-middle min-w-[70px]"
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <span>
+                        {tableRateMode === 'ontime'
+                          ? (tableHeaders.pending_rate_ontime || '% Trong hạn')
+                          : (tableHeaders.pending_rate_overdue || '% Quá hạn')}
+                      </span>
+                      <span className="text-[10px] text-[#075985]/60 font-normal">
+                        {tableSortKey === 'pend_late_rate' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                </tr>
+
+                {/* TẦNG 3: TRONG KỲ (TRỰC TUYẾN & TRỰC TIẾP / BƯU CHÍNH) */}
+                <tr className="border-b border-slate-300">
                   <th
                     onClick={() => handleTableSort('received_online')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                    className="py-0.5 px-2 text-right bg-[#F1F9F4] text-[#0F5132] font-semibold border-r border-slate-300 cursor-pointer hover:bg-[#D1E7DD] transition-colors"
                   >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Online / Trực tiếp</span>
-                      {tableSortKey === 'received_online' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.received_online || 'Trực tuyến'}</span>
+                      <span className="text-[10px] text-[#0F5132]/60 font-normal">
+                        {tableSortKey === 'received_online' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
                     </div>
                   </th>
-
                   <th
-                    onClick={() => handleTableSort('carried_forward')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
+                    onClick={() => handleTableSort('received_offline')}
+                    className="py-0.5 px-2 text-right bg-[#F1F9F4] text-[#0F5132] font-semibold border-r border-slate-300 cursor-pointer hover:bg-[#D1E7DD] transition-colors"
                   >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Kỳ trước</span>
-                      {tableSortKey === 'carried_forward' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
-                    </div>
-                  </th>
-
-                  <th
-                    onClick={() => handleTableSort('completed_total')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Đã giải quyết</span>
-                      {tableSortKey === 'completed_total' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
-                    </div>
-                  </th>
-
-                  <th
-                    onClick={() => handleTableSort('completed_on_time')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Trước / Đúng / Trễ</span>
-                      {tableSortKey === 'completed_on_time' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
-                    </div>
-                  </th>
-
-                  <th
-                    onClick={() => handleTableSort('pending_total')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Đang giải quyết</span>
-                      {tableSortKey === 'pending_total' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
-                    </div>
-                  </th>
-
-                  <th
-                    onClick={() => handleTableSort('pending_late')}
-                    className="px-3.5 py-3 text-right hover:bg-slate-100/80 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Trong hạn / Trễ</span>
-                      {tableSortKey === 'pending_late' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
-                    </div>
-                  </th>
-
-                  <th
-                    onClick={() => handleTableSort('validity')}
-                    className="px-3.5 py-3 text-center hover:bg-slate-100/80 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>Kiểm chứng</span>
-                      {tableSortKey === 'validity' ? (
-                        tableSortDirection === 'asc' ? (
-                          <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                      )}
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{tableHeaders.received_offline || 'Trực tiếp / BC'}</span>
+                      <span className="text-[10px] text-[#0F5132]/60 font-normal">
+                        {tableSortKey === 'received_offline' ? (tableSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
                     </div>
                   </th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-100 font-medium">
+              <tbody className="divide-y divide-slate-200 font-mono text-sm">
                 {/* Empty State */}
                 {processedTableRows.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                    <td colSpan={17} className="py-10 text-center text-slate-400 font-sans">
                       <div className="max-w-xs mx-auto space-y-2">
                         <Filter className="w-8 h-8 text-slate-300 mx-auto" />
                         <div className="text-xs font-semibold text-slate-700">Không tìm thấy số liệu phù hợp</div>
@@ -2693,7 +4460,6 @@ export const DashboardPage: React.FC = () => {
                             setTableSearchQuery('');
                             setTableSourceFilter('ALL');
                             setTableValidityFilter('ALL');
-                            setTableOnlyWithData(false);
                           }}
                           className="mt-2 text-xs font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer"
                         >
@@ -2704,155 +4470,477 @@ export const DashboardPage: React.FC = () => {
                   </tr>
                 )}
 
-                {/* When Group By Source is ENABLED */}
-                {tableGroupBySource && groupedTableRows && groupedTableRows.map((group) => (
-                  <React.Fragment key={group.sourceId}>
-                    {/* Group Header Row */}
-                    <tr className="bg-slate-100/90 border-y border-slate-200">
-                      <td colSpan={10} className="px-3.5 py-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 text-white font-bold text-xs shadow-2xs">
-                              <Layers className="w-3.5 h-3.5" />
-                              Nguồn: {group.sourceName}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-600">
-                              ({group.rows.length} lĩnh vực)
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-700">
-                            <span>
-                              Tiếp nhận: <strong className="text-slate-900">{formatNumber(group.totals.received_total)}</strong>
-                              <span className="text-blue-600 font-normal ml-1">(Online: {formatNumber(group.totals.received_online)})</span>
-                            </span>
-                            <span className="text-slate-300">|</span>
-                            <span>
-                              Đã GQ: <strong className="text-emerald-700">{formatNumber(group.totals.completed_total)}</strong>
-                            </span>
-                            <span className="text-slate-300">|</span>
-                            <span>
-                              Đang GQ: <strong className="text-indigo-700">{formatNumber(group.totals.pending_total)}</strong>
-                              {group.totals.pending_late > 0 && (
-                                <span className="text-rose-600 font-bold ml-1">
-                                  (Quá hạn: {formatNumber(group.totals.pending_late)})
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Group Rows */}
-                    {group.rows.map((row) => (
-                      <tr key={row.id} className="hover:bg-blue-50/40 transition-colors">
-                        <td className="px-3.5 py-2.5 pl-6">
-                          <div className="font-bold text-slate-900 text-xs leading-snug">{row.displayName}</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">{row.unitName}</div>
-                        </td>
-                        <td className="px-3.5 py-2.5 text-slate-600 font-medium">
-                          {row.sourceName}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">
-                          {formatNumber(row.received_total)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right text-blue-600 font-medium">
-                          {formatNumber(row.received_online)} / {formatNumber(row.received_offline)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right text-slate-500">
-                          {formatNumber(row.carried_forward)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-bold text-emerald-600">
-                          {formatNumber(row.completed_total)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right text-slate-600">
-                          {formatNumber(row.completed_early)} / {formatNumber(row.completed_on_time)} / {row.completed_late > 0 ? (
-                            <span className="text-rose-600 font-bold">{row.completed_late}</span>
-                          ) : (
-                            0
-                          )}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-bold text-indigo-600">
-                          {formatNumber(row.pending_total)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right text-slate-600">
-                          {formatNumber(row.pending_on_time)} / {row.pending_late > 0 ? (
-                            <span className="text-rose-600 font-bold">{row.pending_late}</span>
-                          ) : (
-                            0
-                          )}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-center">
-                          {row.validation.allPassed ? (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                              <Check className="w-3 h-3 text-emerald-700" />
-                              Hợp lệ
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded" title={row.validation.errorMessages.join('\n')}>
-                              Lỗi
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-
-                {/* When Group By Source is DISABLED (Flat list) */}
-                {!tableGroupBySource && processedTableRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-bold text-slate-900 text-xs leading-snug">{row.displayName}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">{row.unitName}</div>
+                {/* DÒNG TỔNG CỘNG BÊN DƯỚI TIÊU ĐỀ BẢNG (GRAND TOTALS ROW) */}
+                {processedTableRows.length > 0 && (
+                  <tr className="bg-amber-100/90 hover:bg-amber-100 font-bold text-slate-900 border-b-2 border-amber-300 text-sm shadow-2xs">
+                    <td className="py-1 px-2 text-center bg-amber-200/70 border-r border-amber-300 font-black text-slate-800">
+                      —
                     </td>
-                    <td className="px-3.5 py-2.5 text-slate-600">
-                      {row.sourceName}
+                    <td className="py-1 px-2 bg-amber-200/70 border-r border-amber-300 font-black text-amber-950 uppercase tracking-wider font-sans text-xs">
+                      TỔNG CỘNG
                     </td>
-                    <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">
-                      {formatNumber(row.received_total)}
+                    <td className="py-1 px-2 bg-amber-200/70 border-r border-amber-300 font-bold text-amber-900 font-sans text-xs">
+                      <span className="inline-block bg-amber-300/80 text-amber-950 font-semibold px-2 py-0.5 rounded text-[11px]">
+                        {tableGroupingMode === 'field' && groupedByFieldRows
+                          ? `${groupedByFieldRows.length} lĩnh vực`
+                          : `${tableGrandTotals.count} dòng`}
+                      </span>
                     </td>
-                    <td className="px-3.5 py-2.5 text-right text-blue-600">
-                      {formatNumber(row.received_online)} / {formatNumber(row.received_offline)}
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.received_total, 'text-blue-900', true)}
                     </td>
-                    <td className="px-3.5 py-2.5 text-right text-slate-500">
-                      {formatNumber(row.carried_forward)}
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.received_online, 'text-blue-900', true)}
                     </td>
-                    <td className="px-3.5 py-2.5 text-right font-bold text-emerald-600">
-                      {formatNumber(row.completed_total)}
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.received_offline, 'text-blue-900', true)}
                     </td>
-                    <td className="px-3.5 py-2.5 text-right text-slate-600">
-                      {formatNumber(row.completed_early)} / {formatNumber(row.completed_on_time)} / {row.completed_late > 0 ? (
-                        <span className="text-rose-600 font-bold">{row.completed_late}</span>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.carried_forward, 'text-blue-900', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.completed_total, 'text-blue-900', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-emerald-800">
+                      {renderStatCell(tableGrandTotals.completed_early, 'text-emerald-800', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-emerald-800">
+                      {renderStatCell(tableGrandTotals.completed_on_time, 'text-emerald-800', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300">
+                      {tableGrandTotals.completed_late > 0 ? (
+                        <span className="text-red-700 font-black text-sm">{formatNumber(tableGrandTotals.completed_late)}</span>
                       ) : (
-                        0
+                        <span className="text-slate-400 font-sans font-normal text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-3.5 py-2.5 text-right font-bold text-indigo-600">
-                      {formatNumber(row.pending_total)}
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 font-sans text-sm">
+                      <span className={tableRateMode === 'ontime' ? 'text-emerald-800 font-black' : (tableGrandTotals.completed_late > 0 ? 'text-red-700 font-black' : 'text-blue-900 font-black')}>
+                        {tableRateMode === 'ontime'
+                          ? formatRatePercent(tableGrandTotals.completed_total > 0 ? ((tableGrandTotals.completed_early + tableGrandTotals.completed_on_time) / tableGrandTotals.completed_total) * 100 : null)
+                          : formatRatePercent(tableGrandTotals.compLateRate)}
+                      </span>
                     </td>
-                    <td className="px-3.5 py-2.5 text-right text-slate-600">
-                      {formatNumber(row.pending_on_time)} / {row.pending_late > 0 ? (
-                        <span className="text-rose-600 font-bold">{row.pending_late}</span>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.pending_total, 'text-blue-900', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 text-blue-900">
+                      {renderStatCell(tableGrandTotals.pending_on_time, 'text-blue-900', true)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300">
+                      {tableGrandTotals.pending_late > 0 ? (
+                        <span className="text-red-700 font-black text-sm">{formatNumber(tableGrandTotals.pending_late)}</span>
                       ) : (
-                        0
+                        <span className="text-slate-400 font-sans font-normal text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-3.5 py-2.5 text-center">
-                      {row.validation.allPassed ? (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                          <Check className="w-3 h-3 text-emerald-700" />
-                          Hợp lệ
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded" title={row.validation.errorMessages.join('\n')}>
-                          Lỗi
-                        </span>
-                      )}
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 font-sans text-sm">
+                      <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-black' : (tableGrandTotals.pending_late > 0 ? 'text-red-700 font-black' : 'text-blue-900 font-black')}>
+                        {tableRateMode === 'ontime'
+                          ? formatRatePercent(tableGrandTotals.pending_total > 0 ? (tableGrandTotals.pending_on_time / tableGrandTotals.pending_total) * 100 : null)
+                          : formatRatePercent(tableGrandTotals.pendLateRate)}
+                      </span>
+                    </td>
+                    <td className="py-1 px-2 text-right font-black border-r border-amber-300 font-sans text-sm">
+                      <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-black' : (tableGrandTotals.qd776Rate > 0 ? 'text-red-700 font-black' : 'text-blue-900 font-black')}>
+                        {tableRateMode === 'ontime'
+                          ? formatRatePercent(tableGrandTotals.received_total > 0 ? (((tableGrandTotals.completed_early + tableGrandTotals.completed_on_time) + tableGrandTotals.pending_on_time) / tableGrandTotals.received_total) * 100 : null)
+                          : formatRatePercent(tableGrandTotals.qd776Rate)}
+                      </span>
                     </td>
                   </tr>
-                ))}
+                )}
+
+                {/* 1. KHI CHỌN NHÓM THEO LĨNH VỰC */}
+                {tableGroupingMode === 'field' && groupedByFieldRows && groupedByFieldRows.map((group, groupIdx) => {
+                  const compLateRate = group.totals.completed_total > 0
+                    ? (group.totals.completed_late / group.totals.completed_total) * 100
+                    : null;
+                  const pendLateRate = group.totals.pending_total > 0
+                    ? (group.totals.pending_late / group.totals.pending_total) * 100
+                    : null;
+                  const qd776Rate = group.totals.received_total > 0
+                    ? ((group.totals.completed_late + group.totals.pending_late) / group.totals.received_total) * 100
+                    : null;
+                  const unitNames = Array.from(new Set(group.rows.map(r => r.unitName).filter(Boolean)));
+
+                  return (
+                    <tr key={group.fieldKey} className="hover:brightness-95 transition-colors border-b border-slate-200">
+                      <td className="py-1 px-2 text-center text-blue-900 font-sans border-r border-slate-200 font-medium text-xs">
+                        {groupIdx + 1}
+                      </td>
+                      <td className="py-1 px-2.5 text-blue-900 font-sans border-r border-slate-200">
+                        <div className="font-bold text-blue-950 text-xs">
+                          {group.fieldName}
+                        </div>
+                      </td>
+                      <td className="py-1 px-2 text-slate-700 font-sans border-r border-slate-200">
+                        {unitNames.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {unitNames.map(u => (
+                              <span key={u} className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-sans border border-blue-200/70 font-medium">
+                                {u}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-sans">—</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                        {renderStatCell(group.totals.received_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                        {renderStatCell(group.totals.received_online, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                        {renderStatCell(group.totals.received_offline, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                        {renderStatCell(group.totals.carried_forward, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FEF6DC]/80">
+                        {renderStatCell(group.totals.completed_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {renderStatCell(group.totals.completed_early, 'text-emerald-800')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {renderStatCell(group.totals.completed_on_time, 'text-emerald-800')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {group.totals.completed_late > 0 ? (
+                          <span className="text-red-700 font-bold text-sm">{formatNumber(group.totals.completed_late)}</span>
+                        ) : (
+                          <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80 font-sans text-sm">
+                        <span className={tableRateMode === 'ontime' ? 'text-emerald-800 font-bold' : (group.totals.completed_late > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-medium')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(group.totals.completed_total > 0 ? ((group.totals.completed_early + group.totals.completed_on_time) / group.totals.completed_total) * 100 : null)
+                            : formatRatePercent(compLateRate)}
+                        </span>
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#E7F1FF]/80">
+                        {renderStatCell(group.totals.pending_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                        {renderStatCell(group.totals.pending_on_time, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                        {group.totals.pending_late > 0 ? (
+                          <span className="text-red-700 font-bold text-sm">{formatNumber(group.totals.pending_late)}</span>
+                        ) : (
+                          <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80 font-sans text-sm">
+                        <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-bold' : (group.totals.pending_late > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-medium')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(group.totals.pending_total > 0 ? (group.totals.pending_on_time / group.totals.pending_total) * 100 : null)
+                            : formatRatePercent(pendLateRate)}
+                        </span>
+                      </td>
+                      <td className="py-1 px-2 text-right text-blue-900 font-sans text-sm bg-slate-50/50">
+                        <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-bold' : ((qd776Rate ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-medium')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(group.totals.received_total > 0 ? (((group.totals.completed_early + group.totals.completed_on_time) + group.totals.pending_on_time) / group.totals.received_total) * 100 : null)
+                            : formatRatePercent(qd776Rate)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {/* 2. KHI CHỌN NHÓM THEO NGUỒN */}
+                {tableGroupingMode === 'source' && groupedBySourceRows && groupedBySourceRows.map((group, groupIdx) => {
+                  const compLateRate = group.totals.completed_total > 0
+                    ? (group.totals.completed_late / group.totals.completed_total) * 100
+                    : null;
+                  const pendLateRate = group.totals.pending_total > 0
+                    ? (group.totals.pending_late / group.totals.pending_total) * 100
+                    : null;
+                  const qd776Rate = group.totals.received_total > 0
+                    ? ((group.totals.completed_late + group.totals.pending_late) / group.totals.received_total) * 100
+                    : null;
+
+                  return (
+                    <React.Fragment key={group.sourceId}>
+                      {/* Tiêu đề nhóm Nguồn chuẩn hành chính */}
+                      <tr className="bg-slate-200 text-blue-900 font-sans font-bold border-y border-slate-300 hover:bg-slate-200/90 transition-colors">
+                        <td className="py-1 px-2 text-center bg-slate-300 text-blue-900 font-bold border-r border-slate-300 text-xs">
+                          {groupIdx + 1}
+                        </td>
+                        <td colSpan={2} className="py-1 px-2.5 text-blue-900 border-r border-slate-300">
+                          <div className="flex items-center gap-2">
+                            <Layers className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                            <span className="uppercase text-xs tracking-wide font-bold">{group.sourceName}</span>
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                              {group.rows.length} lĩnh vực
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.received_total, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.received_online, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.received_offline, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.carried_forward, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.completed_total, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-emerald-800 border-r border-slate-300">
+                          {renderStatCell(group.totals.completed_early, 'text-emerald-800', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-emerald-800 border-r border-slate-300">
+                          {renderStatCell(group.totals.completed_on_time, 'text-emerald-800', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right border-r border-slate-300 font-bold">
+                          {group.totals.completed_late > 0 ? (
+                            <span className="text-red-700 font-bold text-sm">{formatNumber(group.totals.completed_late)}</span>
+                          ) : (
+                            <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-right border-r border-slate-300 font-sans font-bold text-sm">
+                          <span className={tableRateMode === 'ontime' ? 'text-emerald-800 font-bold' : (group.totals.completed_late > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-bold')}>
+                            {tableRateMode === 'ontime'
+                              ? formatRatePercent(group.totals.completed_total > 0 ? ((group.totals.completed_early + group.totals.completed_on_time) / group.totals.completed_total) * 100 : null)
+                              : formatRatePercent(compLateRate)}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.pending_total, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right font-bold text-blue-900 border-r border-slate-300">
+                          {renderStatCell(group.totals.pending_on_time, 'text-blue-900', true)}
+                        </td>
+                        <td className="py-1 px-2 text-right border-r border-slate-300 font-bold">
+                          {group.totals.pending_late > 0 ? (
+                            <span className="text-red-700 font-bold text-sm">{formatNumber(group.totals.pending_late)}</span>
+                          ) : (
+                            <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-right border-r border-slate-300 font-sans font-bold text-sm">
+                          <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-bold' : (group.totals.pending_late > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-bold')}>
+                            {tableRateMode === 'ontime'
+                              ? formatRatePercent(group.totals.pending_total > 0 ? (group.totals.pending_on_time / group.totals.pending_total) * 100 : null)
+                              : formatRatePercent(pendLateRate)}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 text-right text-blue-900 font-sans font-bold text-sm">
+                          <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-bold' : ((qd776Rate ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-blue-900 font-bold')}>
+                            {tableRateMode === 'ontime'
+                              ? formatRatePercent(group.totals.received_total > 0 ? (((group.totals.completed_early + group.totals.completed_on_time) + group.totals.pending_on_time) / group.totals.received_total) * 100 : null)
+                              : formatRatePercent(qd776Rate)}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* Các dòng con trong nhóm Nguồn */}
+                      {group.rows.map((row, rowIdx) => {
+                        const rowCompLateRate = row.completed_total > 0
+                          ? (row.completed_late / row.completed_total) * 100
+                          : null;
+                        const rowPendLateRate = row.pending_total > 0
+                          ? (row.pending_late / row.pending_total) * 100
+                          : null;
+                        const rowQD776Rate = row.received_total > 0
+                          ? ((row.completed_late + row.pending_late) / row.received_total) * 100
+                          : null;
+
+                        return (
+                          <tr key={row.id} className="hover:brightness-95 transition-colors border-b border-slate-200">
+                            <td className="py-1 px-2 text-center text-blue-900 font-sans border-r border-slate-200 text-xs">
+                              {groupIdx + 1}.{rowIdx + 1}
+                            </td>
+                            <td className="py-1 px-2.5 text-blue-900 font-sans border-r border-slate-200">
+                              <div className="font-semibold text-blue-950 text-xs">
+                                {row.displayName}
+                              </div>
+                            </td>
+                            <td className="py-1 px-2 text-slate-600 font-sans border-r border-slate-200 text-xs">
+                              {row.unitName ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-sans border border-blue-200/70 font-medium">
+                                  {row.unitName}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-sans">—</span>
+                              )}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                              {renderStatCell(row.received_total, 'text-blue-900', true)}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                              {renderStatCell(row.received_online, 'text-blue-900')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                              {renderStatCell(row.received_offline, 'text-blue-900')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                              {renderStatCell(row.carried_forward, 'text-blue-900')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FEF6DC]/80">
+                              {renderStatCell(row.completed_total, 'text-blue-900', true)}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                              {renderStatCell(row.completed_early, 'text-emerald-800')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                              {renderStatCell(row.completed_on_time, 'text-emerald-800')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                              {row.completed_late > 0 ? (
+                                <span className="text-red-700 font-bold text-sm">{formatNumber(row.completed_late)}</span>
+                              ) : (
+                                <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                              )}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80 font-sans text-sm">
+                              <span className={tableRateMode === 'ontime' ? 'text-emerald-800 font-semibold' : (row.completed_late > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                                {tableRateMode === 'ontime'
+                                  ? formatRatePercent(row.completed_total > 0 ? ((row.completed_early + row.completed_on_time) / row.completed_total) * 100 : null)
+                                  : formatRatePercent(rowCompLateRate)}
+                              </span>
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#E7F1FF]/80">
+                              {renderStatCell(row.pending_total, 'text-blue-900', true)}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                              {renderStatCell(row.pending_on_time, 'text-blue-900')}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                              {row.pending_late > 0 ? (
+                                <span className="text-red-700 font-bold text-sm">{formatNumber(row.pending_late)}</span>
+                              ) : (
+                                <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                              )}
+                            </td>
+                            <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80 font-sans text-sm">
+                              <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-semibold' : (row.pending_late > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                                {tableRateMode === 'ontime'
+                                  ? formatRatePercent(row.pending_total > 0 ? (row.pending_on_time / row.pending_total) * 100 : null)
+                                  : formatRatePercent(rowPendLateRate)}
+                              </span>
+                            </td>
+                            <td className="py-1 px-2 text-right text-blue-900 font-sans text-sm bg-slate-50/50">
+                              <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-semibold' : ((rowQD776Rate ?? 0) > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                                {tableRateMode === 'ontime'
+                                  ? formatRatePercent(row.received_total > 0 ? (((row.completed_early + row.completed_on_time) + row.pending_on_time) / row.received_total) * 100 : null)
+                                  : formatRatePercent(rowQD776Rate)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* 3. KHI XEM DANH SÁCH CHI TIẾT (KHÔNG NHÓM) */}
+                {tableGroupingMode === 'none' && processedTableRows.map((row, index) => {
+                  const rowCompLateRate = row.completed_total > 0
+                    ? (row.completed_late / row.completed_total) * 100
+                    : null;
+                  const rowPendLateRate = row.pending_total > 0
+                    ? (row.pending_late / row.pending_total) * 100
+                    : null;
+                  const rowQD776Rate = row.received_total > 0
+                    ? ((row.completed_late + row.pending_late) / row.received_total) * 100
+                    : null;
+
+                  return (
+                    <tr key={row.id} className="hover:brightness-95 transition-colors border-b border-slate-200">
+                      <td className="py-1 px-2 text-center text-blue-900 font-sans border-r border-slate-200 text-xs">
+                        {index + 1}
+                      </td>
+                      <td className="py-1 px-2.5 text-blue-900 font-sans border-r border-slate-200">
+                        <div className="font-semibold text-blue-950 text-xs">
+                          {row.displayName}
+                        </div>
+                      </td>
+                      <td className="py-1 px-2 text-slate-600 font-sans border-r border-slate-200 text-xs">
+                        {row.unitName ? (
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 text-[10px] font-sans border border-blue-200/70 font-medium">
+                            {row.unitName}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-sans">—</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                        {renderStatCell(row.received_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                        {renderStatCell(row.received_online, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F1F8F4]/80">
+                        {renderStatCell(row.received_offline, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#EAF5EE]/80">
+                        {renderStatCell(row.carried_forward, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FEF6DC]/80">
+                        {renderStatCell(row.completed_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {renderStatCell(row.completed_early, 'text-emerald-800')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {renderStatCell(row.completed_on_time, 'text-emerald-800')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80">
+                        {row.completed_late > 0 ? (
+                          <span className="text-red-700 font-bold text-sm">{formatNumber(row.completed_late)}</span>
+                        ) : (
+                          <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#FFFBF0]/80 font-sans text-sm">
+                        <span className={tableRateMode === 'ontime' ? 'text-emerald-800 font-semibold' : (row.completed_late > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(row.completed_total > 0 ? ((row.completed_early + row.completed_on_time) / row.completed_total) * 100 : null)
+                            : formatRatePercent(rowCompLateRate)}
+                        </span>
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#E7F1FF]/80">
+                        {renderStatCell(row.pending_total, 'text-blue-900', true)}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                        {renderStatCell(row.pending_on_time, 'text-blue-900')}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80">
+                        {row.pending_late > 0 ? (
+                          <span className="text-red-700 font-bold text-sm">{formatNumber(row.pending_late)}</span>
+                        ) : (
+                          <span className="text-slate-400 font-sans font-normal text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 text-right border-r border-slate-200 bg-[#F2F7FF]/80 font-sans text-sm">
+                        <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-semibold' : (row.pending_late > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(row.pending_total > 0 ? (row.pending_on_time / row.pending_total) * 100 : null)
+                            : formatRatePercent(rowPendLateRate)}
+                        </span>
+                      </td>
+                      <td className="py-1 px-2 text-right text-blue-900 font-sans text-sm bg-slate-50/50">
+                        <span className={tableRateMode === 'ontime' ? 'text-blue-900 font-semibold' : ((rowQD776Rate ?? 0) > 0 ? 'text-red-700 font-semibold' : 'text-blue-900 font-normal')}>
+                          {tableRateMode === 'ontime'
+                            ? formatRatePercent(row.received_total > 0 ? (((row.completed_early + row.completed_on_time) + row.pending_on_time) / row.received_total) * 100 : null)
+                            : formatRatePercent(rowQD776Rate)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2862,19 +4950,19 @@ export const DashboardPage: React.FC = () => {
       {/* 6. MODAL CHỈNH SỬA TIÊU ĐỀ & CHÚ THÍCH BIỂU ĐỒ (DÀNH CHO QUẢN TRỊ VIÊN) */}
       {editingChartMeta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-blue-100 text-blue-700 rounded-xl shadow-2xs">
                   <Pencil className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    Chỉnh sửa Tiêu đề & Chú thích Biểu đồ
+                    Chỉnh sửa Biểu đồ & Chú giải
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Quản trị viên tùy biến nội dung hiển thị của biểu đồ trên báo cáo
+                    Quản trị viên tùy biến tiêu đề, nội dung chú giải, màu sắc các đường, cột
                   </p>
                 </div>
               </div>
@@ -2888,7 +4976,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Tiêu đề biểu đồ <span className="text-rose-500">*</span>
@@ -2907,13 +4995,913 @@ export const DashboardPage: React.FC = () => {
                   Phần chú thích / Giải thích biểu đồ
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={editingChartMeta.subtitle}
                   onChange={(e) => setEditingChartMeta({ ...editingChartMeta, subtitle: e.target.value })}
                   placeholder="Nhập mô tả, phần chú thích hoặc căn cứ pháp lý cho biểu đồ..."
-                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-normal text-slate-800 resize-none"
+                  className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-normal text-slate-800 resize-none"
                 />
               </div>
+
+              {/* TÙY CHỈNH CHÚ GIẢI, MÀU SẮC CHO BIỂU ĐỒ CƠ CẤU CHẤT LƯỢNG (QUALITY: TT 01 VS QĐ 766) */}
+              {editingChartMeta.id === 'quality' && (
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                      Tùy chỉnh Nhãn, Chú giải & Màu sắc (TT 01 & QĐ 766)
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={handleResetCurrentChartMeta}
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Mặc định
+                    </button>
+                  </div>
+
+                  {/* 1. Tiêu đề khối TT 01 và QĐ 766 */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                      1. Tiêu đề khối đối chiếu bên trái (TT 01) và bên phải (QĐ 766)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-lg border border-slate-200/80">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tiêu đề khối TT 01 (Bên trái)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01Header ?? 'Thông tư 01/2018 (Đã giải quyết)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01Header: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tiêu đề khối QĐ 766 (Bên phải)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766Header ?? 'Quyết định 766 (Toàn diện hệ thống)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766Header: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Cấu hình chú giải & màu sắc Thông tư 01 */}
+                  <div className="p-3.5 bg-emerald-50/40 border border-emerald-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                      2. Cấu hình Màu sắc & Nhãn: Thông tư 01/2018 (Bên trái)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Trước hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01EarlyName ?? 'Trước hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01EarlyName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01EarlyColor ?? '#10b981'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01EarlyColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.tt01EarlyColor ?? '#10b981'}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đúng hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01OnTimeName ?? 'Đúng hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01OnTimeName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01OnTimeColor ?? '#0ea5e9'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01OnTimeColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.tt01OnTimeColor ?? '#0ea5e9'}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quá hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01LateName ?? 'Quá hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01LateName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01LateColor ?? '#f43f5e'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01LateColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.tt01LateColor ?? '#f43f5e'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Cấu hình chú giải & màu sắc Quyết định 766 */}
+                  <div className="p-3.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      3. Cấu hình Màu sắc & Nhãn: Quyết định 766/QĐ-TTg (Bên phải)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ đúng hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766OnTimeName ?? 'Đã GQ đúng hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766OnTimeName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766OnTimeColor ?? '#10b981'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766OnTimeColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766OnTimeColor ?? '#10b981'}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đang trong hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766PendingInTermName ?? 'Đang trong hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766PendingInTermName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#3b82f6'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766PendingInTermColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#3b82f6'}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tổng quá hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766OverdueName ?? 'Tổng quá hạn (Đã + Đang trễ)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766OverdueName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766OverdueColor ?? '#ef4444'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766OverdueColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766OverdueColor ?? '#ef4444'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Ghi chú chân biểu đồ */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      4. Ghi chú / Căn cứ bổ sung chân biểu đồ (Tùy chọn)
+                    </div>
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80">
+                      <textarea
+                        rows={2}
+                        value={editingChartMeta.customOptions?.chartNote ?? ''}
+                        onChange={(e) => setEditingChartMeta({
+                          ...editingChartMeta,
+                          customOptions: { ...editingChartMeta.customOptions, chartNote: e.target.value }
+                        })}
+                        placeholder="Nhập ghi chú hoặc căn cứ hiển thị ở chân biểu đồ..."
+                        className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800 resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TÙY CHỈNH CHÚ GIẢI, MÀU SẮC CHO BIỂU ĐỒ HIỆU NĂNG ĐƠN VỊ (RANKING) */}
+              {editingChartMeta.id === 'ranking' && (
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                      Tùy chỉnh Nội dung Các Tab, Chú giải & Màu sắc
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={handleResetCurrentChartMeta}
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Mặc định
+                    </button>
+                  </div>
+
+                  {/* 1. Tùy chỉnh Tên hiển thị của 3 Tab */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      1. Tên hiển thị các Tab trên biểu đồ
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên Tab 1 (Đối chiếu)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tab1Label ?? 'Đối chiếu 2 cách tính'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tab1Label: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên Tab 2 (QĐ 766)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tab2Label ?? 'QĐ 766 (Toàn diện)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tab2Label: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên Tab 3 (TT 01)
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tab3Label ?? 'TT 01 (Đã giải quyết)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tab3Label: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Ghi chú / Chú thích bổ sung chân biểu đồ */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      2. Ghi chú / Chú thích bổ sung chân biểu đồ (Tùy chọn)
+                    </div>
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80">
+                      <textarea
+                        rows={2}
+                        value={editingChartMeta.customOptions?.chartNote ?? ''}
+                        onChange={(e) => setEditingChartMeta({
+                          ...editingChartMeta,
+                          customOptions: { ...editingChartMeta.customOptions, chartNote: e.target.value }
+                        })}
+                        placeholder="Nhập ghi chú hoặc căn cứ hiển thị ở chân biểu đồ (để trống nếu không muốn hiển thị)..."
+                        className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800 resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. Cấu hình Chú giải & Màu sắc Tab 1: Đối chiếu 2 cách tính */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      3. Cấu hình Chú giải & Màu sắc: Tab Đối chiếu 2 cách tính
+                    </div>
+
+                    {/* Cột 1 */}
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={editingChartMeta.customOptions?.showCompBar !== false}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, showCompBar: e.target.checked }
+                            })}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Hiển thị Cột 1 (Đã giải quyết trước + đúng hạn)</span>
+                        </label>
+                      </div>
+                      {editingChartMeta.customOptions?.showCompBar !== false && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center pt-1">
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                              Tên chú giải Cột 1 (Trước + Đúng hạn)
+                            </label>
+                            <input
+                              type="text"
+                              value={editingChartMeta.customOptions?.compBarName ?? 'Đã giải quyết trước + đúng hạn (hồ sơ)'}
+                              onChange={(e) => setEditingChartMeta({
+                                ...editingChartMeta,
+                                customOptions: { ...editingChartMeta.customOptions, compBarName: e.target.value }
+                              })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột 1</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={editingChartMeta.customOptions?.compBarColor ?? '#10b981'}
+                                onChange={(e) => setEditingChartMeta({
+                                  ...editingChartMeta,
+                                  customOptions: { ...editingChartMeta.customOptions, compBarColor: e.target.value }
+                                })}
+                                className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                              />
+                              <span className="text-xs font-mono font-medium text-slate-700">
+                                {editingChartMeta.customOptions?.compBarColor ?? '#10b981'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Cột 2 */}
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={editingChartMeta.customOptions?.showQd766Bar !== false}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, showQd766Bar: e.target.checked }
+                            })}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Hiển thị Cột 2 (Đúng hạn theo QĐ 766)</span>
+                        </label>
+                      </div>
+
+                      {editingChartMeta.customOptions?.showQd766Bar !== false && (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center pt-1">
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                Tên chú giải Cột 2
+                              </label>
+                              <input
+                                type="text"
+                                value={editingChartMeta.customOptions?.qd766BarName ?? 'Đã giải quyết đúng hạn theo cách tính của 766'}
+                                onChange={(e) => setEditingChartMeta({
+                                  ...editingChartMeta,
+                                  customOptions: { ...editingChartMeta.customOptions, qd766BarName: e.target.value }
+                                })}
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột 2</label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={editingChartMeta.customOptions?.qd766BarColor ?? '#3b82f6'}
+                                  onChange={(e) => setEditingChartMeta({
+                                    ...editingChartMeta,
+                                    customOptions: { ...editingChartMeta.customOptions, qd766BarColor: e.target.value }
+                                  })}
+                                  className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                                />
+                                <span className="text-xs font-mono font-medium text-slate-700">
+                                  {editingChartMeta.customOptions?.qd766BarColor ?? '#3b82f6'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Công thức tính */}
+                          <div className="pt-2 border-t border-slate-100">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                              Cách tính số lượng cột 766:
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              <label className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                                (editingChartMeta.customOptions?.qd766CalcMode ?? 'standard') === 'standard'
+                                  ? 'bg-blue-50/70 border-blue-300 text-blue-900 font-medium'
+                                  : 'bg-white border-slate-200 text-slate-600'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="qd766CalcMode"
+                                  checked={(editingChartMeta.customOptions?.qd766CalcMode ?? 'standard') === 'standard'}
+                                  onChange={() => setEditingChartMeta({
+                                    ...editingChartMeta,
+                                    customOptions: { ...editingChartMeta.customOptions, qd766CalcMode: 'standard' }
+                                  })}
+                                  className="mt-0.5"
+                                />
+                                <div>
+                                  <span className="font-semibold">Chuẩn QĐ 766</span>
+                                  <span className="block text-[10px] text-slate-500">Trước hạn, đúng hạn + Tồn trong hạn</span>
+                                </div>
+                              </label>
+
+                              <label className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                                editingChartMeta.customOptions?.qd766CalcMode === 'resolved_only'
+                                  ? 'bg-blue-50/70 border-blue-300 text-blue-900 font-medium'
+                                  : 'bg-white border-slate-200 text-slate-600'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="qd766CalcMode"
+                                  checked={editingChartMeta.customOptions?.qd766CalcMode === 'resolved_only'}
+                                  onChange={() => setEditingChartMeta({
+                                    ...editingChartMeta,
+                                    customOptions: { ...editingChartMeta.customOptions, qd766CalcMode: 'resolved_only' }
+                                  })}
+                                  className="mt-0.5"
+                                />
+                                <div>
+                                  <span className="font-semibold">Chỉ hồ sơ đã giải quyết</span>
+                                  <span className="block text-[10px] text-slate-500">Trước hạn + Đúng hạn (Không cộng tồn)</span>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Đường 1 (TT 01) */}
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={editingChartMeta.customOptions?.showOnTimeLine !== false}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, showOnTimeLine: e.target.checked }
+                            })}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Hiển thị Đường 1 (Tỷ lệ đúng hạn TT 01)</span>
+                        </label>
+                      </div>
+                      {editingChartMeta.customOptions?.showOnTimeLine !== false && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center pt-1">
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                              Tên chú giải Đường 1
+                            </label>
+                            <input
+                              type="text"
+                              value={editingChartMeta.customOptions?.onTimeLineName ?? 'Tỷ lệ đúng hạn TT 01 (%)'}
+                              onChange={(e) => setEditingChartMeta({
+                                ...editingChartMeta,
+                                customOptions: { ...editingChartMeta.customOptions, onTimeLineName: e.target.value }
+                              })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu đường 1</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={editingChartMeta.customOptions?.onTimeLineColor ?? '#e11d48'}
+                                onChange={(e) => setEditingChartMeta({
+                                  ...editingChartMeta,
+                                  customOptions: { ...editingChartMeta.customOptions, onTimeLineColor: e.target.value }
+                                })}
+                                className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                              />
+                              <span className="text-xs font-mono font-medium text-slate-700">
+                                {editingChartMeta.customOptions?.onTimeLineColor ?? '#e11d48'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Đường 2 (QĐ 766) */}
+                    <div className="bg-white p-3 rounded-lg border border-slate-200/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={editingChartMeta.customOptions?.showQd766Line !== false}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, showQd766Line: e.target.checked }
+                            })}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Hiển thị Đường 2 (Tỷ lệ theo QĐ 766)</span>
+                        </label>
+                      </div>
+                      {editingChartMeta.customOptions?.showQd766Line !== false && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center pt-1">
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                              Tên chú giải Đường 2 (QĐ 766)
+                            </label>
+                            <input
+                              type="text"
+                              value={editingChartMeta.customOptions?.qd766LineName ?? 'Tỷ lệ theo QĐ 766 (%)'}
+                              onChange={(e) => setEditingChartMeta({
+                                ...editingChartMeta,
+                                customOptions: { ...editingChartMeta.customOptions, qd766LineName: e.target.value }
+                              })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu đường 2</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={editingChartMeta.customOptions?.qd766LineColor ?? '#2563eb'}
+                                onChange={(e) => setEditingChartMeta({
+                                  ...editingChartMeta,
+                                  customOptions: { ...editingChartMeta.customOptions, qd766LineColor: e.target.value }
+                                })}
+                                className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                              />
+                              <span className="text-xs font-mono font-medium text-slate-700">
+                                {editingChartMeta.customOptions?.qd766LineColor ?? '#2563eb'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 4. Cấu hình Chú giải & Màu sắc Tab 2: QĐ 766 (Toàn diện) */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      4. Cấu hình Chú giải & Màu sắc: Tab QĐ 766 (Toàn diện)
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Cột Đạt chuẩn hạn
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766TabOnTimeBarName ?? 'Đạt chuẩn hạn theo QĐ 766'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766TabOnTimeBarName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột Đạt hạn</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766TabOnTimeBarColor ?? '#2563eb'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766TabOnTimeBarColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.qd766TabOnTimeBarColor ?? '#2563eb'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Cột Quá hạn
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766TabOverdueBarName ?? 'Tổng quá hạn (Đã trễ + Đang trễ)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766TabOverdueBarName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột Quá hạn</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766TabOverdueBarColor ?? '#ef4444'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766TabOverdueBarColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.qd766TabOverdueBarColor ?? '#ef4444'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Đường Tỷ lệ đúng hạn QĐ 766
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766TabLineName ?? 'Tỷ lệ đúng hạn QĐ 766 (%)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766TabLineName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu đường Tỷ lệ</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766TabLineColor ?? '#2563eb'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766TabLineColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.qd766TabLineColor ?? '#2563eb'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 5. Cấu hình Chú giải & Màu sắc Tab 3: TT 01 (Đã giải quyết) */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                      5. Cấu hình Chú giải & Màu sắc: Tab TT 01 (Đã giải quyết)
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Cột Đúng & Trước hạn
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01TabOnTimeBarName ?? 'Đã giải quyết Đúng & Trước hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01TabOnTimeBarName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột Đúng hạn</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01TabOnTimeBarColor ?? '#10b981'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01TabOnTimeBarColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.tt01TabOnTimeBarColor ?? '#10b981'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Cột Quá hạn
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01TabLateBarName ?? 'Đã giải quyết Quá hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01TabLateBarName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu cột Quá hạn</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01TabLateBarColor ?? '#f43f5e'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01TabLateBarColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.tt01TabLateBarColor ?? '#f43f5e'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-slate-200/80 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Tên chú giải Đường Tỷ lệ đúng hạn TT 01
+                        </label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.tt01TabLineName ?? 'Tỷ lệ đúng hạn TT 01 (%)'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, tt01TabLineName: e.target.value }
+                          })}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu đường Tỷ lệ</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.tt01TabLineColor ?? '#059669'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, tt01TabLineColor: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-xs font-mono font-medium text-slate-700">
+                            {editingChartMeta.customOptions?.tt01TabLineColor ?? '#059669'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 6. Đường chuẩn mục tiêu */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                        6. Đường chuẩn mục tiêu (Reference Line)
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={editingChartMeta.customOptions?.showRefLine === true}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, showRefLine: e.target.checked }
+                          })}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>Hiển thị đường chuẩn</span>
+                      </label>
+                    </div>
+
+                    {editingChartMeta.customOptions?.showRefLine && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center bg-white p-2.5 rounded-lg border border-slate-200/80 animate-fade-in">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            Nhãn hiển thị (Để trống nếu không muốn hiện chữ)
+                          </label>
+                          <input
+                            type="text"
+                            value={editingChartMeta.customOptions?.refLineLabel ?? ''}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, refLineLabel: e.target.value }
+                            })}
+                            placeholder="Nhập nhãn hoặc để trống..."
+                            className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Mức chuẩn (%)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={editingChartMeta.customOptions?.refLineValue ?? 95}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, refLineValue: Number(e.target.value) }
+                            })}
+                            className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Màu đường</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={editingChartMeta.customOptions?.refLineColor ?? '#f43f5e'}
+                              onChange={(e) => setEditingChartMeta({
+                                ...editingChartMeta,
+                                customOptions: { ...editingChartMeta.customOptions, refLineColor: e.target.value }
+                              })}
+                              className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5"
+                            />
+                            <span className="text-xs font-mono font-medium text-slate-700">
+                              {editingChartMeta.customOptions?.refLineColor ?? '#f43f5e'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3 text-xs text-blue-800 flex items-start gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
@@ -2924,12 +5912,643 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/70">
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-slate-100 bg-slate-50/70">
               <button
                 type="button"
-                onClick={handleResetCurrentChartMeta}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Khôi phục tiêu đề và chú thích gốc của biểu đồ này"
+                onClick={() => setEditingChartMeta(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveChartMeta}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GIẢI THÍCH CHUYÊN SÂU BẢN CHẤT 2 CÁCH TÍNH (TT 01/2018 VS QĐ 766/QĐ-TTg) */}
+      {showMethodologyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 via-slate-50 to-emerald-50/80 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Bản chất & Phương pháp tính toán: TT 01/2018 vs QĐ 766/QĐ-TTg
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    So sánh đối chiếu khoa học giữa cách tính truyền thống và bộ chỉ số Cổng Dịch vụ công Quốc gia
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMethodologyModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6 overflow-y-auto flex-1 text-xs">
+              {/* Bảng so sánh trực diện */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                  1. Bảng đối chiếu 6 chiều phân tích bản chất
+                </h4>
+                <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-2xs">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="p-3 font-bold text-slate-700 w-1/4">Tiêu chí phân tích</th>
+                        <th className="p-3 font-bold text-emerald-800 bg-emerald-50/70 w-[37.5%] border-l border-r border-slate-200">
+                          Thông tư 01/2018/TT-VPCP (Truyền thống)
+                        </th>
+                        <th className="p-3 font-bold text-blue-900 bg-blue-50/70 w-[37.5%]">
+                          Quyết định 766/QĐ-TTg (Thủ tướng Chính phủ)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">1. Triết lý đánh giá</td>
+                        <td className="p-3 text-slate-700 bg-emerald-50/20 border-l border-r border-slate-200">
+                          Đo lường <b>kết quả đầu ra</b> của những việc đã hoàn thành xong trong kỳ báo cáo.
+                        </td>
+                        <td className="p-3 text-slate-700 bg-blue-50/20">
+                          Đánh giá <b>toàn diện trách nhiệm công vụ</b> trên toàn bộ khối lượng tiếp nhận cần giải quyết.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">2. Mẫu số (Tập khảo sát)</td>
+                        <td className="p-3 text-slate-800 font-medium bg-emerald-50/20 border-l border-r border-slate-200">
+                          <b>Tổng số hồ sơ ĐÃ GIẢI QUYẾT</b><br />
+                          <code className="text-[11px] text-emerald-800 font-mono">compTotal = Trước hạn + Đúng hạn + Trễ hạn</code>
+                        </td>
+                        <td className="p-3 text-slate-800 font-medium bg-blue-50/20">
+                          <b>TỔNG SỐ HỒ SƠ TIẾP NHẬN</b><br />
+                          <code className="text-[11px] text-blue-800 font-mono">recTotal = Tiếp nhận mới + Kỳ trước chuyển qua</code>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">3. Tiêu chí Đúng hạn (Tử số)</td>
+                        <td className="p-3 text-slate-700 bg-emerald-50/20 border-l border-r border-slate-200">
+                          Hồ sơ giải quyết Trước hạn + Đúng hạn<br />
+                          <code className="text-[11px] text-emerald-800 font-mono">compEarly + compOnTime</code>
+                        </td>
+                        <td className="p-3 text-slate-700 bg-blue-50/20">
+                          Hồ sơ giải quyết đúng hạn + <b>Hồ sơ đang xử lý còn trong hạn</b><br />
+                          <code className="text-[11px] text-blue-800 font-mono">(compEarly + compOnTime) + pendOnTime</code>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">4. Hồ sơ chậm trễ (Điểm trừ)</td>
+                        <td className="p-3 text-slate-700 bg-emerald-50/20 border-l border-r border-slate-200">
+                          Chỉ tính hồ sơ đã trả kết quả trễ hạn (<code className="text-red-700 font-mono">compLate</code>).
+                        </td>
+                        <td className="p-3 text-slate-700 bg-blue-50/20">
+                          Tính cả hồ sơ đã trả trễ hạn <b>VÀ hồ sơ đang thụ lý bị quá hạn</b> (<code className="text-red-700 font-mono">compLate + pendLate</code>).
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">5. Kẽ hở / Rủi ro số liệu</td>
+                        <td className="p-3 text-slate-700 bg-emerald-50/20 border-l border-r border-slate-200">
+                          <span className="text-amber-800 font-medium">Dễ bị "làm đẹp số liệu"</span>: Nếu đơn vị có hồ sơ quá hạn nhưng "om" lại không trả kết quả thì tỷ lệ vẫn đạt 100%!
+                        </td>
+                        <td className="p-3 text-slate-700 bg-blue-50/20">
+                          <span className="text-emerald-800 font-medium">Chống om hồ sơ triệt để</span>: Ngay khi hồ sơ đang thụ lý bị quá hạn, hệ thống trừ điểm ngay lập tức.
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold text-slate-700 bg-slate-50/30">6. Công thức tỷ lệ (%)</td>
+                        <td className="p-3 bg-emerald-50/20 border-l border-r border-slate-200">
+                          <div className="p-2 bg-white rounded border border-emerald-200 font-mono text-[11px] text-emerald-900 font-bold">
+                            Tỷ lệ Đúng hạn = (Trước hạn + Đúng hạn) / Tổng đã giải quyết * 100%
+                          </div>
+                        </td>
+                        <td className="p-3 bg-blue-50/20">
+                          <div className="p-2 bg-white rounded border border-blue-200 font-mono text-[11px] text-blue-900 font-bold">
+                            Tỷ lệ QĐ 766 = [ (Trước hạn + Đúng hạn) + Đang xử lý trong hạn ] / Tổng tiếp nhận * 100%
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Tình huống thực tế minh họa */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  2. Ví dụ so sánh thực tiễn (Casestudy)
+                </h4>
+                <div className="text-xs text-slate-700 leading-relaxed space-y-1.5">
+                  <p>
+                    Giả sử một Đơn vị tiếp nhận <b>100 hồ sơ</b>. Trong kỳ:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-0.5 text-slate-600">
+                    <li>Đã giải quyết <b>20 hồ sơ</b>: 19 hồ sơ đúng hạn, 1 hồ sơ trễ hạn.</li>
+                    <li>Đang giải quyết <b>80 hồ sơ</b>: 70 hồ sơ còn trong hạn, <b>10 hồ sơ đã bị quá hạn</b>.</li>
+                  </ul>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="p-3 bg-white border border-emerald-200 rounded-lg shadow-2xs">
+                      <div className="font-bold text-emerald-900 mb-1">Cách tính TT 01/2018:</div>
+                      <div className="text-sm font-mono text-emerald-700 font-black">
+                        19 / 20 = 95.0%
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        Chỉ tính trên 20 hồ sơ đã trả kết quả. Bỏ qua hoàn toàn 10 hồ sơ đang ngâm quá hạn!
+                      </div>
+                    </div>
+                    <div className="p-3 bg-white border border-blue-200 rounded-lg shadow-2xs">
+                      <div className="font-bold text-blue-900 mb-1">Cách tính Quyết định 766:</div>
+                      <div className="text-sm font-mono text-blue-700 font-black">
+                        (19 + 70) / 100 = 89.0%
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        Tính trên toàn bộ 100 hồ sơ; trừ thẳng 11 hồ sơ trễ hạn (1 đã trễ + 10 đang trễ).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end px-6 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowMethodologyModal(false)}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer shadow-xs"
+              >
+                Đã hiểu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit KPI Card Modal */}
+      {editingKpiId && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-extrabold text-slate-900">Tùy chỉnh Thẻ KPI Trọng điểm</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingKpiId(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tiêu đề thẻ KPI <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editKpiTitle}
+                  onChange={(e) => setEditKpiTitle(e.target.value)}
+                  placeholder="Nhập tiêu đề thẻ..."
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-medium text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Chú thích / Công thức gợi nhớ
+                </label>
+                <input
+                  type="text"
+                  value={editKpiSubtitle}
+                  onChange={(e) => setEditKpiSubtitle(e.target.value)}
+                  placeholder="Nhập chú thích hoặc công thức..."
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-normal text-slate-800"
+                />
+              </div>
+
+              {editSubCards.length > 0 && (
+                <div className="space-y-3 pt-3 border-t border-slate-100 max-h-60 overflow-y-auto pr-1">
+                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Tùy chỉnh các thẻ con bên trong:
+                  </div>
+                  {editSubCards.map((sc, index) => (
+                    <div key={sc.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <div className="text-[11px] font-bold text-blue-600">Thẻ con #{index + 1} ({sc.id})</div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Tiêu đề thẻ con</label>
+                        <input
+                          type="text"
+                          value={sc.title}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditSubCards(prev => prev.map(s => s.id === sc.id ? { ...s, title: val } : s));
+                          }}
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-medium text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Chú thích thẻ con</label>
+                        <input
+                          type="text"
+                          value={sc.subtitle}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditSubCards(prev => prev.map(s => s.id === sc.id ? { ...s, subtitle: val } : s));
+                          }}
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-normal text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-slate-100 bg-slate-50/70">
+              <button
+                type="button"
+                onClick={() => setEditingKpiId(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => saveKpiEdit(editingKpiId)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Table Headers Modal (Admin only) */}
+      {isEditingTableHeadersModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl shadow-2xs">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Tùy biến Tiêu đề các Cột Header Bảng Chi tiết
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Quản trị viên tùy chỉnh tên hiển thị của các khối và từng cột trong Bảng chi tiết số liệu
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingTableHeadersModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              {/* Nhóm 1: Cột định danh & đánh giá chung */}
+              <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <FolderKanban className="w-3.5 h-3.5 text-blue-600" />
+                  1. Cột định danh và Đánh giá tổng hợp
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột STT</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.stt ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, stt: e.target.value })}
+                      placeholder="STT"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Lĩnh vực</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.field ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, field: e.target.value })}
+                      placeholder="Lĩnh vực"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Đơn vị thực hiện</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.unit ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, unit: e.target.value })}
+                      placeholder="Đơn vị thực hiện"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Nhãn QĐ 776 / QĐ 766</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.qd776_label ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, qd776_label: e.target.value })}
+                      placeholder="(QĐ 776)"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Tiêu đề Tỷ lệ Đúng hạn QĐ 776</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.qd776_rate_ontime ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, qd776_rate_ontime: e.target.value })}
+                      placeholder="% Đúng hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Tiêu đề Tỷ lệ Quá hạn QĐ 776</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.qd776_rate_overdue ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, qd776_rate_overdue: e.target.value })}
+                      placeholder="% Quá hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Nhóm 2: Khối TIẾP NHẬN */}
+              <div className="bg-[#F1F9F4]/70 p-4 rounded-xl border border-[#BADBCC] space-y-3">
+                <h4 className="text-xs font-bold text-[#0F5132] uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+                  2. Khối Số hồ sơ tiếp nhận
+                </h4>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#0F5132] mb-1">Tiêu đề Khối tiếp nhận</label>
+                  <input
+                    type="text"
+                    value={draftTableHeaders.received_group ?? ''}
+                    onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_group: e.target.value })}
+                    placeholder="SỐ HỒ SƠ TIẾP NHẬN"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-[#BADBCC] rounded-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tổng số</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.received_total ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_total: e.target.value })}
+                      placeholder="Tổng số"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Trong kỳ</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.received_in_period ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_in_period: e.target.value })}
+                      placeholder="Trong kỳ"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Trực tuyến</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.received_online ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_online: e.target.value })}
+                      placeholder="Trực tuyến"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Trực tiếp / BC</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.received_offline ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_offline: e.target.value })}
+                      placeholder="Trực tiếp / BC"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Từ kỳ trước</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.received_carried ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, received_carried: e.target.value })}
+                      placeholder="Từ kỳ trước"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Nhóm 3: Khối ĐÃ GIẢI QUYẾT */}
+              <div className="bg-[#FFF9E6]/70 p-4 rounded-xl border border-[#FFECB5] space-y-3">
+                <h4 className="text-xs font-bold text-[#664D03] uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                  3. Khối Số lượng hồ sơ đã giải quyết
+                </h4>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#664D03] mb-1">Tiêu đề Khối đã giải quyết</label>
+                  <input
+                    type="text"
+                    value={draftTableHeaders.resolved_group ?? ''}
+                    onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_group: e.target.value })}
+                    placeholder="SỐ LƯỢNG HỒ SƠ ĐÃ GIẢI QUYẾT"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-[#FFECB5] rounded-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tổng số</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_total ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_total: e.target.value })}
+                      placeholder="Tổng số"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Trước hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_early ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_early: e.target.value })}
+                      placeholder="Trước hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Đúng hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_ontime ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_ontime: e.target.value })}
+                      placeholder="Đúng hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Quá hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_late ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_late: e.target.value })}
+                      placeholder="Quá hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tỷ lệ khi xem % Đúng hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_rate_ontime ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_rate_ontime: e.target.value })}
+                      placeholder="% Đúng hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tỷ lệ khi xem % Quá hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.resolved_rate_overdue ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, resolved_rate_overdue: e.target.value })}
+                      placeholder="% Quá hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Nhóm 4: Khối ĐANG GIẢI QUYẾT */}
+              <div className="bg-[#E7F1FF]/70 p-4 rounded-xl border border-[#B6D4FE] space-y-3">
+                <h4 className="text-xs font-bold text-[#084298] uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                  4. Khối Số lượng hồ sơ đang giải quyết
+                </h4>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#084298] mb-1">Tiêu đề Khối đang giải quyết</label>
+                  <input
+                    type="text"
+                    value={draftTableHeaders.pending_group ?? ''}
+                    onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_group: e.target.value })}
+                    placeholder="SỐ LƯỢNG HỒ SƠ ĐANG GIẢI QUYẾT"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-[#B6D4FE] rounded-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tổng số</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.pending_total ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_total: e.target.value })}
+                      placeholder="Tổng số"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Trong hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.pending_ontime ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_ontime: e.target.value })}
+                      placeholder="Trong hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Quá hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.pending_late ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_late: e.target.value })}
+                      placeholder="Quá hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tỷ lệ khi xem % Trong hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.pending_rate_ontime ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_rate_ontime: e.target.value })}
+                      placeholder="% Trong hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Cột Tỷ lệ khi xem % Quá hạn</label>
+                    <input
+                      type="text"
+                      value={draftTableHeaders.pending_rate_overdue ?? ''}
+                      onChange={(e) => setDraftTableHeaders({ ...draftTableHeaders, pending_rate_overdue: e.target.value })}
+                      placeholder="% Quá hạn"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3 text-xs text-blue-800 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">
+                  Tiêu đề các cột sau khi lưu sẽ được cập nhật ngay lập tức và đồng bộ cho tất cả người dùng trong hệ thống.
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0">
+              <button
+                type="button"
+                onClick={() => setDraftTableHeaders({ ...DEFAULT_TABLE_HEADERS })}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                title="Đặt lại toàn bộ tiêu đề về tên mặc định chuẩn hành chính"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Khôi phục mặc định
@@ -2938,14 +6557,14 @@ export const DashboardPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setEditingChartMeta(null)}
+                  onClick={() => setIsEditingTableHeadersModal(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveChartMeta}
+                  onClick={() => handleSaveTableHeaders(draftTableHeaders)}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
                 >
                   <Check className="w-4 h-4" />

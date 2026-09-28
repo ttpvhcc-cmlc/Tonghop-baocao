@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { store, Profile } from '../services/store';
+import { store, Profile, sortReportsByPeriodEndDesc } from '../services/store';
 import { formatNumber, formatDate, getStatusBadge } from '../utils/format';
 import { exportReportToExcel, exportReportToCSV } from '../services/exportService';
 import { Report } from '../types/database';
@@ -18,12 +18,14 @@ import {
   Edit3,
   AlertTriangle,
   X,
-  Loader2
+  Loader2,
+  UploadCloud
 } from 'lucide-react';
 
 export const ReportsListPage: React.FC = () => {
   const [reports, setReports] = useState<Report[]>(store.getReports());
   const [currentUser, setCurrentUser] = useState<Profile>(store.getCurrentUser());
+  const periodTypes = useMemo(() => store.getPeriodTypes().filter(pt => pt.active !== false), []);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -80,7 +82,7 @@ export const ReportsListPage: React.FC = () => {
     try {
       await store.updateReport(editingReport.id, {
         ...editFormData,
-        data_as_of: new Date(editFormData.data_as_of).toISOString(),
+        data_as_of: editFormData.data_as_of,
       });
       setEditingReport(null);
       setReports(store.getReports());
@@ -139,25 +141,20 @@ export const ReportsListPage: React.FC = () => {
   };
 
   const filteredReports = useMemo(() => {
-    return reports
-      .filter((r) => {
-        if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
-        if (typeFilter !== 'ALL' && r.report_type !== typeFilter) return false;
-        if (search) {
-          const q = search.toLowerCase();
-          return (
-            r.report_code.toLowerCase().includes(q) ||
-            r.report_name.toLowerCase().includes(q) ||
-            (r.created_by && r.created_by.toLowerCase().includes(q))
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const dateA = new Date(a.data_as_of || a.period_end || a.created_at).getTime() || 0;
-        const dateB = new Date(b.data_as_of || b.period_end || b.created_at).getTime() || 0;
-        return dateB - dateA;
-      });
+    const list = reports.filter((r) => {
+      if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+      if (typeFilter !== 'ALL' && r.report_type !== typeFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        return (
+          r.report_code.toLowerCase().includes(q) ||
+          r.report_name.toLowerCase().includes(q) ||
+          (r.created_by && r.created_by.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+    return sortReportsByPeriodEndDesc(list);
   }, [reports, search, statusFilter, typeFilter]);
 
   const handleExport = (reportId: string, type: 'excel' | 'csv') => {
@@ -211,15 +208,13 @@ export const ReportsListPage: React.FC = () => {
           </div>
         </div>
 
-        {store.hasPermission('create_reports', currentUser) && (
-          <Link
-            to="/reports/new"
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Tạo kỳ báo cáo mới</span>
-          </Link>
-        )}
+        <Link
+          to="/reports/new"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Tạo kỳ báo cáo mới</span>
+        </Link>
       </div>
 
       {/* Filter Bar */}
@@ -256,10 +251,11 @@ export const ReportsListPage: React.FC = () => {
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-medium text-slate-700"
           >
             <option value="ALL">Tất cả loại kỳ</option>
-            <option value="monthly">Báo cáo tháng</option>
-            <option value="quarterly">Báo cáo quý</option>
-            <option value="yearly">Báo cáo năm</option>
-            <option value="ad_hoc">Chuyên đề / Đột xuất</option>
+            {periodTypes.map((pt) => (
+              <option key={pt.id || pt.code} value={pt.code}>
+                {pt.name}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -348,10 +344,20 @@ export const ReportsListPage: React.FC = () => {
                           <Link
                             to={`/reports/${rep.id}`}
                             className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-md transition-colors"
-                            title="Xem chi tiết số liệu & phân tích"
+                            title="Xem chi tiết số liệu và phân tích"
                           >
                             <Eye className="w-4 h-4" />
                           </Link>
+
+                          {!isLocked && (
+                            <Link
+                              to={`/import?reportId=${rep.id}`}
+                              className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                              title="Nhập dữ liệu báo cáo (Excel)"
+                            >
+                              <UploadCloud className="w-4 h-4" />
+                            </Link>
+                          )}
 
                           {!isLocked && store.hasPermission('edit_reports', currentUser) && (
                             <button
@@ -443,10 +449,11 @@ export const ReportsListPage: React.FC = () => {
                     onChange={(e) => setEditFormData({ ...editFormData, report_type: e.target.value as any })}
                     className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                   >
-                    <option value="monthly">Báo cáo Tháng</option>
-                    <option value="quarterly">Báo cáo Quý</option>
-                    <option value="annual">Báo cáo Năm</option>
-                    <option value="ad_hoc">Chuyên đề / Đột xuất</option>
+                    {periodTypes.map((pt) => (
+                      <option key={pt.id || pt.code} value={pt.code}>
+                        {pt.name} ({pt.frequency || pt.code})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

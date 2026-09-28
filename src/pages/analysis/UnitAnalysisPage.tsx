@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
-import { calcOnTimeRate, calcCompletionRate, calcOnlineRate } from '../../features/analysis/formulas';
-import { Building2, Award, AlertCircle, TrendingUp } from 'lucide-react';
+import { calcOnTimeRate, calcLateRate, calcPendingLateRate, calcOverdueRateQD776, calcCompletionRate, calcOnlineRate } from '../../features/analysis/formulas';
+import { Building2, Award, AlertCircle, TrendingUp, Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { exportElementToPDF } from '../../utils/pdfExport';
 
 export const UnitAnalysisPage: React.FC = () => {
   const [reports, setReports] = useState(store.getReports());
@@ -54,6 +55,9 @@ export const UnitAnalysisPage: React.FC = () => {
       });
 
       const onTimeRate = calcOnTimeRate(compEarly, compOnTime, comp);
+      const compLateRate = calcLateRate(compLate, comp);
+      const pendLateRate = calcPendingLateRate(pendLate, pend);
+      const qd776Rate = calcOverdueRateQD776(compLate, pendLate, rec);
       const onlineRate = calcOnlineRate(recOnline, recOffline);
       const compRate = calcCompletionRate(comp, rec);
 
@@ -66,11 +70,14 @@ export const UnitAnalysisPage: React.FC = () => {
         receivedOnline: recOnline,
         completed: comp,
         completedLate: compLate,
+        compLateRate,
         pending: pend,
         pendingLate: pendLate,
+        pendLateRate,
         onTimeRate,
         onlineRate,
         compRate,
+        qd776Rate,
       };
     });
   }, [units, stats]);
@@ -81,7 +88,7 @@ export const UnitAnalysisPage: React.FC = () => {
   }, [unitSummaries]);
 
   const topUnit = sortedUnits[0];
-  const mostLateUnit = [...unitSummaries].sort((a, b) => b.completedLate - a.completedLate)[0];
+  const mostLateUnit = [...unitSummaries].sort((a, b) => b.qd776Rate - a.qd776Rate)[0];
 
   return (
     <div className="space-y-6">
@@ -95,23 +102,41 @@ export const UnitAnalysisPage: React.FC = () => {
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Đánh giá khối lượng tiếp nhận, mức độ hoàn thành đúng hạn và tỷ lệ số hóa giữa Văn phòng và các Phòng ban
+            Đánh giá khối lượng tiếp nhận, mức độ hoàn thành đúng hạn, tỷ lệ quá hạn (theo QĐ 776) và tỷ lệ số hóa giữa các đơn vị
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-600">Kỳ báo cáo:</label>
-          <select
-            value={selectedReportId}
-            onChange={(e) => setSelectedReportId(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-medium text-slate-800"
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-slate-600">Kỳ báo cáo:</label>
+            <select
+              value={selectedReportId}
+              onChange={(e) => setSelectedReportId(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-medium text-slate-800"
+            >
+              {reports.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.report_code} - {r.report_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              void exportElementToPDF({
+                filename: `Phan_tich_Don_vi_${new Date().toISOString().split('T')[0]}.pdf`,
+                title: 'PHÂN TÍCH HIỆU QUẢ THEO ĐƠN VỊ GIẢI QUYẾT TTHC',
+                subtitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all cursor-pointer shadow-2xs"
+            title="Xuất kết quả phân tích theo đơn vị ra file PDF (A4)"
           >
-            {reports.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.report_code} - {r.report_name}
-              </option>
-            ))}
-          </select>
+            <Download className="w-3.5 h-3.5 text-rose-600" />
+            <span>Xuất PDF</span>
+          </button>
         </div>
       </div>
 
@@ -138,11 +163,11 @@ export const UnitAnalysisPage: React.FC = () => {
           </div>
           <div>
             <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
-              Đơn vị cần tập trung giảm trễ hạn
+              Đơn vị cần tập trung giảm trễ hạn (theo QĐ 776)
             </span>
             <h3 className="text-lg font-bold text-amber-950 mt-0.5">{mostLateUnit?.name}</h3>
             <p className="text-xs text-amber-700">
-              Còn {formatNumber(mostLateUnit?.completedLate)} hồ sơ quá hạn, {formatNumber(mostLateUnit?.pendingLate)} hồ sơ tồn chậm trễ.
+              Tỷ lệ quá hạn QĐ 776: {formatPercent(mostLateUnit?.qd776Rate)} ({formatNumber(mostLateUnit?.completedLate)} hồ sơ đã GQ trễ, {formatNumber(mostLateUnit?.pendingLate)} hồ sơ đang trễ).
             </p>
           </div>
         </div>
@@ -151,7 +176,7 @@ export const UnitAnalysisPage: React.FC = () => {
       {/* Chart */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <h3 className="text-sm font-bold text-slate-900 mb-4">
-          So sánh Tỷ lệ Đúng hạn & Tỷ lệ Trực tuyến giữa các đơn vị
+          So sánh Tỷ lệ Đúng hạn, Tỷ lệ Quá hạn (QĐ 776) và Tỷ lệ Trực tuyến giữa các đơn vị
         </h3>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
@@ -162,6 +187,7 @@ export const UnitAnalysisPage: React.FC = () => {
               <Tooltip formatter={(val) => `${val}%`} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="onTimeRate" name="Tỷ lệ Đúng hạn (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="qd776Rate" name="% Quá hạn (QĐ 776)" fill="#ef4444" radius={[4, 4, 0, 0]} />
               <Bar dataKey="onlineRate" name="Tỷ lệ Trực tuyến (%)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               <Bar dataKey="compRate" name="Tỷ lệ Giải quyết (%)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -180,9 +206,11 @@ export const UnitAnalysisPage: React.FC = () => {
               <th className="p-3 text-right">Nộp trực tuyến</th>
               <th className="p-3 text-right">Tổng đã giải quyết</th>
               <th className="p-3 text-right">Quá hạn</th>
+              <th className="p-3 text-right">% Quá hạn (Đã GQ)</th>
               <th className="p-3 text-right">Đang giải quyết</th>
-              <th className="p-3 text-center">Tỷ lệ đúng hạn</th>
-              <th className="p-3 text-center">Tỷ lệ trực tuyến</th>
+              <th className="p-3 text-right">% Quá hạn (Đang GQ)</th>
+              <th className="p-3 text-right">% Quá hạn (theo QĐ 776)</th>
+              <th className="p-3 text-right">Tỷ lệ trực tuyến</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-mono">
@@ -196,11 +224,19 @@ export const UnitAnalysisPage: React.FC = () => {
                 <td className={`p-3 text-right ${u.completedLate > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
                   {formatNumber(u.completedLate)}
                 </td>
-                <td className="p-3 text-right text-amber-600">{formatNumber(u.pending)}</td>
-                <td className="p-3 text-center font-sans font-bold text-emerald-700">
-                  {formatPercent(u.onTimeRate)}
+                <td className={`p-3 text-right font-sans font-normal ${u.completedLate > 0 ? 'text-rose-600 font-normal' : 'text-slate-400'}`}>
+                  {formatPercent(u.compLateRate)}
                 </td>
-                <td className="p-3 text-center font-sans font-bold text-blue-700">
+                <td className="p-3 text-right text-amber-600">{formatNumber(u.pending)}</td>
+                <td className={`p-3 text-right font-sans font-normal ${u.pendingLate > 0 ? 'text-rose-600 font-normal' : 'text-slate-400'}`}>
+                  {formatPercent(u.pendLateRate)}
+                </td>
+                <td className="p-3 text-right font-sans font-normal">
+                  <span className={u.qd776Rate > 2 ? 'text-rose-600 font-normal' : 'text-slate-800'}>
+                    {formatPercent(u.qd776Rate)}
+                  </span>
+                </td>
+                <td className="p-3 text-right font-sans font-normal text-blue-700">
                   {formatPercent(u.onlineRate)}
                 </td>
               </tr>

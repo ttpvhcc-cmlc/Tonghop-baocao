@@ -332,41 +332,33 @@ BEGIN
 END;
 $$;
 
+-- TỐI ƯU DUNG LƯỢNG LƯU TRỮ CSDL:
+-- Bỏ trigger audit trên các bảng hệ thống (units, profiles, fields, indicator_definitions)
+-- CHỈ KÍCH HOẠT TRIGGER AUDIT TRÊN CÁC BẢNG LIÊN QUAN TRỰC TIẾP ĐẾN NGHIỆP VỤ BÁO CÁO:
 DROP TRIGGER IF EXISTS trg_units_audit ON public.units;
-CREATE TRIGGER trg_units_audit
-AFTER INSERT OR UPDATE OR DELETE ON public.units
-FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
-
 DROP TRIGGER IF EXISTS trg_profiles_audit ON public.profiles;
-CREATE TRIGGER trg_profiles_audit
-AFTER INSERT OR UPDATE OR DELETE ON public.profiles
-FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
-
 DROP TRIGGER IF EXISTS trg_fields_audit ON public.fields;
-CREATE TRIGGER trg_fields_audit
-AFTER INSERT OR UPDATE OR DELETE ON public.fields
-FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
-
 DROP TRIGGER IF EXISTS trg_indicator_definitions_audit ON public.indicator_definitions;
-CREATE TRIGGER trg_indicator_definitions_audit
-AFTER INSERT OR UPDATE OR DELETE ON public.indicator_definitions
-FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
 
+-- 1. Bảng dữ liệu nguồn báo cáo
 DROP TRIGGER IF EXISTS trg_report_sources_audit ON public.report_sources;
 CREATE TRIGGER trg_report_sources_audit
 AFTER INSERT OR UPDATE OR DELETE ON public.report_sources
 FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
 
+-- 2. Bảng số liệu chi tiết thủ tục hành chính báo cáo
 DROP TRIGGER IF EXISTS trg_report_field_statistics_audit ON public.report_field_statistics;
 CREATE TRIGGER trg_report_field_statistics_audit
 AFTER INSERT OR UPDATE OR DELETE ON public.report_field_statistics
 FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
 
+-- 3. Bảng chỉ tiêu thống kê báo cáo
 DROP TRIGGER IF EXISTS trg_report_indicators_audit ON public.report_indicators;
 CREATE TRIGGER trg_report_indicators_audit
 AFTER INSERT OR UPDATE OR DELETE ON public.report_indicators
 FOR EACH ROW EXECUTE FUNCTION public.audit_business_table_change();
 
+-- 4. Bảng phân tích và dự báo báo cáo
 DROP TRIGGER IF EXISTS trg_report_analysis_audit ON public.report_analysis;
 CREATE TRIGGER trg_report_analysis_audit
 AFTER INSERT OR UPDATE OR DELETE ON public.report_analysis

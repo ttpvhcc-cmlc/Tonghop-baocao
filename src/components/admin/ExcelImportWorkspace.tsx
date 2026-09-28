@@ -12,6 +12,7 @@ import {
   Info,
   AlertTriangle,
   ArrowRight,
+  ExternalLink,
 } from 'lucide-react';
 import type { Field, Unit } from '../../types/database';
 import {
@@ -163,7 +164,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Đồng bộ & Nhập danh mục Thủ tục hành chính từ tệp Excel
+              Đồng bộ và Nhập danh mục Thủ tục hành chính từ tệp Excel
             </h3>
             <p className="text-xs text-slate-500 mt-1">
               Hệ thống đối chiếu cột &quot;Đơn vị thực hiện&quot; trong Excel với Danh mục Đơn vị giải quyết. Thủ tục chưa có đơn vị sẽ được gắn nhãn &quot;Chưa phân công&quot; để phân công sau.
@@ -375,7 +376,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                   }`}
                   title="Cập nhật thông tin các thủ tục theo Mã TTHC, thêm mới thủ tục chưa có"
                 >
-                  Cập nhật & Thêm mới
+                  Cập nhật và Thêm mới
                 </button>
                 <button
                   type="button"
@@ -571,7 +572,7 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
 
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-slate-900 text-sm">
-                                  {group.sectorName}
+                                  {(group.sectorName || '').toUpperCase()}
                                 </span>
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-slate-700 border border-slate-300">
                                   {group.totalCount} thủ tục
@@ -600,7 +601,21 @@ export const ExcelImportWorkspace: React.FC<ExcelImportWorkspaceProps> = ({
                                   )}
                                 </td>
                                 <td className="p-2.5 font-medium text-slate-800 leading-relaxed">
-                                  {row.name}
+                                  {(() => {
+                                    const dvcUrl = row.dvc_link?.trim() || (row.code ? `https://dichvucong.gov.vn/dvc-ket-qua-thu-tuc?keyword=${encodeURIComponent(row.code.trim())}` : 'https://dichvucong.gov.vn');
+                                    return (
+                                      <a
+                                        href={dvcUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-slate-800 hover:text-blue-700 hover:underline inline-flex items-center gap-1 group/dvc font-medium"
+                                        title={`Mở trên Cổng Dịch vụ công Quốc gia: ${dvcUrl}`}
+                                      >
+                                        <span>{row.name}</span>
+                                        <ExternalLink className="w-3 h-3 text-blue-600 opacity-60 group-hover/dvc:opacity-100 shrink-0" />
+                                      </a>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="p-2.5 text-slate-500 text-[11px]">{row.co_quan_cong_bo}</td>
                                 <td className="p-2.5 text-slate-500 text-[11px]">{row.loai_tthc}</td>
