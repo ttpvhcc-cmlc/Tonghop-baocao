@@ -443,7 +443,7 @@ export const UrgeTable: React.FC<UrgeTableProps> = ({
                         <button
                           type="button"
                           onClick={() => onPrint(record)}
-                          title="In phiếu đôn đốc (PDF)"
+                          title="In phiếu đôn đốc"
                           className="p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                         >
                           <Printer className="w-4 h-4" />

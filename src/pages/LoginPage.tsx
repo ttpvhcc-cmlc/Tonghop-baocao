@@ -239,7 +239,7 @@ export const LoginPage: React.FC = () => {
       <div className="flex-1 flex flex-col lg:flex-row w-full min-h-screen">
         {/* Left Side: Administrative Identity (System Title, Subtitle, Logo & Custom Background) */}
         <div
-          className={`lg:w-5/12 xl:w-1/2 ${bgThemeClass} text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-center relative overflow-hidden`}
+          className={`lg:w-7/12 xl:w-2/3 ${bgThemeClass} text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-center relative overflow-hidden`}
           style={isCustomBg ? { backgroundColor: config.loginCustomBgColor } : undefined}
         >
           {/* Subtle Background Decoration */}
@@ -265,7 +265,7 @@ export const LoginPage: React.FC = () => {
 
               <div className="space-y-3">
                 <h1
-                  className={`tracking-tight leading-tight uppercase drop-shadow-xs ${config.loginSystemNameFontWeight || 'font-black'}`}
+                  className={`tracking-tight leading-tight uppercase drop-shadow-xs ${config.loginSystemNameFontWeight || 'font-black'} text-2xl sm:text-3xl md:text-4xl lg:text-5xl`}
                   style={{
                     color: config.loginSystemNameColor || '#ffffff',
                     fontSize: config.loginSystemNameFontSize ? config.loginSystemNameFontSize : undefined,
@@ -274,7 +274,7 @@ export const LoginPage: React.FC = () => {
                   {loginTitle}
                 </h1>
                 <p
-                  className={`leading-relaxed drop-shadow-2xs ${config.loginSubTitleFontWeight || 'font-semibold'}`}
+                  className={`leading-relaxed drop-shadow-2xs ${config.loginSubTitleFontWeight || 'font-semibold'} text-sm sm:text-base md:text-lg`}
                   style={{
                     color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
                     fontSize: config.loginSubTitleFontSize ? config.loginSubTitleFontSize : undefined,
@@ -288,7 +288,7 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Right Side: Direct & Focused Login Form */}
-        <div className="lg:w-7/12 xl:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-white min-h-full">
+        <div className="lg:w-5/12 xl:w-1/3 flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-white min-h-full">
           {/* Centered Login Card */}
           <div className="w-full max-w-md mx-auto my-auto py-8">
             <div className="mb-8">

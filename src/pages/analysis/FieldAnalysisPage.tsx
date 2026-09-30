@@ -3,8 +3,7 @@ import { store } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
 import { calcOnTimeRate, calcLateRate, calcPendingLateRate, calcOverdueRateQD776, calcOnlineRate, calcCompletionRate } from '../../features/analysis/formulas';
 import { resolveLinhVuc } from '../../utils/fieldResolver';
-import { FolderKanban, Search, ChevronRight, Download } from 'lucide-react';
-import { exportElementToPDF } from '../../utils/pdfExport';
+import { FolderKanban, Search, ChevronRight } from 'lucide-react';
 
 interface SectorSummary {
   sectorName: string;
@@ -296,22 +295,6 @@ export const FieldAnalysisPage: React.FC = () => {
               ))}
             </select>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              void exportElementToPDF({
-                filename: `Phan_tich_Linh_vuc_${new Date().toISOString().split('T')[0]}.pdf`,
-                title: 'PHÂN TÍCH CHI TIẾT THEO LĨNH VỰC THỦ TỤC HÀNH CHÍNH',
-                subtitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
-              });
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all cursor-pointer shadow-2xs"
-            title="Xuất kết quả phân tích theo lĩnh vực ra file PDF (A4)"
-          >
-            <Download className="w-3.5 h-3.5 text-rose-600" />
-            <span>Xuất PDF</span>
-          </button>
         </div>
       </div>
 

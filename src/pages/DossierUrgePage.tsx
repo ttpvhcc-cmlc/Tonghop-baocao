@@ -201,7 +201,7 @@ export const DossierUrgePage: React.FC = () => {
         />
       )}
 
-      {/* Modal In & Xuất PDF Phiếu đôn đốc chuẩn hành chính */}
+      {/* Modal In Phiếu đôn đốc chuẩn hành chính */}
       {printRecord && (
         <UrgePrintModal
           record={printRecord}

@@ -880,8 +880,8 @@ export const PublicDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="h-[170px] w-full flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-[210px] sm:h-[240px] w-full flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={120}>
                       <PieChart>
                         <Pie
                           data={channelData}
@@ -1103,8 +1103,8 @@ export const PublicDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="h-[170px] w-full flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-[210px] sm:h-[240px] w-full flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={120}>
                       <PieChart>
                         <Pie
                           data={qualityData}

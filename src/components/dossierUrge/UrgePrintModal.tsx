@@ -1,7 +1,6 @@
 import React, { useRef } from 'react';
-import { X, Printer, Download, Building2, User, Clock, ShieldCheck } from 'lucide-react';
+import { X, Printer, Building2, User, Clock, ShieldCheck } from 'lucide-react';
 import { DossierUrgeRecord } from '../../types/dossierUrge';
-import { exportElementToPDF } from '../../utils/pdfExport';
 
 interface UrgePrintModalProps {
   record: DossierUrgeRecord | null;
@@ -16,22 +15,6 @@ export const UrgePrintModal: React.FC<UrgePrintModalProps> = ({ record, history 
 
   const handlePrint = () => {
     window.print();
-  };
-
-  const handleExportPDF = async () => {
-    if (!printAreaRef.current) return;
-    try {
-      await exportElementToPDF({
-        element: printAreaRef.current,
-        filename: `Phieu_don_doc_${record.dossier_code.replace(/[^a-zA-Z0-9]/g, '_')}_Lan${record.urge_count}.pdf`,
-        subtitle: 'Phiếu đôn đốc giải quyết TTHC - UBND Xã Chân Mây - Lăng Cô',
-        orientation: 'portrait',
-      });
-    } catch (e) {
-      console.error('PDF export failed:', e);
-      alert('Không thể xuất PDF. Đang mở lệnh in trình duyệt để thay thế.');
-      window.print();
-    }
   };
 
   const formattedCreated = new Date(record.created_at).toLocaleDateString('vi-VN', {
@@ -66,16 +49,8 @@ export const UrgePrintModal: React.FC<UrgePrintModalProps> = ({ record, history 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleExportPDF}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Xuất PDF
-            </button>
-            <button
-              type="button"
               onClick={handlePrint}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               In phiếu

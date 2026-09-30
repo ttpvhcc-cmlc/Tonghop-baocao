@@ -185,7 +185,7 @@ export const UsersAdminPage: React.FC = () => {
         { perm: 'view_analysis_fields', feature: 'Phân tích chi tiết theo Lĩnh vực TTHC' },
         { perm: 'view_analysis_compare', feature: 'Phân tích so sánh biến động chỉ tiêu qua các kỳ' },
         { perm: 'use_ai_analysis', feature: 'Tạo nhận xét & phân tích tự động bằng AI (Gemini)' },
-        { perm: 'export_data', feature: 'Xuất dữ liệu ra file Excel, CSV và PDF' },
+        { perm: 'export_data', feature: 'Xuất dữ liệu ra file Excel và CSV' },
       ],
     },
     {

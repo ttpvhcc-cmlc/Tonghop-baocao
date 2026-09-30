@@ -2,9 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../../services/store';
 import { formatNumber, formatPercent } from '../../utils/format';
 import { calcOnTimeRate, calcLateRate, calcPendingLateRate, calcOverdueRateQD776, calcCompletionRate, calcOnlineRate } from '../../features/analysis/formulas';
-import { Building2, Award, AlertCircle, TrendingUp, Download } from 'lucide-react';
+import { Building2, Award, AlertCircle, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { exportElementToPDF } from '../../utils/pdfExport';
 
 export const UnitAnalysisPage: React.FC = () => {
   const [reports, setReports] = useState(store.getReports());
@@ -121,22 +120,6 @@ export const UnitAnalysisPage: React.FC = () => {
               ))}
             </select>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              void exportElementToPDF({
-                filename: `Phan_tich_Don_vi_${new Date().toISOString().split('T')[0]}.pdf`,
-                title: 'PHÂN TÍCH HIỆU QUẢ THEO ĐƠN VỊ GIẢI QUYẾT TTHC',
-                subtitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
-              });
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all cursor-pointer shadow-2xs"
-            title="Xuất kết quả phân tích theo đơn vị ra file PDF (A4)"
-          >
-            <Download className="w-3.5 h-3.5 text-rose-600" />
-            <span>Xuất PDF</span>
-          </button>
         </div>
       </div>
 
@@ -178,8 +161,8 @@ export const UnitAnalysisPage: React.FC = () => {
         <h3 className="text-sm font-bold text-slate-900 mb-4">
           So sánh Tỷ lệ Đúng hạn, Tỷ lệ Quá hạn (QĐ 776) và Tỷ lệ Trực tuyến giữa các đơn vị
         </h3>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-72 sm:h-80 w-full">
+          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
             <BarChart data={unitSummaries}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />

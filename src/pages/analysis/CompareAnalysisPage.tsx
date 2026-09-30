@@ -306,9 +306,9 @@ export const CompareAnalysisPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="h-72">
+        <div className="h-72 sm:h-80 w-full">
           {trendData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -515,8 +515,8 @@ export const CompareAnalysisPage: React.FC = () => {
         <h3 className="text-sm font-bold text-slate-900 mb-4">
           Biểu đồ đối sánh chi tiết chỉ tiêu: {repA?.report_code || 'Kỳ A'} so với {repB?.report_code || 'Kỳ B'}
         </h3>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-72 sm:h-80 w-full">
+          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />

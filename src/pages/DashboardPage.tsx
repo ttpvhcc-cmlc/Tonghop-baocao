@@ -62,13 +62,15 @@ import {
   SlidersHorizontal,
   FolderKanban,
   Tv,
-  Download,
   Printer,
   BookOpen,
-  Info
+  Info,
+  BellRing,
+  Building2,
+  PhoneCall,
+  Users
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { exportElementToPDF, triggerBrowserPrint } from '../utils/pdfExport';
 import { DossierUrgeRecord } from '../types/dossierUrge';
 
 interface ChartConfig {
@@ -123,23 +125,13 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
     },
   },
   {
-    id: 'channels',
-    title: '3. Cơ cấu kênh tiếp nhận Dịch vụ công',
-    subtitle: 'Đo lường mức độ hồ sơ nộp trực tuyến',
-    width: 'half',
-    widthPercent: 49,
-    height: 420,
-    order: 2,
-    visible: true,
-  },
-  {
     id: 'ranking',
     title: '4. Xếp hạng hiệu năng giải quyết Đơn vị',
     subtitle: 'So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị',
     width: 'half',
     widthPercent: 49,
     height: 420,
-    order: 3,
+    order: 2,
     visible: true,
     customOptions: {
       tab1Label: 'Đối chiếu 2 cách tính',
@@ -1569,9 +1561,30 @@ export const DashboardPage: React.FC = () => {
       });
   }, [presentationDimension, unitPresentationData, fieldPresentationData, chartViewType]);
 
-  const urgeChartData = useMemo(() => {
+  const urgeSummaryStats = useMemo(() => {
     const allUrges = dossierUrgeStore.getUrges();
-    if (!selectedReport) return [];
+    if (!selectedReport) {
+      return {
+        totalUrges: 0,
+        directCount: 0,
+        phoneCount: 0,
+        directPercent: 0,
+        phonePercent: 0,
+        pendingCount: 0,
+        completedCount: 0,
+        totalMoreThan2Count: 0,
+        unitList: [] as Array<{
+          unitName: string;
+          total: number;
+          direct: number;
+          phone: number;
+          moreThan2Count: number;
+          pending: number;
+          completed: number;
+          percentOfTotal: number;
+        }>,
+      };
+    }
 
     const parseReceptionDate = (dateStr?: string, fallbackIso?: string): Date => {
       if (dateStr) {
@@ -1636,24 +1649,94 @@ export const DashboardPage: React.FC = () => {
       }
     }
 
+    const totalUrges = periodUrges.length;
+    let directCount = 0;
+    let phoneCount = 0;
+    let pendingCount = 0;
+    let completedCount = 0;
+
+    periodUrges.forEach(u => {
+      if (u.channel === 'phone') {
+        phoneCount++;
+      } else {
+        directCount++;
+      }
+      if (u.status === 'completed' || u.status === 'responded') {
+        completedCount++;
+      } else {
+        pendingCount++;
+      }
+    });
+
+    const directPercent = totalUrges > 0 ? Math.round((directCount / totalUrges) * 100) : 0;
+    const phonePercent = totalUrges > 0 ? 100 - directPercent : 0;
+
     const uniqueUnits = Array.from(new Set([
       ...liveUnits.map(u => u.name),
       ...periodUrges.map(u => u.assigned_unit)
     ])).filter(Boolean);
 
-    return uniqueUnits.map(unitName => {
+    const unitList = uniqueUnits.map(unitName => {
       const unitUrges = periodUrges.filter(u => u.assigned_unit === unitName);
-      const completedCount = unitUrges.filter(u => u.status === 'completed' || u.status === 'responded').length;
-      const pendingCount = unitUrges.filter(u => u.status === 'pending' || u.status === 'in_progress').length;
-      
+      const uDirect = unitUrges.filter(u => u.channel !== 'phone').length;
+      const uPhone = unitUrges.filter(u => u.channel === 'phone').length;
+      const total = unitUrges.length;
+      const percentOfTotal = totalUrges > 0 ? Math.round((total / totalUrges) * 100) : 0;
+
+      // Group by dossier_code to find dossiers urged > 2 times
+      const dossierGroups = new Map<string, DossierUrgeRecord[]>();
+      unitUrges.forEach(u => {
+        const code = u.dossier_code || u.id;
+        if (!dossierGroups.has(code)) dossierGroups.set(code, []);
+        dossierGroups.get(code)!.push(u);
+      });
+
+      let moreThan2Count = 0;
+      dossierGroups.forEach(records => {
+        const maxUrgeCount = Math.max(...records.map(r => r.urge_count || 1), records.length);
+        if (maxUrgeCount > 2) {
+          moreThan2Count++;
+        }
+      });
+
+      const uPending = unitUrges.filter(u => u.status !== 'completed' && u.status !== 'responded').length;
+      const uCompleted = total - uPending;
+
       return {
         unitName,
-        'Tổng số đôn đốc': unitUrges.length,
-        'Đã hoàn thành/phản hồi': completedCount,
-        'Đang đôn đốc/chưa phản hồi': pendingCount,
+        total,
+        direct: uDirect,
+        phone: uPhone,
+        moreThan2Count,
+        pending: uPending,
+        completed: uCompleted,
+        percentOfTotal,
       };
-    }).filter(d => d['Tổng số đôn đốc'] > 0);
+    }).filter(d => d.total > 0).sort((a, b) => b.total - a.total);
+
+    const totalMoreThan2Count = unitList.reduce((acc, u) => acc + u.moreThan2Count, 0);
+
+    return {
+      totalUrges,
+      directCount,
+      phoneCount,
+      directPercent,
+      phonePercent,
+      pendingCount,
+      completedCount,
+      totalMoreThan2Count,
+      unitList,
+    };
   }, [selectedReport, liveUnits, urges]);
+
+  const urgeChartData = useMemo(() => {
+    return urgeSummaryStats.unitList.map(u => ({
+      unitName: u.unitName,
+      'Tổng số đôn đốc': u.total,
+      'Đã hoàn thành/phản hồi': u.completed,
+      'Đang đôn đốc/chưa phản hồi': u.pending,
+    }));
+  }, [urgeSummaryStats]);
 
   // Processed Detailed Table Rows with Search, Filter, and Sort
   const processedTableRows = useMemo(() => {
@@ -2197,24 +2280,6 @@ export const DashboardPage: React.FC = () => {
               <span>Màn hình TV 55"</span>
             </Link>
 
-            {/* Export PDF Button */}
-            <button
-              type="button"
-              onClick={() => {
-                const repCode = selectedReport ? selectedReport.report_code : 'TongHop';
-                void exportElementToPDF({
-                  filename: `Bao_cao_TTHC_Dashboard_${repCode}_${new Date().toISOString().split('T')[0]}.pdf`,
-                  title: 'BÁO CÁO TỔNG HỢP GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH',
-                  subtitle: store.getSystemConfig().systemName || 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
-                });
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all shadow-2xs hover:shadow-xs cursor-pointer"
-              title="Xuất dữ liệu báo cáo và biểu đồ từ màn hình hiện tại ra file PDF (A4)"
-            >
-              <Download className="w-3.5 h-3.5 text-rose-600" />
-              <span>Xuất PDF</span>
-            </button>
-
             <button
               onClick={() => loadData(selectedReportId)}
               className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
@@ -2415,10 +2480,10 @@ export const DashboardPage: React.FC = () => {
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                           {card.title}
                         </div>
-                        <div className="text-2xl font-black text-slate-900 mt-1">
+                        <div className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
                           {formatNumber(totals.recTotal)}
                         </div>
-                        <div className="text-[11px] text-blue-600 mt-0.5 font-medium">
+                        <div className="text-xs text-blue-600 mt-0.5 font-medium">
                           {card.subtitle}
                         </div>
                       </div>
@@ -2426,22 +2491,22 @@ export const DashboardPage: React.FC = () => {
                       {/* 3 Sub-cards inside received */}
                       <div className="grid grid-cols-3 gap-1.5 pt-2.5 border-t border-slate-100">
                         <div className="bg-blue-50/70 p-2 rounded-xl text-center flex flex-col justify-center border border-blue-100/60 shadow-2xs">
-                          <div className="text-[9px] text-blue-800 font-bold truncate" title={subRec0.title}>{subRec0.title}</div>
-                          <div className="text-[11px] font-black text-blue-700 mt-1">
-                            {formatNumber(totals.recOnline)} <span className="text-[8px] font-normal">({formatPercent(totals.onlineRate)})</span>
+                          <div className="text-[10px] text-blue-800 font-bold truncate" title={subRec0.title}>{subRec0.title}</div>
+                          <div className="text-xs font-black text-blue-700 mt-1">
+                            {formatNumber(totals.recOnline)} <span className="text-[10px] font-normal">({formatPercent(totals.onlineRate)})</span>
                           </div>
                         </div>
 
                         <div className="bg-slate-50 p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs border border-slate-200/60">
-                          <div className="text-[9px] text-slate-600 font-semibold truncate" title={subRec1.title}>{subRec1.title}</div>
-                          <div className="text-[11px] font-black text-slate-900 mt-1">
+                          <div className="text-[10px] text-slate-600 font-semibold truncate" title={subRec1.title}>{subRec1.title}</div>
+                          <div className="text-xs font-black text-slate-900 mt-1">
                             {formatNumber(totals.recOffline)}
                           </div>
                         </div>
 
                         <div className="bg-slate-50 p-2 rounded-xl text-center flex flex-col justify-center shadow-2xs border border-slate-200/60">
-                          <div className="text-[9px] text-slate-600 font-semibold truncate" title={subRec2.title}>{subRec2.title}</div>
-                          <div className="text-[11px] font-black text-slate-900 mt-1">
+                          <div className="text-[10px] text-slate-600 font-semibold truncate" title={subRec2.title}>{subRec2.title}</div>
+                          <div className="text-xs font-black text-slate-900 mt-1">
                             {formatNumber(totals.carried)}
                           </div>
                         </div>
@@ -2482,13 +2547,13 @@ export const DashboardPage: React.FC = () => {
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                           {card.title}
                         </div>
-                        <div className="text-2xl font-black text-emerald-600 mt-1 flex items-baseline gap-1.5 flex-wrap">
+                        <div className="text-2xl sm:text-3xl font-black text-emerald-600 mt-1 flex items-baseline gap-1.5 flex-wrap">
                           <span>{formatNumber(totals.compTotal)}</span>
-                          <span className="text-base font-bold text-emerald-600/90">
+                          <span className="text-lg font-bold text-emerald-600/90">
                             ({formatPercent(totals.completionRate)})
                           </span>
                         </div>
-                        <div className="text-[11px] text-emerald-600 mt-0.5 font-medium">
+                        <div className="text-xs text-emerald-600 mt-0.5 font-medium">
                           {card.subtitle}
                         </div>
                       </div>
@@ -2500,7 +2565,7 @@ export const DashboardPage: React.FC = () => {
                             {subRes0Title}
                           </div>
                           <div className="text-xs font-black text-emerald-700 mt-1">
-                            {formatNumber(resolvedOnTimeCount)} <span className="text-[9px] font-normal">({formatPercent(totals.onTimeRate)})</span>
+                            {formatNumber(resolvedOnTimeCount)} <span className="text-[10px] font-normal">({formatPercent(totals.onTimeRate)})</span>
                           </div>
                         </div>
 
@@ -2509,7 +2574,7 @@ export const DashboardPage: React.FC = () => {
                             {subRes1Title}
                           </div>
                           <div className={`text-xs font-black mt-1 ${resolvedLateCount > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
-                            {formatNumber(resolvedLateCount)} <span className="text-[9px] font-normal">({formatPercent(totals.overdueRate)})</span>
+                            {formatNumber(resolvedLateCount)} <span className="text-[10px] font-normal">({formatPercent(totals.overdueRate)})</span>
                           </div>
                         </div>
                       </div>
@@ -2859,7 +2924,7 @@ export const DashboardPage: React.FC = () => {
                             </p>
                           </div>
                         ) : (
-                          <ResponsiveContainer width="100%" height="100%">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                             <AreaChart data={monthlyTrendData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
                               <defs>
                                 <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
@@ -3092,7 +3157,7 @@ export const DashboardPage: React.FC = () => {
 
                           <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
                             {totals.compTotal > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={180}>
                                 <PieChart>
                                   <Pie
                                     data={qualityTt01Data}
@@ -3137,7 +3202,7 @@ export const DashboardPage: React.FC = () => {
 
                           <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
                             {totals.recTotal > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={180}>
                                 <PieChart>
                                   <Pie
                                     data={qualityQd766Data}
@@ -3182,62 +3247,6 @@ export const DashboardPage: React.FC = () => {
                     </>
                   )}
 
-                  {chart.id === 'channels' && (
-                    <>
-                      <div className="flex items-start justify-between gap-3 mb-4">
-                        <div className="flex-1 min-w-0 pr-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h3 className="text-sm font-bold text-slate-900">
-                              {getChartTitle('channels', '3. Cơ cấu kênh tiếp nhận Dịch vụ công')}
-                            </h3>
-                            {canManageLayout && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditModal('channels')}
-                                className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
-                                title="Chỉnh sửa Tiêu đề & Chú thích biểu đồ"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {getChartSubtitle('channels', 'Đo lường mức độ hồ sơ nộp trực tuyến')}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-h-0 w-full relative flex items-center justify-center">
-                        {totals.recOnline + totals.recOffline > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={channelMixData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius="55%"
-                                outerRadius="80%"
-                                paddingAngle={4}
-                                dataKey="value"
-                              >
-                                {channelMixData.map((entry, index) => (
-                                  <Cell key={`cell-chan-${index}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(val) => formatNumber(Number(val))} />
-                              <Legend wrapperStyle={{ fontSize: 12 }} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <p className="text-xs text-slate-400">Chưa có dữ liệu kênh phát sinh mới</p>
-                        )}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                          <div className="text-2xl font-black text-slate-800">{formatPercent(totals.onlineRate)}</div>
-                          <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Trực tuyến</div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
                   {chart.id === 'ranking' && (
                     <>
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
@@ -3256,64 +3265,15 @@ export const DashboardPage: React.FC = () => {
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => setShowMethodologyModal(true)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-md transition-colors cursor-pointer shadow-2xs"
-                              title="Xem phân tích chi tiết bản chất 2 cách tính (TT 01 vs QĐ 766)"
-                            >
-                              <BookOpen className="w-3 h-3 text-blue-600" />
-                              <span>Bản chất 2 cách tính</span>
-                            </button>
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
                             {getChartSubtitle('ranking', 'So sánh tổng khối lượng hồ sơ và tỷ lệ đúng hạn của từng đơn vị')}
                           </p>
                         </div>
-
-                        {/* Bộ chọn góc nhìn phản ánh đúng bản chất (View Mode Selector) */}
-                        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0 self-start text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => setRankingViewMode('comparison')}
-                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                              rankingViewMode === 'comparison'
-                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="Đối chiếu song song 2 phương pháp tính toán"
-                          >
-                            {rankingOptions.tab1Label || 'Đối chiếu 2 cách tính'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRankingViewMode('qd766')}
-                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                              rankingViewMode === 'qd766'
-                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="Góc nhìn toàn diện theo QĐ 766 (Đạt hạn vs Quá hạn)"
-                          >
-                            {rankingOptions.tab2Label || 'QĐ 766 (Toàn diện)'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRankingViewMode('tt01')}
-                            className={`px-2 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                              rankingViewMode === 'tt01'
-                                ? 'bg-white text-blue-700 shadow-2xs font-semibold'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="Góc nhìn kết quả đã giải quyết theo TT 01"
-                          >
-                            {rankingOptions.tab3Label || 'TT 01 (Đã giải quyết)'}
-                          </button>
-                        </div>
                       </div>
 
                       <div className="flex-1 min-h-0 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                           <BarChart data={unitRankingData} margin={{ top: 35, right: 20, left: 10, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis dataKey="unitName" tick={{ fontSize: 11 }} />
@@ -3558,13 +3518,13 @@ export const DashboardPage: React.FC = () => {
                         </div>
                         
                         {/* Selector toggles: View by Count vs Percent AND Dimension */}
-                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1.5 self-start sm:self-center shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setChartViewType('count')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Số lượng
@@ -3572,39 +3532,39 @@ export const DashboardPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => setChartViewType('percent')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Tỷ lệ (%)
                             </button>
                           </div>
 
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('unit')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Đơn vị
+                              Đơn vị
                             </button>
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('field')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Lĩnh vực
+                              Lĩnh vực
                             </button>
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex-1 min-h-0 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                           <BarChart data={pendingPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
@@ -3692,13 +3652,13 @@ export const DashboardPage: React.FC = () => {
                         </div>
                         
                         {/* Selector toggles: View by Count vs Percent AND Dimension */}
-                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1.5 self-start sm:self-center shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setChartViewType('count')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Số lượng
@@ -3706,39 +3666,39 @@ export const DashboardPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => setChartViewType('percent')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Tỷ lệ (%)
                             </button>
                           </div>
 
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('unit')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Đơn vị
+                              Đơn vị
                             </button>
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('field')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Lĩnh vực
+                              Lĩnh vực
                             </button>
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex-1 min-h-0 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                           <BarChart data={receivedPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
@@ -3826,13 +3786,13 @@ export const DashboardPage: React.FC = () => {
                         </div>
                         
                         {/* Selector toggles: View by Count vs Percent AND Dimension */}
-                        <div className="flex flex-wrap items-center gap-2 self-start shrink-0 z-10">
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1.5 self-start sm:self-center shrink-0 z-10">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setChartViewType('count')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'count' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Số lượng
@@ -3840,39 +3800,39 @@ export const DashboardPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => setChartViewType('percent')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                chartViewType === 'percent' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
                               Tỷ lệ (%)
                             </button>
                           </div>
 
-                          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <div className="flex bg-slate-100 p-0.5 rounded-md border border-slate-200">
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('unit')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'unit' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Đơn vị
+                              Đơn vị
                             </button>
                             <button
                               type="button"
                               onClick={() => setPresentationDimension('field')}
-                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                              className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-all cursor-pointer ${
+                                presentationDimension === 'field' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700'
                               }`}
                             >
-                              Theo Lĩnh vực
+                              Lĩnh vực
                             </button>
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex-1 min-h-0 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
                           <BarChart data={completedPresentationData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis
@@ -3940,8 +3900,9 @@ export const DashboardPage: React.FC = () => {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
                         <div className="flex-1 min-w-0 pr-2">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
-                              {getChartTitle('urge_statistics', '5. Thống kê tình hình Đôn đốc hồ sơ theo Đơn vị chủ trì')}
+                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                              <BellRing className="w-4 h-4 text-amber-500 shrink-0" />
+                              <span>{getChartTitle('urge_statistics', '5. Thống kê tình hình Đôn đốc hồ sơ theo Đơn vị chủ trì')}</span>
                             </h3>
                             {canManageLayout && (
                               <button
@@ -3960,9 +3921,9 @@ export const DashboardPage: React.FC = () => {
                         </div>
                       </div>
                       
-                      <div className="flex-1 min-h-0 w-full relative">
-                        {urgeChartData.length === 0 || urgeChartData.every(d => d['Tổng số đôn đốc'] === 0) ? (
-                          <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center p-6 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                      <div className="flex-1 min-h-0 w-full flex flex-col justify-between">
+                        {urgeSummaryStats.totalUrges === 0 ? (
+                          <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-6 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
                             <p className="text-xs font-semibold text-slate-600 mb-1">
                               Chưa có số liệu đôn đốc phát sinh trong kỳ báo cáo đang chọn
                             </p>
@@ -3971,26 +3932,112 @@ export const DashboardPage: React.FC = () => {
                             </p>
                           </div>
                         ) : (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={urgeChartData} margin={{ top: 25, right: 10, left: 10, bottom: 25 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                              <XAxis
-                                dataKey="unitName"
-                                tick={{ fontSize: 9, fill: '#475569', fontWeight: 500 }}
-                                angle={-15}
-                                textAnchor="end"
-                                height={60}
-                              />
-                              <YAxis tick={{ fontSize: 10, fill: '#475569' }} />
-                              <Tooltip
-                                formatter={(val, name) => [formatNumber(Number(val)), name]}
-                                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                              />
-                              <Legend verticalAlign="top" height={36} iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 11, fontWeight: 'bold' }} />
-                              <Bar dataKey="Đã hoàn thành/phản hồi" name="Đã hoàn thành / Đã phản hồi" fill="#10b981" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="Đang đôn đốc/chưa phản hồi" name="Đang đôn đốc / Chờ xử lý" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
+                          <div className="space-y-4 text-slate-800">
+                            {/* Khối Chỉ số Tổng quan dạng text chuyên nghiệp */}
+                            <div className="p-3.5 bg-slate-50/90 rounded-xl border border-slate-200/90 space-y-2">
+                              {/* 1. Tổng số lượt đôn đốc */}
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                                  <BellRing className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>Tổng số lượt đôn đốc:</span>
+                                </span>
+                                <span className="font-extrabold text-slate-900 font-mono text-base">
+                                  {formatNumber(urgeSummaryStats.totalUrges)}{' '}
+                                  <span className="text-xs font-semibold text-slate-500">lượt</span>
+                                </span>
+                              </div>
+
+                              {/* 2. Đến trực tiếp vs Qua điện thoại */}
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-2 border-t border-slate-200/70 text-xs text-slate-600">
+                                <div className="flex items-center gap-1.5">
+                                  <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span className="text-slate-500">Đến trực tiếp: </span>
+                                  <strong className="text-slate-900 font-mono font-bold">
+                                    {formatNumber(urgeSummaryStats.directCount)}
+                                  </strong>{' '}
+                                  <span className="text-slate-400">lượt ({urgeSummaryStats.directPercent}%)</span>
+                                </div>
+                                <span className="text-slate-300 hidden sm:inline">•</span>
+                                <div className="flex items-center gap-1.5">
+                                  <PhoneCall className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <span className="text-slate-500">Qua điện thoại: </span>
+                                  <strong className="text-slate-900 font-mono font-bold">
+                                    {formatNumber(urgeSummaryStats.phoneCount)}
+                                  </strong>{' '}
+                                  <span className="text-slate-400">lượt ({urgeSummaryStats.phonePercent}%)</span>
+                                </div>
+                                {urgeSummaryStats.totalMoreThan2Count > 0 && (
+                                  <>
+                                    <span className="text-slate-300 hidden sm:inline">•</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                      <span className="text-amber-800 font-medium">Hồ sơ đôn đốc &gt; 2 lần: </span>
+                                      <strong className="text-amber-950 font-mono font-bold">
+                                        {formatNumber(urgeSummaryStats.totalMoreThan2Count)}
+                                      </strong>{' '}
+                                      <span className="text-amber-700/80">hồ sơ</span>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 3. Số lượng theo đơn vị */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wide px-0.5">
+                                <span className="flex items-center gap-1.5">
+                                  <Building2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <span>Số lượng theo đơn vị</span>
+                                </span>
+                                <span className="text-slate-400 font-normal lowercase">
+                                  ({urgeSummaryStats.unitList.length} đơn vị)
+                                </span>
+                              </div>
+
+                              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {urgeSummaryStats.unitList.map((unit) => (
+                                  <div
+                                    key={unit.unitName}
+                                    className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs hover:border-blue-300 transition-all space-y-1.5"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                        <span className="font-bold text-slate-900 text-xs truncate">
+                                          {unit.unitName}
+                                        </span>
+                                      </div>
+                                      <span className="shrink-0 font-mono text-xs font-bold text-slate-900">
+                                        {formatNumber(unit.total)}{' '}
+                                        <span className="text-[11px] font-normal text-slate-500">lượt</span>
+                                      </span>
+                                    </div>
+
+                                    {/* Chi tiết: Đến trực tiếp, Qua điện thoại & Hồ sơ đôn đốc > 2 lần */}
+                                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] pt-1.5 border-t border-slate-100 text-slate-600">
+                                      <div className="flex items-center gap-3">
+                                        <span className="inline-flex items-center gap-1">
+                                          <Users className="w-3 h-3 text-blue-600 shrink-0" />
+                                          <span>Đến trực tiếp: <strong className="text-slate-800 font-mono font-medium">{formatNumber(unit.direct)}</strong></span>
+                                        </span>
+                                        <span className="text-slate-300">•</span>
+                                        <span className="inline-flex items-center gap-1">
+                                          <PhoneCall className="w-3 h-3 text-indigo-600 shrink-0" />
+                                          <span>Qua điện thoại: <strong className="text-slate-800 font-mono font-medium">{formatNumber(unit.phone)}</strong></span>
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-amber-800 font-medium inline-flex items-center gap-1">
+                                          <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                          <span>Hồ sơ đôn đốc &gt; 2 lần: <strong className="font-mono font-bold text-amber-900">{unit.moreThan2Count}</strong></span>
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </>

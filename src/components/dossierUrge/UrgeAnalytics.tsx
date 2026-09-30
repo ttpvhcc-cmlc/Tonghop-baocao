@@ -23,14 +23,12 @@ import {
   PhoneCall,
   UserCheck,
   FileSpreadsheet,
-  Download,
   Printer,
   ChevronRight,
 } from 'lucide-react';
 import { DossierUrgeRecord } from '../../types/dossierUrge';
 import { dossierUrgeStore } from '../../services/dossierUrgeStore';
 import * as XLSX from 'xlsx';
-import { exportElementToPDF } from '../../utils/pdfExport';
 
 interface UrgeAnalyticsProps {
   filteredUrges: DossierUrgeRecord[];
@@ -125,22 +123,6 @@ export const UrgeAnalytics: React.FC<UrgeAnalyticsProps> = ({
     XLSX.writeFile(wb, `Bao_Cao_Tong_Hop_Don_Doc_TTHC_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  // Xuất PDF Báo cáo tổng hợp
-  const handleExportPDF = async () => {
-    if (!reportRef.current) return;
-    try {
-      await exportElementToPDF({
-        element: reportRef.current,
-        filename: `Bao_cao_tong_hop_don_doc_${new Date().toISOString().split('T')[0]}.pdf`,
-        subtitle: 'Báo cáo tổng hợp tình hình đôn đốc hồ sơ TTHC - UBND Xã Chân Mây - Lăng Cô',
-        orientation: 'portrait',
-      });
-    } catch (e) {
-      console.error('PDF export failed:', e);
-      window.print();
-    }
-  };
-
   return (
     <div className="space-y-6" ref={reportRef}>
       {/* Top Header Actions */}
@@ -160,14 +142,6 @@ export const UrgeAnalytics: React.FC<UrgeAnalyticsProps> = ({
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             Xuất Excel Tổng hợp
-          </button>
-          <button
-            type="button"
-            onClick={handleExportPDF}
-            className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Xuất Báo cáo PDF
           </button>
         </div>
       </div>
@@ -372,8 +346,8 @@ export const UrgeAnalytics: React.FC<UrgeAnalyticsProps> = ({
             <p className="text-xs text-slate-500 mt-0.5">So sánh tổng lượt đôn đốc và số hồ sơ đôn đốc nhiều lần</p>
           </div>
 
-          <div className="h-64 w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 sm:h-80 w-full mt-4">
+            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
               <BarChart data={unitChartData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" />
@@ -417,8 +391,8 @@ export const UrgeAnalytics: React.FC<UrgeAnalyticsProps> = ({
             <p className="text-xs text-slate-500 mt-0.5">Phân tích hành vi tiếp cận của người dân khi cần đôn đốc</p>
           </div>
 
-          <div className="h-64 w-full mt-4 flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 sm:h-80 w-full mt-4 flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={200}>
               <PieChart>
                 <Pie
                   data={channelChartData}

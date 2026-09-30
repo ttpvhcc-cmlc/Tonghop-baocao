@@ -51,7 +51,50 @@ import {
   Download,
   CheckSquare,
   Search,
+  Trash2,
 } from 'lucide-react';
+
+const readFileAsOptimizedDataUrl = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      if (file.type === 'image/svg+xml') {
+        resolve(result);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 400;
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL(file.type || 'image/png', 0.92));
+        } else {
+          resolve(result);
+        }
+      };
+      img.onerror = () => resolve(result);
+      img.src = result;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+};
 
 export const SystemSettingsPage: React.FC = () => {
   const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
@@ -205,22 +248,77 @@ export const SystemSettingsPage: React.FC = () => {
 
     try {
       setIsSaving(true);
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `logos/${fileName}`;
+      setErrorMessage(null);
 
-      const { error: uploadError } = await supabase.storage
-        .from('logos')
-        .upload(filePath, file);
+      // Convert image to optimized Data URL
+      const dataUrl = await readFileAsOptimizedDataUrl(file);
+      let finalLogoUrl = dataUrl;
 
-      if (uploadError) throw uploadError;
+      // Try Supabase Storage if bucket exists, but fallback gracefully to Data URL
+      try {
+        const fileExt = file.name.split('.').pop() || 'png';
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const filePath = `logos/${fileName}`;
 
-      const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
-      setConfig({ ...config, logoUrl: data.publicUrl, logoType: 'custom_url' });
-      setSaveMessage('Đã tải ảnh lên thành công!');
+        const { error: uploadError } = await supabase.storage
+          .from('logos')
+          .upload(filePath, file, { upsert: true });
+
+        if (!uploadError) {
+          const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
+          if (data?.publicUrl) {
+            finalLogoUrl = data.publicUrl;
+          }
+        }
+      } catch (storageErr) {
+        console.warn('Supabase storage not accessible, using Base64 Data URL:', storageErr);
+      }
+
+      setConfig(prev => ({ ...prev, logoUrl: finalLogoUrl, logoType: 'custom_url' }));
+      setSaveMessage('Đã tải ảnh logo lên thành công! Hãy nhấn "Lưu cấu hình hệ thống" bên dưới để áp dụng.');
       setTimeout(() => setSaveMessage(null), 5000);
     } catch (err: any) {
-      setErrorMessage('Lỗi khi tải ảnh: ' + err.message);
+      setErrorMessage('Lỗi khi đọc file ảnh: ' + (err.message || 'Không thể xử lý file'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUploadLoginLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsSaving(true);
+      setErrorMessage(null);
+
+      const dataUrl = await readFileAsOptimizedDataUrl(file);
+      let finalLogoUrl = dataUrl;
+
+      try {
+        const fileExt = file.name.split('.').pop() || 'png';
+        const fileName = `login_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const filePath = `logos/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('logos')
+          .upload(filePath, file, { upsert: true });
+
+        if (!uploadError) {
+          const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
+          if (data?.publicUrl) {
+            finalLogoUrl = data.publicUrl;
+          }
+        }
+      } catch (storageErr) {
+        console.warn('Supabase storage not accessible, using Base64 Data URL:', storageErr);
+      }
+
+      setConfig(prev => ({ ...prev, loginLogoUrl: finalLogoUrl, loginLogoType: 'custom_url' }));
+      setSaveMessage('Đã tải logo trang đăng nhập lên thành công! Hãy nhấn "Lưu cấu hình hệ thống" để áp dụng.');
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err: any) {
+      setErrorMessage('Lỗi khi đọc file ảnh: ' + (err.message || 'Không thể xử lý file'));
     } finally {
       setIsSaving(false);
     }
@@ -517,8 +615,8 @@ export const SystemSettingsPage: React.FC = () => {
         },
         {
           key: 'export_data',
-          title: 'Xuất Dữ liệu & Báo cáo (Excel / PDF)',
-          desc: 'Tải xuất dữ liệu phân tích ra file Excel, CSV, in ấn và xuất tài liệu PDF',
+          title: 'Xuất Dữ liệu & Báo cáo (Excel)',
+          desc: 'Tải xuất dữ liệu phân tích ra file Excel, CSV và in ấn tài liệu',
         },
       ],
     },
@@ -695,7 +793,7 @@ export const SystemSettingsPage: React.FC = () => {
           }`}
         >
           <Edit3 className="w-4 h-4 text-blue-600" />
-          Mẫu Đôn đốc & Đề nghị
+          Mẫu Đôn đốc
         </button>
 
         <button
@@ -708,7 +806,7 @@ export const SystemSettingsPage: React.FC = () => {
           }`}
         >
           <Lock className="w-4 h-4" />
-          Phân quyền Nhóm (RBAC Matrix)
+          Phân quyền Nhóm
         </button>
 
         <button
@@ -734,10 +832,7 @@ export const SystemSettingsPage: React.FC = () => {
           }`}
         >
           <Tv className="w-4 h-4 text-slate-600" />
-          <span>Màn hình TV 55" (Kiosk)</span>
-          <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
-            Trình chiếu
-          </span>
+          <span>Màn hình</span>
         </button>
       </div>
 
@@ -818,7 +913,7 @@ export const SystemSettingsPage: React.FC = () => {
               <div className="space-y-5 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                   <Palette className="w-4 h-4 text-blue-600" />
-                  Tùy chỉnh Font chữ và Màu sắc Thương hiệu (Vùng khoanh đỏ Header)
+                  Tùy chỉnh Font chữ và Màu sắc Thương hiệu
                 </h3>
 
                 {/* 1. System Name Config */}
@@ -1031,19 +1126,38 @@ export const SystemSettingsPage: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div>
+                  <div className="space-y-3">
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Chọn file ảnh Logo (PNG, JPG, SVG):
+                      Chọn file ảnh Logo từ máy tính (PNG, JPG, SVG, WebP):
                     </label>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={handleUploadLogo}
-                      className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
                     />
                     {config.logoUrl && (
-                      <div className="mt-2 text-[10px] text-slate-500 truncate">
-                        URL hiện tại: {config.logoUrl}
+                      <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
+                        <img
+                          src={config.logoUrl}
+                          alt="Logo hiện tại"
+                          className="w-10 h-10 object-contain rounded-lg border border-slate-200 bg-white p-1 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-700">Logo đã sẵn sàng</p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {config.logoUrl.startsWith('data:') ? 'Ảnh tải lên trực tiếp từ máy tính' : config.logoUrl}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setConfig({ ...config, logoUrl: '' })}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer text-xs flex items-center gap-1"
+                          title="Xóa logo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span className="text-[11px] font-medium">Xóa</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1460,19 +1574,55 @@ export const SystemSettingsPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Custom URL Input */}
+                  {/* Custom URL or File Upload for Login Logo */}
                   {config.loginLogoType === 'custom_url' && (
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                      <label className="block text-xs font-bold text-slate-700">
-                        Đường dẫn URL ảnh Logo (HTTPS):
-                      </label>
-                      <input
-                        type="text"
-                        value={config.loginLogoUrl || ''}
-                        onChange={(e) => setConfig({ ...config, loginLogoUrl: e.target.value })}
-                        placeholder="https://example.com/logo-tinh-huyen-xa.png"
-                        className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium"
-                      />
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Tải file ảnh Logo trang Đăng nhập từ máy tính:
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleUploadLoginLogo}
+                          className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                        />
+                      </div>
+                      <div className="pt-2 border-t border-slate-200/80">
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Hoặc dán Đường dẫn URL ảnh Logo (HTTPS):
+                        </label>
+                        <input
+                          type="text"
+                          value={config.loginLogoUrl || ''}
+                          onChange={(e) => setConfig({ ...config, loginLogoUrl: e.target.value })}
+                          placeholder="https://example.com/logo-tinh-huyen-xa.png"
+                          className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium"
+                        />
+                      </div>
+                      {config.loginLogoUrl && (
+                        <div className="p-2.5 bg-white rounded-lg border border-slate-200 flex items-center gap-2.5">
+                          <img
+                            src={config.loginLogoUrl}
+                            alt="Logo Đăng nhập"
+                            className="w-9 h-9 object-contain rounded-md border border-slate-200 p-0.5 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-bold text-slate-700">Logo trang đăng nhập đã chọn</p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {config.loginLogoUrl.startsWith('data:') ? 'Ảnh tải lên từ máy tính' : config.loginLogoUrl}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setConfig({ ...config, loginLogoUrl: '' })}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded transition-colors cursor-pointer text-xs"
+                            title="Xóa logo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1907,94 +2057,37 @@ export const SystemSettingsPage: React.FC = () => {
             <div className="space-y-6">
               {/* 1. KÍCH THƯỚC CHỮ SỐ THẬP PHÂN */}
               <div className="space-y-3 bg-slate-50/80 p-4.5 rounded-xl border border-slate-200">
-                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  1. Số chữ số thập phân muốn hiển thị (Decimal Precision)
-                </label>
-                <p className="text-xs text-slate-500">
-                  Chọn số chữ số sau dấu phẩy cho các con số % (Tỷ lệ đúng hạn, Tỷ lệ quá hạn, Tỷ lệ trực tuyến...).
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                  {[
-                    { val: 0, label: '0 chữ số', eg: '98%' },
-                    { val: 1, label: '1 chữ số', eg: '98,5%' },
-                    { val: 2, label: '2 chữ số (Mặc định)', eg: '98,53%' },
-                    { val: 3, label: '3 chữ số', eg: '98,526%' },
-                    { val: 4, label: '4 chữ số', eg: '98,5264%' },
-                  ].map((item) => {
-                    const isSelected = (config.percentRoundingDecimals ?? 2) === item.val;
-                    return (
-                      <button
-                        key={item.val}
-                        type="button"
-                        onClick={() => setConfig({ ...config, percentRoundingDecimals: item.val })}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-blue-600 bg-blue-50/90 ring-2 ring-blue-500/20 text-blue-900 font-bold'
-                            : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-medium'
-                        }`}
-                      >
-                        <div className="text-xs font-bold">{item.label}</div>
-                        <div className="text-[11px] text-slate-500 font-mono mt-1">VD: {item.eg}</div>
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Số chữ số thập phân muốn hiển thị (%):
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Nhập số chữ số thập phân hiển thị sau dấu phẩy cho tỷ lệ % (Ví dụ: 0, 1, 2, 3...)
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={config.percentRoundingDecimals ?? 2}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setConfig({
+                          ...config,
+                          percentRoundingDecimals: isNaN(val) ? 0 : Math.max(0, Math.min(10, val)),
+                        });
+                      }}
+                      className="w-24 px-3 py-2 text-sm font-bold text-center text-blue-900 bg-white border-2 border-blue-500 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                      placeholder="2"
+                    />
+                    <span className="text-xs font-semibold text-slate-600">chữ số</span>
+                  </div>
                 </div>
               </div>
 
-              {/* 2. QUY TẮC LÀM TRÒN */}
-              <div className="space-y-3 bg-slate-50/80 p-4.5 rounded-xl border border-slate-200">
-                <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  2. Phương pháp làm tròn toán học (Rounding Method)
-                </label>
-                <p className="text-xs text-slate-500">
-                  Quy định cách thức xử lý làm tròn các con số thập phân dư.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[
-                    {
-                      id: 'half_up',
-                      title: 'Làm tròn thông thường (Half Up)',
-                      desc: 'Phần thập phân tiếp theo ≥ 0.5 làm tròn lên, < 0.5 làm tròn xuống (Tiêu chuẩn)',
-                    },
-                    {
-                      id: 'floor',
-                      title: 'Làm tròn xuống (Floor)',
-                      desc: 'Luôn cắt bỏ các chữ số thập phân thừa mà không làm tăng hàng trước đó',
-                    },
-                    {
-                      id: 'ceil',
-                      title: 'Làm tròn lên (Ceil)',
-                      desc: 'Luôn tăng hàng thập phân tiếp theo nếu có bất kỳ số dư lẻ nào',
-                    },
-                  ].map((m) => {
-                    const isSelected = (config.percentRoundingMode || 'half_up') === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() =>
-                          setConfig({ ...config, percentRoundingMode: m.id as 'half_up' | 'floor' | 'ceil' })
-                        }
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                          isSelected
-                            ? 'border-blue-600 bg-blue-50/90 ring-2 ring-blue-500/20 text-blue-900'
-                            : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        <div>
-                          <div className="text-xs font-bold flex items-center justify-between">
-                            <span>{m.title}</span>
-                            {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
-                          </div>
-                          <p className="text-[11px] text-slate-500 leading-relaxed mt-1.5">{m.desc}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 3. HIỂN THỊ SỐ 0 PHÍA SAU */}
+              {/* 2. HIỂN THỊ SỐ 0 PHÍA SAU */}
               <div className="bg-slate-50/80 p-4.5 rounded-xl border border-slate-200 flex items-center justify-between gap-4">
                 <div>
                   <h4 className="text-xs font-bold text-slate-900">
@@ -2069,7 +2162,7 @@ export const SystemSettingsPage: React.FC = () => {
               </div>
 
               <div className="mt-5 p-3 rounded-xl bg-blue-900/40 border border-blue-500/30 text-[11px] text-blue-200 leading-relaxed">
-                💡 <strong>Áp dụng:</strong> Thiết lập này tự động đồng bộ CSDL và áp dụng trực tiếp cho Bảng Chi tiết Số liệu, Dashboard Tổng quan, Bản in PDF, Xuất file Excel và Trợ lý AI.
+                💡 <strong>Áp dụng:</strong> Thiết lập này tự động đồng bộ CSDL và áp dụng trực tiếp cho Bảng Chi tiết Số liệu, Dashboard Tổng quan, Bản in, Xuất file Excel và Trợ lý AI.
               </div>
             </div>
           </div>
@@ -2505,7 +2598,7 @@ export const SystemSettingsPage: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Lock className="w-5 h-5 text-blue-600" />
-                Ma trận Phân quyền theo Nhóm Người dùng (RBAC Matrix)
+                Ma trận Phân quyền theo Nhóm Người dùng
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Cấu hình phân quyền chi tiết dựa trên toàn bộ 6 nhóm chức năng và Menu hệ thống ({allPermissionsList.length} quyền hạn)
