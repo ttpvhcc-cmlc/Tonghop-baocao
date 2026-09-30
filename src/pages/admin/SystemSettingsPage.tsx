@@ -135,8 +135,17 @@ export const SystemSettingsPage: React.FC = () => {
       setCurrentUser(store.getCurrentUser());
       setUsers(store.getUsers());
     };
+    void store.syncWithSupabase().then(refresh).catch(() => {});
+    void store.fetchUsers().then((u) => setUsers(u)).catch(() => {});
     return store.subscribe(refresh);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      setUsers(store.getUsers());
+      void store.fetchUsers().then((u) => setUsers(u)).catch(() => {});
+    }
+  }, [activeTab]);
 
   const handleSaveConfig = async () => {
     setIsSaving(true);
@@ -324,6 +333,22 @@ export const SystemSettingsPage: React.FC = () => {
       setIsUserModalOpen(false);
     } catch (err: any) {
       alert(err.message || 'Lỗi khi lưu người dùng');
+    }
+  };
+
+  const handleDeleteUser = async (user: Profile) => {
+    if (user.id === currentUser.id) {
+      alert('Không thể xóa tài khoản đang đăng nhập.');
+      return;
+    }
+    const uname = (user as any).username || (user.email ? user.email.split('@')[0] : user.full_name);
+    if (window.confirm(`Bạn có chắc chắn muốn xóa tài khoản "${uname}" (${user.full_name})?`)) {
+      try {
+        await store.deleteUser(user.id);
+        setUsers(store.getUsers());
+      } catch (err: any) {
+        alert(err.message || 'Lỗi khi xóa người dùng.');
+      }
     }
   };
 
@@ -2821,43 +2846,86 @@ export const SystemSettingsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {users.map((u) => {
-                  const userUnit = units.find((un) => un.id === u.unit_id);
-                  const usernameDisplay = (u as any).username || (u.email ? u.email.split('@')[0] : u.id);
-                  return (
-                    <tr key={u.id} className="hover:bg-slate-50">
-                      <td className="p-3.5 font-bold text-slate-900">{u.full_name}</td>
-                      <td className="p-3.5 text-slate-700 font-mono font-medium">{usernameDisplay}</td>
-                      <td className="p-3.5">
-                        <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
-                          {u.role.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-slate-600">{userUnit ? userUnit.name : 'Toàn hệ thống'}</td>
-                      <td className="p-3.5 text-center">
-                        {u.active ? (
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
-                            Hoạt động
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 rounded-md">
-                            Khóa
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3.5 text-right">
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Users className="w-8 h-8 text-slate-300" />
+                        <p className="text-xs font-semibold text-slate-600">Chưa có tài khoản nào được tạo trong hệ thống</p>
                         <button
                           type="button"
-                          onClick={() => handleOpenEditUser(u)}
-                          className="px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                          onClick={handleOpenCreateUser}
+                          className="mt-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          Sửa
+                          <UserPlus className="w-3.5 h-3.5" />
+                          Thêm tài khoản mới ngay
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  users.map((u) => {
+                    const userUnit = units.find((un) => un.id === u.unit_id);
+                    const usernameDisplay = (u as any).username || (u.email ? u.email.split('@')[0] : u.id);
+                    const isSelf = u.id === currentUser.id;
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3.5 font-bold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <span>{u.full_name}</span>
+                            {isSelf && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                                Bạn
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-slate-700 font-mono font-medium">{usernameDisplay}</td>
+                        <td className="p-3.5">
+                          <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+                            {u.role.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-600">{userUnit ? userUnit.name : 'Toàn hệ thống'}</td>
+                        <td className="p-3.5 text-center">
+                          {u.active ? (
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
+                              Hoạt động
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 rounded-md">
+                              Khóa
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-right">
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditUser(u)}
+                              className="px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Sửa thông tin tài khoản"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Sửa
+                            </button>
+                            {!isSelf && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u)}
+                                className="px-2.5 py-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                title="Xóa tài khoản"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Xóa
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
