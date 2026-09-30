@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import http from "http";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -535,9 +536,14 @@ Hãy xuất nhận xét phân tích hoàn chỉnh theo đúng 4 phần chuẩn t
   });
 
   // Vite middleware for development vs static build in production
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true, host: "0.0.0.0", port: 3000 },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === "true" ? false : { server: httpServer },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -549,7 +555,7 @@ Hãy xuất nhận xét phân tích hoàn chỉnh theo đúng 4 phần chuẩn t
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`TTHC Server running on http://0.0.0.0:${PORT}`);
   });
 }
