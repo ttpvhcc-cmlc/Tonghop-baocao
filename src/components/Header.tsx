@@ -165,7 +165,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-800 transition-all border border-slate-200/90 shadow-2xs cursor-pointer"
-            title={`Tài khoản cán bộ: ${activeUser.email || activeUser.full_name}`}
+            title={`Tài khoản cán bộ: ${(activeUser as any).username || (activeUser.email ? activeUser.email.split('@')[0] : activeUser.full_name)}`}
           >
             <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
               <UserCheck className="w-3.5 h-3.5" />
@@ -182,7 +182,9 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="absolute right-0 top-11 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-4.5 z-50 animate-fade-in text-slate-800 space-y-3">
             <div className="pb-2 border-b border-slate-100">
               <p className="text-xs font-extrabold text-slate-900 truncate">{officerNameDisplay}</p>
-              <p className="text-[11px] text-slate-500 truncate mt-0.5">{activeUser.email}</p>
+              <p className="text-[11px] text-slate-500 truncate mt-0.5 font-mono">
+                Tài khoản: {(activeUser as any).username || (activeUser.email ? activeUser.email.split('@')[0] : activeUser.id)}
+              </p>
               <span className="inline-block mt-2 px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100 rounded-lg">
                 {getRoleLabel(activeUser.role)}
               </span>

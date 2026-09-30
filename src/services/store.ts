@@ -1183,50 +1183,97 @@ export class StorageService {
     return this.inMemoryCache.currentUser;
   }
 
-  public async resolveAccountToEmail(account: string): Promise<string> {
-    const raw = account.trim();
-    if (!raw) return '';
-    if (raw.includes('@')) return raw;
+  public async getEmailCandidates(accountOrEmail: string): Promise<string[]> {
+    const raw = accountOrEmail.trim();
+    if (!raw) return [];
+    if (raw.includes('@')) return [raw];
 
-    const username = raw.toLowerCase();
+    const username = raw.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    const candidates: string[] = [];
 
-    // 1. Search in cached users
+    // 1. Standard internal username domain
+    candidates.push(`${username}@cmlc.local`);
+    candidates.push(`${username}@system.local`);
+
+    // 2. Search in cached users
     const matchedUser = this.inMemoryCache.users.find((u) => {
       const uEmail = (u.email || '').toLowerCase();
-      return uEmail.startsWith(`${username}@`) || (u as any).username?.toLowerCase() === username;
+      const uName = (u as any).username?.toLowerCase() || uEmail.split('@')[0];
+      return uName === username || uEmail.startsWith(`${username}@`);
     });
-    if (matchedUser && matchedUser.email) {
-      return matchedUser.email;
+    if (matchedUser && matchedUser.email && !candidates.includes(matchedUser.email)) {
+      candidates.unshift(matchedUser.email);
     }
 
-    // 2. Search in Supabase profiles table
+    // 3. Search in Supabase profiles table if accessible
     if (supabase) {
       try {
         const { data } = await supabase
           .from('profiles')
           .select('email')
           .ilike('email', `${username}@%`)
-          .limit(1);
-        if (data && data.length > 0 && data[0]?.email) {
-          return data[0].email;
+          .limit(5);
+        if (data && data.length > 0) {
+          for (const d of data) {
+            if (d.email && !candidates.includes(d.email)) {
+              candidates.unshift(d.email);
+            }
+          }
         }
       } catch (e) {
-        console.warn('Could not query profile by username:', e);
+        // Ignored
       }
     }
 
-    // 3. Fallback: assume standard domain
-    return `${username}@gmail.com`;
+    // 4. Common legacy domains for backward compatibility
+    const legacyDomains = [
+      'gmail.com',
+      'gov.vn',
+      'hue.gov.vn',
+      'thuathienhue.gov.vn',
+      'chanmaylangco.gov.vn',
+      'huecity.gov.vn',
+    ];
+    for (const domain of legacyDomains) {
+      const em = `${username}@${domain}`;
+      if (!candidates.includes(em)) {
+        candidates.push(em);
+      }
+    }
+
+    return candidates;
+  }
+
+  public async resolveAccountToEmail(account: string): Promise<string> {
+    const candidates = await this.getEmailCandidates(account);
+    return candidates[0] || `${account.trim()}@cmlc.local`;
   }
 
   public async signIn(accountOrEmail: string, password: string): Promise<Profile> {
     if (!supabase) throw new Error('Supabase chưa được cấu hình.');
-    const resolvedEmail = await this.resolveAccountToEmail(accountOrEmail);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: resolvedEmail,
-      password,
-    });
-    if (error) throw new Error(`Lỗi đăng nhập: ${error.message}`);
+    const raw = accountOrEmail.trim();
+    const candidates = await this.getEmailCandidates(raw);
+
+    let lastError: any = null;
+    let authSuccess = false;
+
+    for (const email of candidates) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (!error && data.session) {
+        authSuccess = true;
+        break;
+      }
+      lastError = error;
+    }
+
+    if (!authSuccess) {
+      throw new Error('Tài khoản hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.');
+    }
+
     const user = await this.loadAuthenticatedUser();
     if (!user) throw new Error('Không thể tải hồ sơ người dùng sau khi đăng nhập.');
     return user;
@@ -1278,7 +1325,8 @@ export class StorageService {
 
   public async createUser(user: {
     full_name: string;
-    email: string;
+    username?: string;
+    email?: string;
     role: UserRole;
     unit_id?: string;
     password?: string;
@@ -1287,22 +1335,27 @@ export class StorageService {
     if (!supabase) throw new Error('Supabase chưa được cấu hình.');
     if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
-    const emailStr = user.email.trim();
+    const rawUsername = (user.username || user.email || '').trim().toLowerCase();
+    const cleanUsername = rawUsername.replace(/[^a-z0-9._-]/g, '');
+    if (!cleanUsername) throw new Error('Vui lòng nhập tên tài khoản hợp lệ.');
+
+    const internalEmail = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@cmlc.local`;
     const pw = user.password || '12345678@';
 
     // Sign up via Supabase auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: emailStr,
+      email: internalEmail,
       password: pw,
       options: {
         data: {
           full_name: user.full_name.trim(),
+          username: cleanUsername.split('@')[0],
         }
       }
     });
 
     if (authError) {
-      throw new Error(`Lỗi đăng ký tài khoản Supabase Auth: ${authError.message}`);
+      throw new Error(`Lỗi tạo tài khoản: ${authError.message}`);
     }
 
     const authUser = authData.user;
@@ -1314,7 +1367,7 @@ export class StorageService {
     const payload = {
       id: authUser.id,
       full_name: user.full_name.trim(),
-      email: emailStr,
+      email: internalEmail,
       role: user.role,
       unit_id: user.unit_id || null,
       active: true,
@@ -1335,24 +1388,39 @@ export class StorageService {
   }
 
   public async saveUser(user: {
-    id?: string; full_name: string; email?: string; role: UserRole; unit_id?: string; active?: boolean
+    id?: string;
+    full_name: string;
+    username?: string;
+    email?: string;
+    role: UserRole;
+    unit_id?: string;
+    active?: boolean;
+    password?: string;
   }): Promise<Profile> {
     this.assertRole(['admin'], 'quản lý hồ sơ người dùng');
     if (!supabase) throw new Error('Supabase chưa được cấu hình.');
     if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
     if (!user.id) {
-      throw new Error('Không tạo tài khoản đăng nhập trực tiếp từ màn hình này. Hãy tạo người dùng trong Supabase Authentication trước, sau đó thêm/chỉnh sửa hồ sơ tương ứng.');
+      throw new Error('Không tìm thấy mã người dùng để cập nhật.');
     }
 
-    const payload = {
+    let emailToSave = user.email?.trim() || null;
+    if (user.username) {
+      const clean = user.username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      emailToSave = `${clean}@cmlc.local`;
+    }
+
+    const payload: any = {
       id: user.id,
       full_name: user.full_name.trim(),
-      email: user.email?.trim() || null,
       role: user.role,
       unit_id: user.unit_id || null,
       active: user.active !== false,
     };
+    if (emailToSave) {
+      payload.email = emailToSave;
+    }
 
     const { data: saved, error } = await supabase.from('profiles').upsert(payload).select('*').single();
     if (error) throw new Error(`Không thể lưu hồ sơ người dùng vào Supabase: ${error.message}`);

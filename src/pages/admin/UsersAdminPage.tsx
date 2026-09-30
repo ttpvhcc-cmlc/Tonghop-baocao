@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { store, RolePermissionRule } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
-import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building, UserPlus } from 'lucide-react';
+import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building, UserPlus, User } from 'lucide-react';
 
 export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
@@ -21,14 +21,14 @@ export const UsersAdminPage: React.FC = () => {
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [formData, setFormData] = useState<{
     full_name: string;
-    email: string;
+    username: string;
     role: UserRole;
     unit_id: string;
     active: boolean;
     password?: string;
   }>({
     full_name: '',
-    email: '',
+    username: '',
     role: 'data_entry',
     unit_id: '',
     active: true,
@@ -39,7 +39,7 @@ export const UsersAdminPage: React.FC = () => {
     setEditingUser(null);
     setFormData({
       full_name: '',
-      email: '',
+      username: '',
       role: 'data_entry',
       unit_id: '',
       active: true,
@@ -50,9 +50,10 @@ export const UsersAdminPage: React.FC = () => {
 
   const handleOpenEdit = (user: Profile) => {
     setEditingUser(user);
+    const uname = user.email ? user.email.split('@')[0] : '';
     setFormData({
       full_name: user.full_name,
-      email: user.email || '',
+      username: uname,
       role: user.role,
       unit_id: user.unit_id || '',
       active: user.active,
@@ -64,19 +65,26 @@ export const UsersAdminPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const cleanUsername = formData.username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      if (!cleanUsername) {
+        alert('Vui lòng nhập tên tài khoản hợp lệ (chữ cái, số, dấu chấm).');
+        return;
+      }
+
       if (editingUser) {
         await store.saveUser({
           id: editingUser.id,
           full_name: formData.full_name,
-          email: formData.email,
+          username: cleanUsername,
           role: formData.role,
           unit_id: formData.unit_id,
           active: formData.active,
+          password: formData.password ? formData.password : undefined,
         });
       } else {
         await store.createUser({
           full_name: formData.full_name,
-          email: formData.email,
+          username: cleanUsername,
           role: formData.role,
           unit_id: formData.unit_id,
           password: formData.password || undefined,
@@ -94,12 +102,13 @@ export const UsersAdminPage: React.FC = () => {
       alert('Không thể vô hiệu hóa tài khoản đang đăng nhập.');
       return;
     }
-    if (window.confirm(`Vô hiệu hóa hồ sơ "${user.full_name}" (${user.email})?`)) {
+    const uname = user.email ? user.email.split('@')[0] : user.id;
+    if (window.confirm(`Vô hiệu hóa hồ sơ "${user.full_name}" (Tài khoản: ${uname})?`)) {
       try {
         await store.saveUser({
           id: user.id,
           full_name: user.full_name,
-          email: user.email || '',
+          username: uname,
           role: user.role,
           unit_id: user.unit_id || '',
           active: false,
@@ -252,7 +261,7 @@ export const UsersAdminPage: React.FC = () => {
             <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
               <tr>
                 <th className="p-3">Họ và tên cán bộ</th>
-                <th className="p-3">Email công vụ</th>
+                <th className="p-3">Tên tài khoản</th>
                 <th className="p-3">Đơn vị công tác</th>
                 <th className="p-3">Vai trò phân quyền</th>
                 <th className="p-3 text-center">Trạng thái</th>
@@ -264,6 +273,7 @@ export const UsersAdminPage: React.FC = () => {
                 const assignedUnit = units.find((un) => un.id === u.unit_id);
                 const roleMeta = rolesList.find((r) => r.role === u.role);
                 const isSelf = u.id === currentUser.id;
+                const usernameDisplay = (u as any).username || (u.email ? u.email.split('@')[0] : u.id);
 
                 return (
                   <tr key={u.id} className="hover:bg-slate-50 transition-colors">
@@ -277,10 +287,10 @@ export const UsersAdminPage: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td className="p-3 text-slate-600 font-mono">
+                    <td className="p-3 text-slate-700 font-mono font-medium">
                       <div className="flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{u.email}</span>
+                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{usernameDisplay}</span>
                       </div>
                     </td>
                     <td className="p-3 text-slate-600">
@@ -460,34 +470,34 @@ export const UsersAdminPage: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Email công vụ <span className="text-rose-500">*</span>
+                  Tên tài khoản đăng nhập <span className="text-rose-500">*</span>
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="an.nv@gov.vn"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  placeholder="ví dụ: ldhoan.cmlc"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().trim() })}
+                  disabled={Boolean(editingUser)}
+                  className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900 disabled:opacity-60 disabled:bg-slate-100"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">Tên tài khoản dùng để đăng nhập hệ thống (chữ thường, không dấu, không khoảng trắng).</p>
               </div>
 
-              {!editingUser && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Mật khẩu đăng nhập <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Nhập ít nhất 6 ký tự..."
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Mật khẩu tối thiểu 6 ký tự dùng để đăng nhập hệ thống.</p>
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {editingUser ? 'Đổi mật khẩu mới (Để trống nếu không đổi)' : 'Mật khẩu đăng nhập'} <span className={editingUser ? 'text-slate-400 font-normal text-[10px]' : 'text-rose-500'}>{editingUser ? '' : '*'}</span>
+                </label>
+                <input
+                  type="password"
+                  required={!editingUser}
+                  placeholder={editingUser ? 'Nhập mật khẩu mới...' : 'Nhập ít nhất 6 ký tự...'}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-slate-900"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Mật khẩu tối thiểu 6 ký tự dùng để đăng nhập hệ thống.</p>
+              </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">

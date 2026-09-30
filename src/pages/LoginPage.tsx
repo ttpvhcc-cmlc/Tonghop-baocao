@@ -28,13 +28,9 @@ export const LoginPage: React.FC = () => {
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Resend email activation states
-  const [resendStatus, setResendStatus] = useState<'idle' | 'busy' | 'success' | 'error'>('idle');
-  const [resendMessage, setResendMessage] = useState('');
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
@@ -62,8 +58,6 @@ export const LoginPage: React.FC = () => {
 
     setLoading(true);
     setErrorMessage(null);
-    setResendStatus('idle');
-    setResendMessage('');
 
     try {
       await store.signIn(account.trim(), password);
@@ -73,29 +67,6 @@ export const LoginPage: React.FC = () => {
       setErrorMessage(msg);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResendActivation = async () => {
-    if (!account.trim()) {
-      setResendStatus('error');
-      setResendMessage('Vui lòng nhập Tài khoản trước khi gửi lại yêu cầu kích hoạt.');
-      return;
-    }
-    setResendStatus('busy');
-    try {
-      if (!supabase) throw new Error('Supabase client chưa sẵn sàng.');
-      const resolvedEmail = await store.resolveAccountToEmail(account.trim());
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: resolvedEmail,
-      });
-      if (error) throw error;
-      setResendStatus('success');
-      setResendMessage(`Đã gửi lại link kích hoạt email tới hộp thư (${resolvedEmail}) thành công!`);
-    } catch (err: any) {
-      setResendStatus('error');
-      setResendMessage(err?.message || 'Không thể gửi lại link kích hoạt.');
     }
   };
 
@@ -313,59 +284,13 @@ export const LoginPage: React.FC = () => {
 
             {/* Error & Warning Notification */}
             {errorMessage && (
-              <div className="mb-5 p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 space-y-2.5 animate-fade-in">
+              <div className="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 space-y-1 animate-fade-in">
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
-                  <div className="text-xs leading-relaxed flex-1">
-                    {errorMessage.includes('Email not confirmed') ? (
-                      <div className="space-y-2">
-                        <p className="font-bold text-slate-900">
-                          Tài khoản chưa được kích hoạt Email trong Supabase
-                        </p>
-                        <p className="text-[11px] text-slate-700 leading-normal">
-                          Supabase đang bật chế độ bắt buộc xác thực email đăng ký. Bạn có thể giải quyết nhanh:
-                        </p>
-                        <div className="p-2.5 bg-white rounded-lg border border-slate-100 text-[10.5px] text-slate-700 space-y-1.5">
-                          <p>
-                            <strong>👉 Cách 1:</strong> Vào <strong>Supabase Dashboard</strong> &gt; <strong>Authentication</strong> &gt; <strong>Providers</strong> &gt; <strong>Email</strong> &gt; Tắt mục <strong>"Confirm email"</strong> để cho phép đăng nhập ngay.
-                          </p>
-                          <p>
-                            <strong>👉 Cách 2:</strong> Bấm nút gửi lại link kích hoạt bên dưới và kiểm tra hòm thư của cán bộ.
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="font-semibold text-slate-900">{errorMessage}</p>
-                    )}
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed flex-1 font-semibold">
+                    {errorMessage}
                   </div>
                 </div>
-
-                {errorMessage.includes('Email not confirmed') && (
-                  <div className="pt-1 border-t border-slate-100 flex flex-col gap-1.5">
-                    <button
-                      type="button"
-                      disabled={resendStatus === 'busy'}
-                      onClick={handleResendActivation}
-                      className="w-full py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      {resendStatus === 'busy' ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          Đang gửi link kích hoạt...
-                        </>
-                      ) : (
-                        'Gửi lại link kích hoạt Email'
-                      )}
-                    </button>
-                    {resendMessage && (
-                      <p className={`text-[11px] font-bold text-center ${
-                        resendStatus === 'success' ? 'text-emerald-700' : 'text-slate-700'
-                      }`}>
-                        {resendMessage}
-                      </p>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 
@@ -374,7 +299,7 @@ export const LoginPage: React.FC = () => {
               {/* Account Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Tài khoản <span className="text-slate-600">*</span>
+                  Tài khoản <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
