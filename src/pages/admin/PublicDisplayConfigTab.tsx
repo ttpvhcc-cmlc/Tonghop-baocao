@@ -18,7 +18,6 @@ import {
   Trash2,
   Edit2,
   ExternalLink,
-  RotateCcw,
   Sparkles,
   QrCode,
   Megaphone,
@@ -102,10 +101,6 @@ export const PublicDisplayConfigTab: React.FC<PublicDisplayConfigTabProps> = ({ 
     // update order numbers
     const updated = list.map((item, idx) => ({ ...item, order: idx + 1 }));
     updateDisplayConfig({ widgets: updated });
-  };
-
-  const handleResetWidgetLayout = () => {
-    updateDisplayConfig({ widgets: [...DEFAULT_PUBLIC_DISPLAY_CONFIG.widgets] });
   };
 
   // --- Announcement Management ---

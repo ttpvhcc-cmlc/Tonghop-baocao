@@ -49,7 +49,6 @@ import {
   Eye,
   EyeOff,
   Settings,
-  RotateCcw,
   Save,
   LayoutGrid,
   Pencil,
@@ -109,17 +108,19 @@ const DEFAULT_CHARTS_LAYOUT: ChartConfig[] = [
       viewMode: 'both',
       tt01Header: 'Thông tư 01/2018 (Đã giải quyết)',
       qd766Header: 'Quyết định 766 (Toàn diện hệ thống)',
-      tt01EarlyName: 'Trước hạn',
+      tt01EarlyName: 'Đã GQ trước hạn',
       tt01EarlyColor: '#10b981',
-      tt01OnTimeName: 'Đúng hạn',
+      tt01OnTimeName: 'Đã GQ đúng hạn',
       tt01OnTimeColor: '#0ea5e9',
-      tt01LateName: 'Quá hạn',
+      tt01LateName: 'Đã GQ quá hạn',
       tt01LateColor: '#f43f5e',
+      qd766EarlyName: 'Đã GQ trước hạn',
+      qd766EarlyColor: '#10b981',
       qd766OnTimeName: 'Đã GQ đúng hạn',
-      qd766OnTimeColor: '#10b981',
-      qd766PendingInTermName: 'Đang trong hạn',
-      qd766PendingInTermColor: '#3b82f6',
-      qd766OverdueName: 'Tổng quá hạn (Đã + Đang trễ)',
+      qd766OnTimeColor: '#0ea5e9',
+      qd766PendingInTermName: 'Đang GQ trong hạn',
+      qd766PendingInTermColor: '#f59e0b',
+      qd766OverdueName: 'Đã GQ quá hạn + Đang GQ trễ hạn',
       qd766OverdueColor: '#ef4444',
       chartNote: '',
     },
@@ -666,19 +667,6 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  const handleResetCurrentChartMeta = () => {
-    if (!editingChartMeta) return;
-    const def = DEFAULT_CHARTS_LAYOUT.find(c => c.id === editingChartMeta.id);
-    if (def) {
-      setEditingChartMeta({
-        id: editingChartMeta.id,
-        title: def.title,
-        subtitle: def.subtitle || '',
-        customOptions: { ...(def.customOptions || {}) },
-      });
-    }
-  };
-
   const getChartTitle = (id: string, fallback: string) => {
     const chart = chartsLayout.find(c => c.id === id);
     return chart?.title || fallback;
@@ -694,6 +682,90 @@ export const DashboardPage: React.FC = () => {
       }
     }
     return base;
+  };
+
+  // Custom Leader Line ("Râu" chỉ dẫn chú thích) for Pie/Donut Charts
+  const renderPieLeaderLine = (props: any) => {
+    const { cx, cy, midAngle, outerRadius, percent, value, name, payload, fill } = props;
+    if (!value || value === 0 || (percent !== undefined && percent < 0.005)) return null;
+
+    const RADIAN = Math.PI / 180;
+    const sin = Math.sin(-RADIAN * midAngle);
+    const cos = Math.cos(-RADIAN * midAngle);
+    
+    // Starting anchor on donut outer boundary
+    const sx = cx + (outerRadius + 2) * cos;
+    const sy = cy + (outerRadius + 2) * sin;
+    
+    // Elbow point
+    const mx = cx + (outerRadius + 8) * cos;
+    const my = cy + (outerRadius + 8) * sin;
+    
+    // Horizontal shelf extension (compact to never overflow SVG container)
+    const isRight = cos >= 0;
+    const ex = mx + (isRight ? 8 : -8);
+    const ey = my;
+    const textAnchor = isRight ? 'start' : 'end';
+
+    const labelColor = payload?.color || fill || '#1e293b';
+    const pctStr = percent !== undefined ? `${(percent * 100).toFixed(1)}%` : '';
+
+    // Shortened, neat name on the leader line so it never clips off screen
+    let labelText = name;
+    if (name.includes('trước hạn')) labelText = 'Trước hạn';
+    else if (name.includes('đúng hạn') && !name.includes('trước')) labelText = 'Đúng hạn';
+    else if (name.includes('quá hạn') || name.includes('trễ')) labelText = 'Quá hạn';
+    else if (name.includes('trong hạn')) labelText = 'Trong hạn';
+
+    return (
+      <g className="select-none pointer-events-none">
+        {/* Điểm neo tròn ở vành biểu đồ */}
+        <circle cx={sx} cy={sy} r={2} fill={labelColor} />
+        {/* Râu chỉ thị đường gập khúc (Leader Line) */}
+        <path
+          d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}
+          stroke={labelColor}
+          strokeWidth={1.5}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={0.9}
+        />
+        {/* Chú thích Tên gọn & Tỷ lệ % - Sử dụng màu chuẩn của lát bánh */}
+        <text
+          x={ex + (isRight ? 3 : -3)}
+          y={ey}
+          textAnchor={textAnchor}
+          dominantBaseline="central"
+          fill={labelColor}
+          style={{ fontSize: '10px', fontWeight: 700 }}
+        >
+          {labelText}: {pctStr}
+        </text>
+      </g>
+    );
+  };
+
+  // Custom Horizontal Legend for Quality Charts with exact left-to-right priority and matching font colors
+  const renderQualityLegend = (data: Array<{ name: string; value: number; color: string }>) => {
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-1 pt-2 pb-0.5 select-none">
+        {data.map((item, idx) => (
+          <div key={idx} className="flex items-center gap-1.5 shrink-0">
+            <span
+              className="w-2.5 h-2.5 rounded-xs shrink-0 shadow-2xs"
+              style={{ backgroundColor: item.color }}
+            />
+            <span
+              className="text-[11px] font-bold tracking-tight"
+              style={{ color: item.color }}
+            >
+              {item.name} <span className="font-extrabold">({formatNumber(item.value)})</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   // Drag and Drop Handlers
@@ -749,10 +821,6 @@ export const DashboardPage: React.FC = () => {
     setChartsLayout(prev =>
       prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c))
     );
-  };
-
-  const resetLayout = () => {
-    setChartsLayout(DEFAULT_CHARTS_LAYOUT);
   };
 
   const saveLayoutToAllUsers = async () => {
@@ -1179,17 +1247,19 @@ export const DashboardPage: React.FC = () => {
       viewMode: 'both',
       tt01Header: 'Thông tư 01/2018 (Đã giải quyết)',
       qd766Header: 'Quyết định 766 (Toàn diện hệ thống)',
-      tt01EarlyName: 'Trước hạn',
+      tt01EarlyName: 'Đã GQ trước hạn',
       tt01EarlyColor: '#10b981',
-      tt01OnTimeName: 'Đúng hạn',
+      tt01OnTimeName: 'Đã GQ đúng hạn',
       tt01OnTimeColor: '#0ea5e9',
-      tt01LateName: 'Quá hạn',
+      tt01LateName: 'Đã GQ quá hạn',
       tt01LateColor: '#f43f5e',
+      qd766EarlyName: 'Đã GQ trước hạn',
+      qd766EarlyColor: '#10b981',
       qd766OnTimeName: 'Đã GQ đúng hạn',
-      qd766OnTimeColor: '#10b981',
-      qd766PendingInTermName: 'Đang trong hạn',
-      qd766PendingInTermColor: '#3b82f6',
-      qd766OverdueName: 'Tổng quá hạn (Đã + Đang trễ)',
+      qd766OnTimeColor: '#0ea5e9',
+      qd766PendingInTermName: 'Đang GQ trong hạn',
+      qd766PendingInTermColor: '#f59e0b',
+      qd766OverdueName: 'Đã GQ quá hạn + Đang GQ trễ hạn',
       qd766OverdueColor: '#ef4444',
       chartNote: '',
     };
@@ -1199,21 +1269,22 @@ export const DashboardPage: React.FC = () => {
     };
   }, [qualityChartConfig]);
 
-  // Resolution distribution TT 01 (Đã giải quyết)
+  // Resolution distribution TT 01 (Đã giải quyết) - Sắp xếp theo thứ tự: Trước hạn -> Đúng hạn -> Quá hạn
   const qualityTt01Data = useMemo(() => {
     return [
-      { name: qualityOptions.tt01EarlyName || 'Trước hạn', value: totals.compEarly, color: qualityOptions.tt01EarlyColor || '#10b981' },
-      { name: qualityOptions.tt01OnTimeName || 'Đúng hạn', value: totals.compOnTime, color: qualityOptions.tt01OnTimeColor || '#0ea5e9' },
-      { name: qualityOptions.tt01LateName || 'Quá hạn', value: totals.compLate, color: qualityOptions.tt01LateColor || '#f43f5e' },
+      { name: qualityOptions.tt01EarlyName || 'Đã GQ trước hạn', value: totals.compEarly, color: qualityOptions.tt01EarlyColor || '#10b981' },
+      { name: qualityOptions.tt01OnTimeName || 'Đã GQ đúng hạn', value: totals.compOnTime, color: qualityOptions.tt01OnTimeColor || '#0ea5e9' },
+      { name: qualityOptions.tt01LateName || 'Đã GQ quá hạn', value: totals.compLate, color: qualityOptions.tt01LateColor || '#f43f5e' },
     ];
   }, [totals, qualityOptions]);
 
-  // Resolution distribution QĐ 766 (Toàn diện hệ thống trên Tổng tiếp nhận)
+  // Resolution distribution QĐ 766 (Toàn diện hệ thống trên Tổng tiếp nhận) - Tách thành: Trước hạn -> Đúng hạn -> Đang trong hạn -> Quá hạn
   const qualityQd766Data = useMemo(() => {
     return [
-      { name: qualityOptions.qd766OnTimeName || 'Đã GQ đúng hạn', value: totals.compEarly + totals.compOnTime, color: qualityOptions.qd766OnTimeColor || '#10b981' },
-      { name: qualityOptions.qd766PendingInTermName || 'Đang trong hạn', value: totals.pendOnTime, color: qualityOptions.qd766PendingInTermColor || '#3b82f6' },
-      { name: qualityOptions.qd766OverdueName || 'Tổng quá hạn (Đã + Đang trễ)', value: totals.compLate + totals.pendLate, color: qualityOptions.qd766OverdueColor || '#ef4444' },
+      { name: qualityOptions.qd766EarlyName || 'Đã GQ trước hạn', value: totals.compEarly, color: qualityOptions.qd766EarlyColor || '#10b981' },
+      { name: qualityOptions.qd766OnTimeName || 'Đã GQ đúng hạn', value: totals.compOnTime, color: qualityOptions.qd766OnTimeColor || '#0ea5e9' },
+      { name: qualityOptions.qd766PendingInTermName || 'Đang GQ trong hạn', value: totals.pendOnTime, color: qualityOptions.qd766PendingInTermColor || '#f59e0b' },
+      { name: qualityOptions.qd766OverdueName || 'Đã GQ quá hạn + Đang GQ trễ hạn', value: totals.compLate + totals.pendLate, color: qualityOptions.qd766OverdueColor || '#ef4444' },
     ];
   }, [totals, qualityOptions]);
 
@@ -2218,12 +2289,94 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-5 w-full">
       {/* Top Controls & Global Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Bộ lọc phân tích số liệu</span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
+      <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs">
+        <div className="flex flex-col 2xl:flex-row 2xl:items-end justify-between gap-3.5">
+          {/* Global Filter Bar (4 Filter Controls) */}
+          {liveReports.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 min-w-0">
+              {/* Filter 1: Kỳ Báo Cáo */}
+              <div>
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+                  Kỳ báo cáo
+                </label>
+                <select
+                  value={selectedReportId || (selectedReport?.id ?? '')}
+                  onChange={(e) => handleReportChange(e.target.value)}
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                >
+                  {liveReports.map((r) => (
+                    <option key={r.id} value={r.id} className="font-semibold text-slate-900 py-1">
+                      {r.report_code} - {r.report_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 2: Nguồn dữ liệu */}
+              <div>
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+                  Nguồn dữ liệu
+                </label>
+                <select
+                  value={selectedSourceId}
+                  onChange={(e) => setSelectedSourceId(e.target.value)}
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                >
+                  <option value="ALL" className="font-semibold text-slate-900">Tất cả nguồn dữ liệu</option>
+                  {liveSources.map((s) => (
+                    <option key={s.id} value={s.id} className="font-semibold text-slate-900 py-1">
+                      {s.source_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 3: Đơn vị giải quyết */}
+              <div>
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+                  Đơn vị giải quyết
+                </label>
+                <select
+                  value={selectedUnitId}
+                  onChange={(e) => setSelectedUnitId(e.target.value)}
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                >
+                  <option value="ALL" className="font-semibold text-slate-900">Tất cả đơn vị</option>
+                  {liveUnits.map((u) => (
+                    <option key={u.id} value={u.id} className="font-semibold text-slate-900 py-1">
+                      {u.name} ({u.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 4: Lĩnh vực */}
+              <div>
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+                  Lĩnh vực TTHC
+                </label>
+                <select
+                  value={selectedFieldId}
+                  onChange={(e) => setSelectedFieldId(e.target.value)}
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                >
+                  <option value="ALL" className="font-semibold text-slate-900">Tất cả lĩnh vực ({sectorOptions.length})</option>
+                  {sectorOptions.map((sec) => (
+                    <option key={sec} value={sec} className="font-semibold text-slate-900 py-1">
+                      {sec}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="py-2 text-xs text-slate-500">
+              Chưa có kỳ báo cáo nào trong cơ sở dữ liệu Supabase.
+            </div>
+          )}
+
+          {/* Action Buttons Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0 pb-0.5">
             {canManageLayout && isAuthenticated && (
               <>
                 {isAdminLayoutMode && (
@@ -2240,24 +2393,17 @@ export const DashboardPage: React.FC = () => {
                     <button
                       onClick={saveLayoutToAllUsers}
                       disabled={isSavingLayout}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-bold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
                       title="Lưu bố cục"
                     >
-                      {isSavingLayout ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      {isSavingLayout ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                       Lưu bố cục
-                    </button>
-                    <button
-                      onClick={resetLayout}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Mặc định
                     </button>
                   </>
                 )}
                 <button
                   onClick={() => setIsAdminLayoutMode(!isAdminLayoutMode)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer shadow-2xs ${
                     isAdminLayoutMode
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
@@ -2273,7 +2419,7 @@ export const DashboardPage: React.FC = () => {
               to="/public-dashboard"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#C4121A] bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all shadow-2xs hover:shadow-xs group"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#C4121A] bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-all shadow-2xs hover:shadow-xs group"
               title="Mở giao diện trình chiếu trên TV 55 inch / Kiosk công khai (Không cần đăng nhập)"
             >
               <Tv className="w-3.5 h-3.5 text-[#C4121A] group-hover:scale-110 transition-transform" />
@@ -2282,105 +2428,21 @@ export const DashboardPage: React.FC = () => {
 
             <button
               onClick={() => loadData(selectedReportId)}
-              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
               Làm mới
             </button>
             {selectedReportId && isAuthenticated && (
               <Link
                 to={`/reports/${selectedReportId}`}
-                className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                className="px-3 py-2 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors shadow-2xs inline-flex items-center gap-1"
               >
                 Xem chi tiết kỳ báo cáo này →
               </Link>
             )}
           </div>
         </div>
-
-        {/* Global Filter Bar */}
-        {liveReports.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
-            {/* Filter 1: Kỳ Báo Cáo */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Kỳ báo cáo
-              </label>
-              <select
-                value={selectedReportId || (selectedReport?.id ?? '')}
-                onChange={(e) => handleReportChange(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              >
-                {liveReports.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.report_code} - {r.report_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Filter 2: Nguồn dữ liệu */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Nguồn dữ liệu
-              </label>
-              <select
-                value={selectedSourceId}
-                onChange={(e) => setSelectedSourceId(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Tất cả nguồn dữ liệu</option>
-                {liveSources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.source_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Filter 3: Đơn vị giải quyết */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Đơn vị giải quyết
-              </label>
-              <select
-                value={selectedUnitId}
-                onChange={(e) => setSelectedUnitId(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Tất cả đơn vị</option>
-                {liveUnits.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Filter 4: Lĩnh vực */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Lĩnh vực TTHC
-              </label>
-              <select
-                value={selectedFieldId}
-                onChange={(e) => setSelectedFieldId(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Tất cả lĩnh vực ({sectorOptions.length})</option>
-                {sectorOptions.map((sec) => (
-                  <option key={sec} value={sec}>
-                    {sec}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        ) : (
-          <div className="py-6 text-center text-xs text-slate-500">
-            Chưa có kỳ báo cáo nào trong cơ sở dữ liệu Supabase.
-          </div>
-        )}
       </div>
 
       {/* Empty State Banner if no reports */}
@@ -3155,38 +3217,41 @@ export const DashboardPage: React.FC = () => {
                             </h4>
                           </div>
 
-                          <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
+                          <div className="flex-1 min-h-[270px] w-full relative flex flex-col items-center justify-center">
                             {totals.compTotal > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={180}>
-                                <PieChart>
-                                  <Pie
-                                    data={qualityTt01Data}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius="54%"
-                                    outerRadius="78%"
-                                    paddingAngle={4}
-                                    dataKey="value"
-                                  >
-                                    {qualityTt01Data.map((entry, index) => (
-                                      <Cell key={`cell-tt01-${index}`} fill={entry.color} />
-                                    ))}
-                                  </Pie>
-                                  <Tooltip
-                                    formatter={(val: any, name: any) => [
-                                      `${formatNumber(Number(val))} hồ sơ (${totals.compTotal > 0 ? ((Number(val) / totals.compTotal) * 100).toFixed(1) : 0}%)`,
-                                      name
-                                    ]}
-                                  />
-                                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
-                                </PieChart>
-                              </ResponsiveContainer>
+                              <>
+                                <ResponsiveContainer width="100%" height={215} minWidth={100} minHeight={190}>
+                                  <PieChart margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+                                    <Pie
+                                      data={qualityTt01Data}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius="48%"
+                                      outerRadius="68%"
+                                      paddingAngle={3.5}
+                                      dataKey="value"
+                                      label={renderPieLeaderLine}
+                                      labelLine={false}
+                                    >
+                                      {qualityTt01Data.map((entry, index) => (
+                                        <Cell key={`cell-tt01-${index}`} fill={entry.color} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip
+                                      formatter={(val: any, name: any) => [
+                                        `${formatNumber(Number(val))} hồ sơ (${totals.compTotal > 0 ? ((Number(val) / totals.compTotal) * 100).toFixed(1) : 0}%)`,
+                                        name
+                                      ]}
+                                    />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                                {renderQualityLegend(qualityTt01Data)}
+                              </>
                             ) : (
                               <p className="text-xs text-slate-400">Chưa có dữ liệu giải quyết trong kỳ</p>
                             )}
-                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-6">
-                              <div className="text-xl font-black text-slate-800">{formatPercent(totals.onTimeRate)}</div>
-                              <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đúng hạn TT 01</div>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-7">
+                              <div className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">{formatPercent(totals.onTimeRate)}</div>
                             </div>
                           </div>
                         </div>
@@ -3200,38 +3265,41 @@ export const DashboardPage: React.FC = () => {
                             </h4>
                           </div>
 
-                          <div className="flex-1 min-h-[220px] w-full relative flex items-center justify-center">
+                          <div className="flex-1 min-h-[270px] w-full relative flex flex-col items-center justify-center">
                             {totals.recTotal > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={180}>
-                                <PieChart>
-                                  <Pie
-                                    data={qualityQd766Data}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius="54%"
-                                    outerRadius="78%"
-                                    paddingAngle={4}
-                                    dataKey="value"
-                                  >
-                                    {qualityQd766Data.map((entry, index) => (
-                                      <Cell key={`cell-qd766-${index}`} fill={entry.color} />
-                                    ))}
-                                  </Pie>
-                                  <Tooltip
-                                    formatter={(val: any, name: any) => [
-                                      `${formatNumber(Number(val))} hồ sơ (${totals.recTotal > 0 ? ((Number(val) / totals.recTotal) * 100).toFixed(1) : 0}%)`,
-                                      name
-                                    ]}
-                                  />
-                                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
-                                </PieChart>
-                              </ResponsiveContainer>
+                              <>
+                                <ResponsiveContainer width="100%" height={215} minWidth={100} minHeight={190}>
+                                  <PieChart margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+                                    <Pie
+                                      data={qualityQd766Data}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius="48%"
+                                      outerRadius="68%"
+                                      paddingAngle={3.5}
+                                      dataKey="value"
+                                      label={renderPieLeaderLine}
+                                      labelLine={false}
+                                    >
+                                      {qualityQd766Data.map((entry, index) => (
+                                        <Cell key={`cell-qd766-${index}`} fill={entry.color} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip
+                                      formatter={(val: any, name: any) => [
+                                        `${formatNumber(Number(val))} hồ sơ (${totals.recTotal > 0 ? ((Number(val) / totals.recTotal) * 100).toFixed(1) : 0}%)`,
+                                        name
+                                      ]}
+                                    />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                                {renderQualityLegend(qualityQd766Data)}
+                              </>
                             ) : (
                               <p className="text-xs text-slate-400">Chưa có dữ liệu tiếp nhận trong kỳ</p>
                             )}
-                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-6">
-                              <div className="text-xl font-black text-slate-800">{formatPercent(totals.qd766OnTimeRate)}</div>
-                              <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Đúng hạn QĐ 766</div>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-7">
+                              <div className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">{formatPercent(totals.qd766OnTimeRate)}</div>
                             </div>
                           </div>
                         </div>
@@ -4051,74 +4119,61 @@ export const DashboardPage: React.FC = () => {
       {/* 5. DETAILED STATISTICAL GRAIN GRID (REPORT + SOURCE + FIELD) - Only for authenticated users */}
       {isAuthenticated && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs space-y-0">
-          {/* Header with Title, Subtitle, and Admin Edit Button */}
+          {/* Header with Title, Report Period Badge, and Admin Edit Button */}
           <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <h3 className="text-base font-bold text-slate-900 uppercase tracking-tight">
                     {getChartTitle('detailed_table', 'BẢNG CHI TIẾT SỐ LIỆU')}
                   </h3>
                   {canManageLayout && (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditModal('detailed_table')}
-                        className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
-                        title="Chỉnh sửa Tiêu đề bảng số liệu"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDraftTableHeaders({ ...DEFAULT_TABLE_HEADERS, ...tableHeaders });
-                          setIsEditingTableHeadersModal(true);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/90 rounded-lg transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Tùy biến tiêu đề tất cả các cột trong bảng"
-                      >
-                        <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Sửa header bảng</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftTableHeaders({ ...DEFAULT_TABLE_HEADERS, ...tableHeaders });
+                        setIsEditingTableHeadersModal(true);
+                      }}
+                      className="inline-flex items-center justify-center p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer shrink-0"
+                      title="Tùy biến tiêu đề bảng và tất cả các cột header"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
 
-                {/* Dòng Tên của kỳ báo cáo theo kỳ đã chọn ở trên kèm ngày Chốt số liệu */}
-                <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
-                  <span className="font-semibold text-blue-900 bg-blue-50/90 border border-blue-200/90 px-3 py-1.5 rounded-lg inline-flex items-center gap-2 shadow-2xs">
-                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                    <span>Kỳ báo cáo: <strong className="text-blue-950 font-bold">{selectedReport ? (selectedReport.report_name || selectedReport.report_code) : 'Chưa chọn kỳ báo cáo'}</strong></span>
-                    {(() => {
-                      const rawDate = selectedReport?.data_as_of || selectedReport?.period_end || selectedReport?.created_at || '';
-                      if (!rawDate) return null;
-                      let formatted = '';
-                      const clean = rawDate.split('T')[0];
-                      const parts = clean.split('-');
-                      if (parts.length === 3) {
-                        formatted = `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
-                      } else {
-                        const d = new Date(rawDate);
-                        if (!isNaN(d.getTime())) {
-                          formatted = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-                        }
+                {/* Dòng Tên của kỳ báo cáo theo kỳ đã chọn ở trên kèm ngày Chốt số liệu - NẰM CÙNG HÀNG */}
+                <span className="font-semibold text-blue-900 bg-blue-50/90 border border-blue-200/90 px-3 py-1 rounded-lg inline-flex items-center gap-2 shadow-2xs text-xs">
+                  <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                  <span>Kỳ báo cáo: <strong className="text-blue-950 font-bold">{selectedReport ? (selectedReport.report_name || selectedReport.report_code) : 'Chưa chọn kỳ báo cáo'}</strong></span>
+                  {(() => {
+                    const rawDate = selectedReport?.data_as_of || selectedReport?.period_end || selectedReport?.created_at || '';
+                    if (!rawDate) return null;
+                    let formatted = '';
+                    const clean = rawDate.split('T')[0];
+                    const parts = clean.split('-');
+                    if (parts.length === 3) {
+                      formatted = `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+                    } else {
+                      const d = new Date(rawDate);
+                      if (!isNaN(d.getTime())) {
+                        formatted = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
                       }
-                      if (!formatted) return null;
-                      return (
-                        <>
-                          <span className="text-blue-300 font-normal">|</span>
-                          <span className="text-blue-900 font-medium">
-                            Ngày chốt số liệu: <strong className="text-blue-950 font-bold">{formatted}</strong>
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </span>
-                </div>
+                    }
+                    if (!formatted) return null;
+                    return (
+                      <>
+                        <span className="text-blue-300 font-normal">|</span>
+                        <span className="text-blue-900 font-medium">
+                          Ngày chốt số liệu: <strong className="text-blue-950 font-bold">{formatted}</strong>
+                        </span>
+                      </>
+                    );
+                  })()}
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-2xs">
                   Hiển thị: <strong className="text-blue-700">{processedTableRows.length}</strong> / {filteredStats.length} dòng
                 </span>
@@ -5058,14 +5113,6 @@ export const DashboardPage: React.FC = () => {
                       <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
                       Tùy chỉnh Nhãn, Chú giải & Màu sắc (TT 01 & QĐ 766)
                     </h4>
-                    <button
-                      type="button"
-                      onClick={handleResetCurrentChartMeta}
-                      className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Mặc định
-                    </button>
                   </div>
 
                   {/* 1. Tiêu đề khối TT 01 và QĐ 766 */}
@@ -5114,10 +5161,10 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Trước hạn</label>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ trước hạn</label>
                         <input
                           type="text"
-                          value={editingChartMeta.customOptions?.tt01EarlyName ?? 'Trước hạn'}
+                          value={editingChartMeta.customOptions?.tt01EarlyName ?? 'Đã GQ trước hạn'}
                           onChange={(e) => setEditingChartMeta({
                             ...editingChartMeta,
                             customOptions: { ...editingChartMeta.customOptions, tt01EarlyName: e.target.value }
@@ -5138,10 +5185,10 @@ export const DashboardPage: React.FC = () => {
                         </div>
                       </div>
                       <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đúng hạn</label>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ đúng hạn</label>
                         <input
                           type="text"
-                          value={editingChartMeta.customOptions?.tt01OnTimeName ?? 'Đúng hạn'}
+                          value={editingChartMeta.customOptions?.tt01OnTimeName ?? 'Đã GQ đúng hạn'}
                           onChange={(e) => setEditingChartMeta({
                             ...editingChartMeta,
                             customOptions: { ...editingChartMeta.customOptions, tt01OnTimeName: e.target.value }
@@ -5162,10 +5209,10 @@ export const DashboardPage: React.FC = () => {
                         </div>
                       </div>
                       <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quá hạn</label>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ quá hạn</label>
                         <input
                           type="text"
-                          value={editingChartMeta.customOptions?.tt01LateName ?? 'Quá hạn'}
+                          value={editingChartMeta.customOptions?.tt01LateName ?? 'Đã GQ quá hạn'}
                           onChange={(e) => setEditingChartMeta({
                             ...editingChartMeta,
                             customOptions: { ...editingChartMeta.customOptions, tt01LateName: e.target.value }
@@ -5194,7 +5241,31 @@ export const DashboardPage: React.FC = () => {
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
                       3. Cấu hình Màu sắc & Nhãn: Quyết định 766/QĐ-TTg (Bên phải)
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ trước hạn</label>
+                        <input
+                          type="text"
+                          value={editingChartMeta.customOptions?.qd766EarlyName ?? 'Đã GQ trước hạn'}
+                          onChange={(e) => setEditingChartMeta({
+                            ...editingChartMeta,
+                            customOptions: { ...editingChartMeta.customOptions, qd766EarlyName: e.target.value }
+                          })}
+                          className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded mb-1.5"
+                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editingChartMeta.customOptions?.qd766EarlyColor ?? '#10b981'}
+                            onChange={(e) => setEditingChartMeta({
+                              ...editingChartMeta,
+                              customOptions: { ...editingChartMeta.customOptions, qd766EarlyColor: e.target.value }
+                            })}
+                            className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
+                          />
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766EarlyColor ?? '#10b981'}</span>
+                        </div>
+                      </div>
                       <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
                         <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ đúng hạn</label>
                         <input
@@ -5209,21 +5280,21 @@ export const DashboardPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
-                            value={editingChartMeta.customOptions?.qd766OnTimeColor ?? '#10b981'}
+                            value={editingChartMeta.customOptions?.qd766OnTimeColor ?? '#0ea5e9'}
                             onChange={(e) => setEditingChartMeta({
                               ...editingChartMeta,
                               customOptions: { ...editingChartMeta.customOptions, qd766OnTimeColor: e.target.value }
                             })}
                             className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
                           />
-                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766OnTimeColor ?? '#10b981'}</span>
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766OnTimeColor ?? '#0ea5e9'}</span>
                         </div>
                       </div>
                       <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đang trong hạn</label>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đang GQ trong hạn</label>
                         <input
                           type="text"
-                          value={editingChartMeta.customOptions?.qd766PendingInTermName ?? 'Đang trong hạn'}
+                          value={editingChartMeta.customOptions?.qd766PendingInTermName ?? 'Đang GQ trong hạn'}
                           onChange={(e) => setEditingChartMeta({
                             ...editingChartMeta,
                             customOptions: { ...editingChartMeta.customOptions, qd766PendingInTermName: e.target.value }
@@ -5233,21 +5304,21 @@ export const DashboardPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
-                            value={editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#3b82f6'}
+                            value={editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#f59e0b'}
                             onChange={(e) => setEditingChartMeta({
                               ...editingChartMeta,
                               customOptions: { ...editingChartMeta.customOptions, qd766PendingInTermColor: e.target.value }
                             })}
                             className="w-7 h-7 rounded border border-slate-300 cursor-pointer p-0.5"
                           />
-                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#3b82f6'}</span>
+                          <span className="text-[10px] font-mono text-slate-500">{editingChartMeta.customOptions?.qd766PendingInTermColor ?? '#f59e0b'}</span>
                         </div>
                       </div>
                       <div className="bg-white p-2.5 rounded-lg border border-blue-200/80">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tổng quá hạn</label>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Đã GQ quá hạn + Đang trễ</label>
                         <input
                           type="text"
-                          value={editingChartMeta.customOptions?.qd766OverdueName ?? 'Tổng quá hạn (Đã + Đang trễ)'}
+                          value={editingChartMeta.customOptions?.qd766OverdueName ?? 'Đã GQ quá hạn + Đang GQ trễ hạn'}
                           onChange={(e) => setEditingChartMeta({
                             ...editingChartMeta,
                             customOptions: { ...editingChartMeta.customOptions, qd766OverdueName: e.target.value }
@@ -5300,14 +5371,6 @@ export const DashboardPage: React.FC = () => {
                       <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
                       Tùy chỉnh Nội dung Các Tab, Chú giải & Màu sắc
                     </h4>
-                    <button
-                      type="button"
-                      onClick={handleResetCurrentChartMeta}
-                      className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Mặc định
-                    </button>
                   </div>
 
                   {/* 1. Tùy chỉnh Tên hiển thị của 3 Tab */}
@@ -6590,17 +6653,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0">
-              <button
-                type="button"
-                onClick={() => setDraftTableHeaders({ ...DEFAULT_TABLE_HEADERS })}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
-                title="Đặt lại toàn bộ tiêu đề về tên mặc định chuẩn hành chính"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Khôi phục mặc định
-              </button>
-
+            <div className="flex items-center justify-end px-6 py-4 border-t border-slate-100 bg-slate-50/70 shrink-0">
               <div className="flex items-center gap-2">
                 <button
                   type="button"

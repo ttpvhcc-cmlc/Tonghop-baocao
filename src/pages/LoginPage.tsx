@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Lock,
-  Mail,
+  User,
   Eye,
   EyeOff,
   LogIn,
@@ -25,7 +25,7 @@ export const LoginPage: React.FC = () => {
   const [config, setConfig] = useState<SystemConfig>(store.getSystemConfig());
 
   // Form states
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -55,8 +55,8 @@ export const LoginPage: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
-      setErrorMessage('Vui lòng nhập đầy đủ Email công vụ và Mật khẩu.');
+    if (!account.trim() || !password) {
+      setErrorMessage('Vui lòng nhập đầy đủ Tài khoản và Mật khẩu.');
       return;
     }
 
@@ -66,10 +66,10 @@ export const LoginPage: React.FC = () => {
     setResendMessage('');
 
     try {
-      await store.signIn(email.trim(), password);
+      await store.signIn(account.trim(), password);
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
-      const msg = err?.message || 'Email hoặc mật khẩu không chính xác.';
+      const msg = err?.message || 'Tài khoản hoặc mật khẩu không chính xác.';
       setErrorMessage(msg);
     } finally {
       setLoading(false);
@@ -77,21 +77,22 @@ export const LoginPage: React.FC = () => {
   };
 
   const handleResendActivation = async () => {
-    if (!email.trim()) {
+    if (!account.trim()) {
       setResendStatus('error');
-      setResendMessage('Vui lòng nhập Email công vụ trước khi gửi lại yêu cầu kích hoạt.');
+      setResendMessage('Vui lòng nhập Tài khoản trước khi gửi lại yêu cầu kích hoạt.');
       return;
     }
     setResendStatus('busy');
     try {
       if (!supabase) throw new Error('Supabase client chưa sẵn sàng.');
+      const resolvedEmail = await store.resolveAccountToEmail(account.trim());
       const { error } = await supabase.auth.resend({
         type: 'signup',
-        email: email.trim(),
+        email: resolvedEmail,
       });
       if (error) throw error;
       setResendStatus('success');
-      setResendMessage('Đã gửi lại link kích hoạt email thành công! Vui lòng kiểm tra hộp thư đến.');
+      setResendMessage(`Đã gửi lại link kích hoạt email tới hộp thư (${resolvedEmail}) thành công!`);
     } catch (err: any) {
       setResendStatus('error');
       setResendMessage(err?.message || 'Không thể gửi lại link kích hoạt.');
@@ -231,7 +232,29 @@ export const LoginPage: React.FC = () => {
   const fontFamilyClass = getFontFamilyClass(config.loginFontFamily);
   const bgThemeClass = getBgThemeClass(config.loginBgTheme);
   const isCustomBg = config.loginBgTheme === 'custom' && config.loginCustomBgColor;
-  const logoPosition = config.loginLogoPosition || 'top';
+
+  const renderFormattedTitle = (title: string) => {
+    if (title.includes('\n')) {
+      return title.split('\n').map((line, idx) => (
+        <React.Fragment key={idx}>
+          <span className="block">{line}</span>
+        </React.Fragment>
+      ));
+    }
+    const phrase = 'CƠ CHẾ MỘT CỬA';
+    const idx = title.toUpperCase().indexOf(phrase);
+    if (idx > 0) {
+      const part1 = title.substring(0, idx).trim();
+      const part2 = title.substring(idx).trim();
+      return (
+        <>
+          <span className="block">{part1}</span>
+          <span className="block mt-1 sm:mt-2">{part2}</span>
+        </>
+      );
+    }
+    return title;
+  };
 
   return (
     <div className={`min-h-screen w-full flex flex-col justify-between bg-slate-100 text-slate-800 ${fontFamilyClass} selection:bg-blue-600 selection:text-white`}>
@@ -239,50 +262,41 @@ export const LoginPage: React.FC = () => {
       <div className="flex-1 flex flex-col lg:flex-row w-full min-h-screen">
         {/* Left Side: Administrative Identity (System Title, Subtitle, Logo & Custom Background) */}
         <div
-          className={`lg:w-7/12 xl:w-2/3 ${bgThemeClass} text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-center relative overflow-hidden`}
+          className={`lg:w-7/12 xl:w-2/3 ${bgThemeClass} text-white p-8 sm:p-12 lg:p-16 flex flex-col justify-center items-center relative overflow-hidden`}
           style={isCustomBg ? { backgroundColor: config.loginCustomBgColor } : undefined}
         >
           {/* Subtle Background Decoration */}
           <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]"></div>
           <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
-          {/* Centered Title, Subtitle & Logo Section */}
-          <div className="my-auto relative z-10 space-y-6 py-8">
-            {/* Top Logo Position */}
-            {logoPosition === 'top' && (
-              <div className="mb-2">
+          {/* Centered Title, Subtitle & Logo Section (Shifted up nicely) */}
+          <div className="my-auto relative z-10 space-y-6 py-6 text-center flex flex-col items-center justify-center max-w-3xl lg:max-w-4xl mx-auto -translate-y-8 sm:-translate-y-12 lg:-translate-y-16">
+            {/* Logo */}
+            {config.loginShowLogo !== false && (
+              <div className="flex justify-center mb-3 sm:mb-4 -translate-y-2">
                 {renderLoginLogo()}
               </div>
             )}
 
-            <div className={`${logoPosition === 'left' ? 'flex items-start gap-5' : 'space-y-4'}`}>
-              {/* Left Logo Position */}
-              {logoPosition === 'left' && (
-                <div className="shrink-0 pt-1">
-                  {renderLoginLogo()}
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <h1
-                  className={`tracking-tight leading-tight uppercase drop-shadow-xs ${config.loginSystemNameFontWeight || 'font-black'} text-2xl sm:text-3xl md:text-4xl lg:text-5xl`}
-                  style={{
-                    color: config.loginSystemNameColor || '#ffffff',
-                    fontSize: config.loginSystemNameFontSize ? config.loginSystemNameFontSize : undefined,
-                  }}
-                >
-                  {loginTitle}
-                </h1>
-                <p
-                  className={`leading-relaxed drop-shadow-2xs ${config.loginSubTitleFontWeight || 'font-semibold'} text-sm sm:text-base md:text-lg`}
-                  style={{
-                    color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
-                    fontSize: config.loginSubTitleFontSize ? config.loginSubTitleFontSize : undefined,
-                  }}
-                >
-                  {loginSubtitle}
-                </p>
-              </div>
+            <div className="space-y-4 flex flex-col items-center text-center">
+              <h1
+                className={`tracking-tight leading-snug sm:leading-tight uppercase drop-shadow-xs ${config.loginSystemNameFontWeight || 'font-black'} text-2xl sm:text-3xl md:text-4xl lg:text-[42px] text-center`}
+                style={{
+                  color: config.loginSystemNameColor || '#ffffff',
+                  fontSize: config.loginSystemNameFontSize ? config.loginSystemNameFontSize : undefined,
+                }}
+              >
+                {renderFormattedTitle(loginTitle)}
+              </h1>
+              <p
+                className={`leading-relaxed drop-shadow-2xs ${config.loginSubTitleFontWeight || 'font-semibold'} text-sm sm:text-base md:text-lg text-center max-w-2xl mx-auto`}
+                style={{
+                  color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
+                  fontSize: config.loginSubTitleFontSize ? config.loginSubTitleFontSize : undefined,
+                }}
+              >
+                {loginSubtitle}
+              </p>
             </div>
           </div>
         </div>
@@ -357,21 +371,24 @@ export const LoginPage: React.FC = () => {
 
             {/* Login Form */}
             <form onSubmit={handleLogin} className="space-y-4">
-              {/* Email Input */}
+              {/* Account Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Email công vụ <span className="text-slate-600">*</span>
+                  Tài khoản <span className="text-slate-600">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Mail className="w-4 h-4" />
+                    <User className="w-4 h-4" />
                   </div>
                   <input
-                    type="email"
+                    type="text"
                     required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
                     placeholder=""
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                   />
                 </div>

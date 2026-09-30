@@ -10,7 +10,6 @@ import {
   Trash2,
   CheckCircle2,
   XCircle,
-  RotateCcw,
   Clock,
   FileText,
   AlertCircle,
@@ -172,17 +171,6 @@ export const ReportPeriodsAdminPage: React.FC = () => {
       setDeleteConfirmItem(null);
     } catch (err: any) {
       showToast(err.message || 'Không thể xóa loại kỳ', 'error');
-    }
-  };
-
-  const handleResetDefaults = async () => {
-    if (window.confirm('Bạn có chắc chắn muốn khôi phục danh mục Loại kỳ báo cáo về mặc định ban đầu không?')) {
-      try {
-        await store.resetPeriodTypes();
-        showToast('Đã khôi phục danh mục loại kỳ báo cáo về mặc định');
-      } catch (err: any) {
-        showToast('Lỗi khi khôi phục: ' + err.message, 'error');
-      }
     }
   };
 

@@ -8,7 +8,6 @@ import {
   UserCheck,
   Flame,
   ShieldCheck,
-  RotateCcw,
 } from 'lucide-react';
 import { UrgeEntryForm } from '../components/dossierUrge/UrgeEntryForm';
 import { UrgeTable } from '../components/dossierUrge/UrgeTable';
@@ -75,13 +74,6 @@ export const DossierUrgePage: React.FC = () => {
 
   const handlePrintDossier = (record: DossierUrgeRecord) => {
     setPrintRecord(record);
-  };
-
-  const handleResetDemo = () => {
-    if (confirm('Khôi phục dữ liệu mẫu thực tế về tình hình đôn đốc hồ sơ?')) {
-      dossierUrgeStore.resetSampleData();
-      reloadData();
-    }
   };
 
   return (

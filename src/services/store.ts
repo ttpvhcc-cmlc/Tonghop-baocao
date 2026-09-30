@@ -523,8 +523,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   sidebarAutoHide: true,
   headerTitle: 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC',
   aiAnalysisExemplarTemplate: DEFAULT_AI_EXEMPLAR_TEMPLATE,
-  loginSystemName: '',
-  loginSubTitle: '',
+  loginSystemName: 'HỆ THỐNG TỔNG HỢP, ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH',
+  loginSubTitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
   loginSystemNameColor: '#ffffff',
   loginSystemNameFontSize: '24px',
   loginSystemNameFontWeight: 'font-black',
@@ -1183,10 +1183,47 @@ export class StorageService {
     return this.inMemoryCache.currentUser;
   }
 
-  public async signIn(email: string, password: string): Promise<Profile> {
+  public async resolveAccountToEmail(account: string): Promise<string> {
+    const raw = account.trim();
+    if (!raw) return '';
+    if (raw.includes('@')) return raw;
+
+    const username = raw.toLowerCase();
+
+    // 1. Search in cached users
+    const matchedUser = this.inMemoryCache.users.find((u) => {
+      const uEmail = (u.email || '').toLowerCase();
+      return uEmail.startsWith(`${username}@`) || (u as any).username?.toLowerCase() === username;
+    });
+    if (matchedUser && matchedUser.email) {
+      return matchedUser.email;
+    }
+
+    // 2. Search in Supabase profiles table
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('email')
+          .ilike('email', `${username}@%`)
+          .limit(1);
+        if (data && data.length > 0 && data[0]?.email) {
+          return data[0].email;
+        }
+      } catch (e) {
+        console.warn('Could not query profile by username:', e);
+      }
+    }
+
+    // 3. Fallback: assume standard domain
+    return `${username}@gmail.com`;
+  }
+
+  public async signIn(accountOrEmail: string, password: string): Promise<Profile> {
     if (!supabase) throw new Error('Supabase chưa được cấu hình.');
+    const resolvedEmail = await this.resolveAccountToEmail(accountOrEmail);
     const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: resolvedEmail,
       password,
     });
     if (error) throw new Error(`Lỗi đăng nhập: ${error.message}`);

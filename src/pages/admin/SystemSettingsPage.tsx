@@ -15,7 +15,6 @@ import {
   Award,
   FolderKanban,
   Save,
-  RotateCcw,
   CheckCircle2,
   Users,
   UserPlus,
@@ -189,31 +188,6 @@ export const SystemSettingsPage: React.FC = () => {
       ...config,
       rolePermissions: updatedPermissions,
     });
-  };
-
-  const handleResetRolePermissionsToDefault = (roleIndex?: number) => {
-    if (typeof roleIndex === 'number') {
-      const targetRole = config.rolePermissions[roleIndex];
-      const defaultRole = DEFAULT_SYSTEM_CONFIG.rolePermissions.find((r) => r.role === targetRole.role);
-      if (!defaultRole) return;
-      const updatedPermissions = [...config.rolePermissions];
-      updatedPermissions[roleIndex] = {
-        ...targetRole,
-        permissions: { ...defaultRole.permissions },
-      };
-      setConfig({
-        ...config,
-        rolePermissions: updatedPermissions,
-      });
-    } else {
-      setConfig({
-        ...config,
-        rolePermissions: DEFAULT_SYSTEM_CONFIG.rolePermissions.map((r) => ({
-          ...r,
-          permissions: { ...r.permissions },
-        })),
-      });
-    }
   };
 
   const handleOpenCreateUser = () => {
@@ -1828,9 +1802,9 @@ export const SystemSettingsPage: React.FC = () => {
 
                   {/* Render simulated logo */}
                   {config.loginShowLogo !== false && (
-                    <div className={`${(config.loginLogoPosition || 'top') === 'left' ? 'flex items-start gap-3.5' : 'space-y-3'}`}>
+                    <div className="space-y-3 flex flex-col items-center text-center">
                       <div
-                        className="rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 border border-white/20 shadow-md flex items-center justify-center shrink-0"
+                        className="rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 border border-white/20 shadow-md flex items-center justify-center shrink-0 mx-auto"
                         style={{
                           width: `${Math.min(60, config.loginLogoSize || 64)}px`,
                           height: `${Math.min(60, config.loginLogoSize || 64)}px`,
@@ -1845,9 +1819,9 @@ export const SystemSettingsPage: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="space-y-1.5 min-w-0">
+                      <div className="space-y-1.5 min-w-0 text-center flex flex-col items-center">
                         <h4
-                          className={`uppercase leading-snug tracking-tight ${config.loginSystemNameFontWeight || 'font-black'} ${
+                          className={`uppercase leading-snug tracking-tight text-center ${config.loginSystemNameFontWeight || 'font-black'} ${
                             config.loginFontFamily === 'be_vietnam_pro'
                               ? "font-['Be_Vietnam_Pro',sans-serif]"
                               : config.loginFontFamily === 'montserrat'
@@ -1867,10 +1841,23 @@ export const SystemSettingsPage: React.FC = () => {
                             fontSize: config.loginSystemNameFontSize ? `clamp(13px, ${config.loginSystemNameFontSize}, 18px)` : '15px'
                           }}
                         >
-                          {config.loginSystemName?.trim() || config.systemName || 'HỆ THỐNG TỔNG HỢP...'}
+                          {(() => {
+                            const raw = config.loginSystemName?.trim() || config.systemName || 'HỆ THỐNG TỔNG HỢP...';
+                            const phrase = 'CƠ CHẾ MỘT CỬA';
+                            const idx = raw.toUpperCase().indexOf(phrase);
+                            if (idx > 0) {
+                              return (
+                                <>
+                                  <span className="block">{raw.substring(0, idx).trim()}</span>
+                                  <span className="block mt-0.5">{raw.substring(idx).trim()}</span>
+                                </>
+                              );
+                            }
+                            return raw;
+                          })()}
                         </h4>
                         <p
-                          className={`leading-relaxed ${config.loginSubTitleFontWeight || 'font-semibold'}`}
+                          className={`leading-relaxed text-center ${config.loginSubTitleFontWeight || 'font-semibold'}`}
                           style={{
                             color: config.loginSubTitleColor || 'rgba(219, 234, 254, 0.9)',
                             fontSize: config.loginSubTitleFontSize ? `clamp(10px, ${config.loginSubTitleFontSize}, 13px)` : '11px'
@@ -1883,7 +1870,7 @@ export const SystemSettingsPage: React.FC = () => {
                   )}
 
                   {config.loginShowLogo === false && (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-center flex flex-col items-center">
                       <h4
                         className={`uppercase leading-snug tracking-tight ${config.loginSystemNameFontWeight || 'font-black'} ${
                           config.loginFontFamily === 'be_vietnam_pro'
@@ -2604,18 +2591,6 @@ export const SystemSettingsPage: React.FC = () => {
                 Cấu hình phân quyền chi tiết dựa trên toàn bộ 6 nhóm chức năng và Menu hệ thống ({allPermissionsList.length} quyền hạn)
               </p>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleResetRolePermissionsToDefault()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
-                title="Khôi phục phân quyền gốc cho tất cả các vai trò"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-                Khôi phục chuẩn mặc định
-              </button>
-            </div>
           </div>
 
           {/* Search and Category Filter Toolbar */}
@@ -2711,14 +2686,6 @@ export const SystemSettingsPage: React.FC = () => {
                           title="Tắt tất cả quyền cho vai trò này"
                         >
                           Tắt hết
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleResetRolePermissionsToDefault(roleIdx)}
-                          className="p-0.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
-                          title="Khôi phục mặc định vai trò này"
-                        >
-                          <RotateCcw className="w-2.5 h-2.5" />
                         </button>
                       </div>
                     </th>
