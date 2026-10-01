@@ -8,12 +8,14 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 export const UnitAnalysisPage: React.FC = () => {
   const [reports, setReports] = useState(store.getReports());
   const [units, setUnits] = useState(store.getUnits());
+  const [config, setConfig] = useState(store.getSystemConfig());
   const [selectedReportId, setSelectedReportId] = useState<string>(reports[0]?.id || '');
   useEffect(() => {
     const refresh = () => {
       const nextReports = store.getReports();
       setReports(nextReports);
       setUnits(store.getUnits());
+      setConfig(store.getSystemConfig());
       setSelectedReportId((current) => current || nextReports[0]?.id || '');
     };
     void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
@@ -97,11 +99,11 @@ export const UnitAnalysisPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Building2 className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Phân tích hiệu quả theo Đơn vị giải quyết
+              {config.pageTitles?.analysisUnitsTitle || 'Phân tích hiệu quả theo Đơn vị giải quyết'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Đánh giá khối lượng tiếp nhận, mức độ hoàn thành đúng hạn, tỷ lệ quá hạn (theo QĐ 776) và tỷ lệ số hóa giữa các đơn vị
+            {config.pageTitles?.analysisUnitsSubtitle || 'Đánh giá khối lượng tiếp nhận, mức độ hoàn thành đúng hạn, tỷ lệ quá hạn (theo QĐ 776) và tỷ lệ số hóa giữa các đơn vị'}
           </p>
         </div>
 

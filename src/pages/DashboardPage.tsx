@@ -345,6 +345,18 @@ const mergeWithDefaultKpiCards = (savedKpis?: any[]): KpiCardConfigItem[] => {
   }).sort((a, b) => a.order - b.order);
 };
 
+// Helper to extract year from reporting period (tính theo ngày cuối của kỳ báo cáo)
+const getReportPeriodYear = (report: ReportingPeriod | null | undefined): number => {
+  if (!report) return new Date().getFullYear();
+  const dateStr = report.period_end || report.data_as_of || report.period_start || report.created_at || '';
+  if (dateStr) {
+    const clean = dateStr.split('T')[0];
+    const yr = new Date(clean).getFullYear() || parseInt(clean.split('-')[0], 10);
+    if (yr && !isNaN(yr)) return yr;
+  }
+  return new Date().getFullYear();
+};
+
 export const DashboardPage: React.FC = () => {
   // Live Supabase Database state
   const [loading, setLoading] = useState<boolean>(true);
@@ -392,6 +404,7 @@ export const DashboardPage: React.FC = () => {
   const [liveFields, setLiveFields] = useState<Field[]>([]);
 
   // Filter state
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
   const [selectedReportId, setSelectedReportId] = useState<string>('');
   const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
   const [selectedSourceId, setSelectedSourceId] = useState<string>('ALL');
@@ -399,7 +412,41 @@ export const DashboardPage: React.FC = () => {
   const [presentationDimension, setPresentationDimension] = useState<'unit' | 'field'>('unit');
   const [chartViewType, setChartViewType] = useState<'count' | 'percent'>('count');
 
-  // Trend axis granularity ('month' | 'quarter' | 'year') and year selection state
+  // Danh sách các năm có số liệu tính theo ngày cuối của kỳ báo cáo (mặc định có năm hiện tại)
+  const availableYears = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const yearsSet = new Set<number>();
+    yearsSet.add(currentYear);
+
+    liveReports.forEach((rep) => {
+      const yr = getReportPeriodYear(rep);
+      if (yr && !isNaN(yr)) {
+        yearsSet.add(yr);
+      }
+    });
+
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [liveReports]);
+
+  // Danh sách kỳ báo cáo thuộc năm đã chọn
+  const filteredReportsByYear = useMemo(() => {
+    return liveReports.filter((rep) => {
+      const yr = getReportPeriodYear(rep);
+      return yr === selectedYear;
+    });
+  }, [liveReports, selectedYear]);
+
+  // Xử lý khi chọn Năm mới
+  const handleYearChange = (newYear: number) => {
+    setSelectedYear(newYear);
+    const inYearReports = liveReports.filter((rep) => getReportPeriodYear(rep) === newYear);
+    if (inYearReports.length > 0) {
+      setSelectedReportId(inYearReports[0].id);
+      loadData(inYearReports[0].id);
+    }
+  };
+
+  // Trend axis granularity ('month' | 'quarter' | 'year')
   const [trendGranularity, setTrendGranularity] = useState<'month' | 'quarter' | 'year'>('month');
   const [trendMetricMode, setTrendMetricMode] = useState<'count' | 'rate'>('count');
   const [selectedTrendYear, setSelectedTrendYear] = useState<number>(() => {
@@ -948,10 +995,19 @@ export const DashboardPage: React.FC = () => {
       setLiveStats(res.statistics);
       setAllPeriodStats(res.allPeriodStatistics || []);
 
-      if (!selectedReportId && res.currentReport) {
-        setSelectedReportId(res.currentReport.id);
-      } else if (!selectedReportId && sortedReps.length > 0) {
-        setSelectedReportId(sortedReps[0].id);
+      if (sortedReps.length > 0) {
+        if (!selectedReportId) {
+          const inYear = sortedReps.filter((r) => getReportPeriodYear(r) === selectedYear);
+          if (inYear.length > 0) {
+            setSelectedReportId(inYear[0].id);
+          } else if (res.currentReport) {
+            setSelectedReportId(res.currentReport.id);
+            setSelectedYear(getReportPeriodYear(res.currentReport));
+          } else {
+            setSelectedReportId(sortedReps[0].id);
+            setSelectedYear(getReportPeriodYear(sortedReps[0]));
+          }
+        }
       }
     } catch (err: any) {
       setDbStatus((prev) => ({ ...prev, connected: false, schemaReady: false, errorMessage: err.message }));
@@ -1005,9 +1061,16 @@ export const DashboardPage: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // When selectedReportId changes, reload specific report data
+  // When selectedReportId changes, reload specific report data and sync selectedYear
   const handleReportChange = (newReportId: string) => {
     setSelectedReportId(newReportId);
+    const rep = liveReports.find((r) => r.id === newReportId);
+    if (rep) {
+      const yr = getReportPeriodYear(rep);
+      if (yr && yr !== selectedYear) {
+        setSelectedYear(yr);
+      }
+    }
     loadData(newReportId);
   };
 
@@ -1124,20 +1187,14 @@ export const DashboardPage: React.FC = () => {
     });
   }, [filteredStats]);
 
-  // Chart 1: Monthly/Quarterly/Yearly Volume Trend
+  // Chart 1: Volume Trend qua các kỳ báo cáo (tính theo ngày cuối của kỳ báo cáo)
   const monthlyTrendData = useMemo(() => {
+    const activeYear = selectedYear || new Date().getFullYear();
     const targetReports = trendGranularity === 'year'
       ? liveReports
       : liveReports.filter((rep) => {
-          const dateStr = rep.data_as_of || rep.period_end || rep.period_start || rep.created_at || '';
-          if (!dateStr) return false;
-          const clean = dateStr.split('T')[0];
-          const parts = clean.split('-');
-          let yr = parts.length === 3 ? parseInt(parts[0], 10) : new Date(clean).getFullYear();
-          if (isNaN(yr) || yr === 1970) {
-            yr = selectedTrendYear;
-          }
-          return yr === selectedTrendYear;
+          const yr = getReportPeriodYear(rep);
+          return yr === activeYear;
         });
 
     const processed = targetReports.map((rep) => {
@@ -1161,9 +1218,9 @@ export const DashboardPage: React.FC = () => {
       const pendLate = filteredRepStats.reduce((acc, curr) => acc + (curr.pending_late || 0), 0);
       const compLate = filteredRepStats.reduce((acc, curr) => acc + (curr.completed_late || 0), 0);
 
-      // Parse date for exact day and month
-      const dateStr = rep.data_as_of || rep.period_end || rep.period_start || rep.created_at || '';
-      let year = selectedTrendYear;
+      // Parse date for exact day and month (Ưu tiên ngày cuối của kỳ báo cáo period_end)
+      const dateStr = rep.period_end || rep.data_as_of || rep.period_start || rep.created_at || '';
+      let year = activeYear;
       let month = 1;
       let day = 1;
       let formattedDate = dateStr;
@@ -1172,7 +1229,7 @@ export const DashboardPage: React.FC = () => {
         const cleanDate = dateStr.split('T')[0];
         const parts = cleanDate.split('-');
         if (parts.length === 3) {
-          year = parseInt(parts[0], 10) || selectedTrendYear;
+          year = parseInt(parts[0], 10) || activeYear;
           month = Math.max(1, Math.min(12, parseInt(parts[1], 10) || 1));
           day = Math.max(1, Math.min(31, parseInt(parts[2], 10) || 1));
           formattedDate = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
@@ -1190,17 +1247,14 @@ export const DashboardPage: React.FC = () => {
       const daysInMonth = new Date(year, month, 0).getDate() || 30;
       
       let x = 1;
-      if (trendGranularity === 'month') {
-        // Continuous position: 1.0 (Jan 1) -> 12.99 (Dec 31)
-        x = Math.round((month + (day - 1) / daysInMonth) * 1000) / 1000;
-      } else if (trendGranularity === 'quarter') {
-        // Continuous position: 1.0 (Q1) -> 4.99 (Q4)
+      if (trendGranularity === 'quarter') {
         const quarter = Math.floor((month - 1) / 3) + 1;
         const monthInQuarter = (month - 1) % 3;
         x = Math.round((quarter + (monthInQuarter + (day - 1) / daysInMonth) / 3) * 1000) / 1000;
-      } else {
-        // Continuous position across years: e.g. 2026.70
+      } else if (trendGranularity === 'year') {
         x = Math.round((year + (month - 1 + (day - 1) / daysInMonth) / 12) * 1000) / 1000;
+      } else {
+        x = Math.round((month + (day - 1) / daysInMonth) * 1000) / 1000;
       }
 
       const recRate = rec > 0 ? 100 : 0;
@@ -1213,6 +1267,7 @@ export const DashboardPage: React.FC = () => {
         code: rep.report_code,
         name: formattedDate || rep.report_name,
         formattedDate,
+        periodEndLabel: formattedDate,
         reportName: rep.report_name,
         year,
         month,
@@ -1235,7 +1290,7 @@ export const DashboardPage: React.FC = () => {
     // Sort chronologically
     processed.sort((a, b) => a.x - b.x);
     return processed;
-  }, [liveReports, allPeriodStats, trendGranularity, trendMetricMode, selectedTrendYear, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
+  }, [liveReports, allPeriodStats, trendGranularity, trendMetricMode, selectedYear, selectedUnitId, selectedSourceId, selectedFieldId, liveFields]);
 
   // Chart 2: Quality & Resolution distribution (TT 01 vs QĐ 766)
   const qualityChartConfig = useMemo(() => {
@@ -2291,12 +2346,30 @@ export const DashboardPage: React.FC = () => {
       {/* Top Controls & Global Filter Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs">
         <div className="flex flex-col 2xl:flex-row 2xl:items-end justify-between gap-3.5">
-          {/* Global Filter Bar (4 Filter Controls) */}
+          {/* Global Filter Bar (5 Filter Controls) */}
           {liveReports.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 min-w-0">
-              {/* Filter 1: Kỳ Báo Cáo */}
-              <div>
-                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+            <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
+              {/* Filter 1: Năm (giảm độ rộng) */}
+              <div className="w-28 sm:w-32 shrink-0">
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight truncate">
+                  Năm
+                </label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => handleYearChange(Number(e.target.value))}
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                >
+                  {availableYears.map((yr) => (
+                    <option key={yr} value={yr} className="font-semibold text-slate-900 py-1">
+                      Năm {yr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 2: Kỳ Báo Cáo (tăng độ rộng tối đa) */}
+              <div className="flex-1 min-w-[280px] sm:min-w-[340px] lg:min-w-[380px]">
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight truncate">
                   Kỳ báo cáo
                 </label>
                 <select
@@ -2304,23 +2377,29 @@ export const DashboardPage: React.FC = () => {
                   onChange={(e) => handleReportChange(e.target.value)}
                   className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
                 >
-                  {liveReports.map((r) => (
-                    <option key={r.id} value={r.id} className="font-semibold text-slate-900 py-1">
-                      {r.report_code} - {r.report_name}
+                  {filteredReportsByYear.length > 0 ? (
+                    filteredReportsByYear.map((r) => (
+                      <option key={r.id} value={r.id} className="font-semibold text-slate-900 py-1">
+                        {r.report_code} - {r.report_name}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled className="font-semibold text-slate-500 py-1">
+                      (Không có kỳ báo cáo trong năm {selectedYear})
                     </option>
-                  ))}
+                  )}
                 </select>
               </div>
 
-              {/* Filter 2: Nguồn dữ liệu */}
-              <div>
-                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+              {/* Filter 3: Nguồn dữ liệu (giảm độ rộng) */}
+              <div className="w-36 sm:w-44 lg:w-48 shrink-0">
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight truncate">
                   Nguồn dữ liệu
                 </label>
                 <select
                   value={selectedSourceId}
                   onChange={(e) => setSelectedSourceId(e.target.value)}
-                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors truncate"
                 >
                   <option value="ALL" className="font-semibold text-slate-900">Tất cả nguồn dữ liệu</option>
                   {liveSources.map((s) => (
@@ -2331,39 +2410,20 @@ export const DashboardPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Filter 3: Đơn vị giải quyết */}
-              <div>
-                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
+              {/* Filter 4: Đơn vị giải quyết (giảm độ rộng) */}
+              <div className="w-40 sm:w-48 lg:w-52 shrink-0">
+                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight truncate">
                   Đơn vị giải quyết
                 </label>
                 <select
                   value={selectedUnitId}
                   onChange={(e) => setSelectedUnitId(e.target.value)}
-                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
+                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors truncate"
                 >
                   <option value="ALL" className="font-semibold text-slate-900">Tất cả đơn vị</option>
                   {liveUnits.map((u) => (
                     <option key={u.id} value={u.id} className="font-semibold text-slate-900 py-1">
                       {u.name} ({u.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Filter 4: Lĩnh vực */}
-              <div>
-                <label className="block text-xs sm:text-[13px] font-bold text-slate-800 mb-1 tracking-tight">
-                  Lĩnh vực TTHC
-                </label>
-                <select
-                  value={selectedFieldId}
-                  onChange={(e) => setSelectedFieldId(e.target.value)}
-                  className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-slate-50 hover:bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs transition-colors"
-                >
-                  <option value="ALL" className="font-semibold text-slate-900">Tất cả lĩnh vực ({sectorOptions.length})</option>
-                  {sectorOptions.map((sec) => (
-                    <option key={sec} value={sec} className="font-semibold text-slate-900 py-1">
-                      {sec}
                     </option>
                   ))}
                 </select>
@@ -2922,7 +2982,7 @@ export const DashboardPage: React.FC = () => {
                                   ? 'bg-white text-blue-700 shadow-2xs'
                                   : 'text-slate-600 hover:text-slate-900'
                               }`}
-                              title="Hiển thị trục hoành 12 tháng"
+                              title="Hiển thị các mốc kỳ báo cáo theo ngày cuối kỳ"
                             >
                               Tháng
                             </button>
@@ -2951,24 +3011,6 @@ export const DashboardPage: React.FC = () => {
                               Năm
                             </button>
                           </div>
-
-                          {/* Year Selector placed to the right (only for Month / Quarter mode) */}
-                          {trendGranularity !== 'year' && (
-                            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5 shadow-2xs">
-                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Năm:</span>
-                              <select
-                                value={selectedTrendYear}
-                                onChange={(e) => setSelectedTrendYear(Number(e.target.value))}
-                                className="text-xs font-bold text-blue-700 bg-transparent border-0 focus:outline-none cursor-pointer py-0.5"
-                              >
-                                {availableTrendYears.map((yr) => (
-                                  <option key={yr} value={yr}>
-                                    {yr}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
                         </div>
                       </div>
 
@@ -2979,7 +3021,7 @@ export const DashboardPage: React.FC = () => {
                             <p className="text-xs font-semibold text-slate-600 mb-1">
                               {trendGranularity === 'year'
                                 ? 'Chưa có dữ liệu báo cáo nào'
-                                : `Chưa có kỳ báo cáo nào trong năm ${selectedTrendYear} theo bộ lọc hiện tại`}
+                                : `Chưa có kỳ báo cáo nào trong năm ${selectedYear || new Date().getFullYear()} theo bộ lọc hiện tại`}
                             </p>
                             <p className="text-[11px] text-slate-400 max-w-sm">
                               Hãy chọn năm khác có dữ liệu hoặc điều chỉnh lại bộ lọc Đơn vị / Lĩnh vực.
@@ -3050,11 +3092,11 @@ export const DashboardPage: React.FC = () => {
                                   if (!active || !payload || !payload.length) return null;
                                   const item = payload[0]?.payload;
                                   return (
-                                    <div className="bg-white/95 backdrop-blur-xs border border-slate-200/90 shadow-lg rounded-lg px-2.5 py-1.5 text-[11px] min-w-[140px] pointer-events-none z-50">
+                                    <div className="bg-white/95 backdrop-blur-xs border border-slate-200/90 shadow-lg rounded-lg px-2.5 py-1.5 text-[11px] min-w-[150px] pointer-events-none z-50">
                                       <div className="font-semibold text-slate-800 pb-1 mb-1 border-b border-slate-100 flex items-center justify-between gap-2">
-                                        <span>{item?.formattedDate || item?.name || 'Mốc báo cáo'}</span>
+                                        <span>Ngày cuối kỳ: {item?.formattedDate || item?.name || 'Mốc báo cáo'}</span>
                                         {item?.reportName && (
-                                          <span className="text-[10px] font-normal text-slate-400 truncate max-w-[110px]" title={item.reportName}>
+                                          <span className="text-[10px] font-normal text-slate-400 truncate max-w-[130px]" title={item.reportName}>
                                             {item.reportName}
                                           </span>
                                         )}

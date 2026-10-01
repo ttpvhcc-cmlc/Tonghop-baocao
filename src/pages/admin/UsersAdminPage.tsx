@@ -1,12 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { store, RolePermissionRule } from '../../services/store';
 import { Profile, UserRole } from '../../types/database';
-import { Users, Shield, Check, X, UserCheck, Edit2, Trash2, Mail, Building, UserPlus, User } from 'lucide-react';
+import {
+  Users,
+  Shield,
+  Check,
+  X,
+  UserCheck,
+  Edit2,
+  Trash2,
+  Mail,
+  Building,
+  UserPlus,
+  User,
+  RotateCcw,
+  CheckCircle2,
+  AlertCircle,
+  Filter,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 
 export const UsersAdminPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
   const [users, setUsers] = useState(store.getUsers());
+  const [userFilter, setUserFilter] = useState<'active' | 'inactive' | 'all'>('active');
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const units = store.getUnits();
+
   useEffect(() => {
     const refresh = () => {
       setUsers(store.getUsers());
@@ -15,7 +36,6 @@ export const UsersAdminPage: React.FC = () => {
     void store.syncWithSupabase().then(refresh).catch((error) => console.warn('Không thể tải hồ sơ người dùng từ Supabase:', error));
     return store.subscribe(refresh);
   }, []);
-
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
@@ -50,13 +70,13 @@ export const UsersAdminPage: React.FC = () => {
 
   const handleOpenEdit = (user: Profile) => {
     setEditingUser(user);
-    const uname = user.email ? user.email.split('@')[0] : '';
+    const uname = (user as any).username || (user.email ? user.email.split('@')[0] : '');
     setFormData({
       full_name: user.full_name,
       username: uname,
       role: user.role,
       unit_id: user.unit_id || '',
-      active: user.active,
+      active: user.active !== false,
       password: '',
     });
     setIsModalOpen(true);
@@ -81,6 +101,7 @@ export const UsersAdminPage: React.FC = () => {
           active: formData.active,
           password: formData.password ? formData.password : undefined,
         });
+        setToast({ type: 'success', text: `Đã cập nhật thông tin tài khoản "${formData.full_name}" thành công.` });
       } else {
         await store.createUser({
           full_name: formData.full_name,
@@ -89,6 +110,7 @@ export const UsersAdminPage: React.FC = () => {
           unit_id: formData.unit_id,
           password: formData.password || undefined,
         });
+        setToast({ type: 'success', text: `Đã tạo mới tài khoản "${formData.full_name}" thành công.` });
       }
       setUsers(store.getUsers());
       setIsModalOpen(false);
@@ -99,26 +121,52 @@ export const UsersAdminPage: React.FC = () => {
 
   const handleDelete = async (user: Profile) => {
     if (user.id === currentUser.id) {
-      alert('Không thể vô hiệu hóa tài khoản đang đăng nhập.');
+      alert('Không thể xóa / vô hiệu hóa tài khoản quản trị đang đăng nhập.');
       return;
     }
-    const uname = user.email ? user.email.split('@')[0] : user.id;
-    if (window.confirm(`Vô hiệu hóa hồ sơ "${user.full_name}" (Tài khoản: ${uname})?`)) {
+    const uname = (user as any).username || (user.email ? user.email.split('@')[0] : user.id);
+    const confirmed = window.confirm(
+      `Xác nhận xóa (vô hiệu hóa & ẩn) tài khoản:\n\n• Họ và tên: ${user.full_name}\n• Tên tài khoản: ${uname}\n\nTài khoản này sẽ không thể đăng nhập vào hệ thống nữa. Mọi dữ liệu liên quan (báo cáo, đôn đốc, nhật ký) vẫn được bảo toàn nguyên vẹn.`
+    );
+
+    if (confirmed) {
       try {
-        await store.saveUser({
-          id: user.id,
-          full_name: user.full_name,
-          username: uname,
-          role: user.role,
-          unit_id: user.unit_id || '',
-          active: false,
-        });
+        await store.deactivateUser(user.id);
         setUsers(store.getUsers());
+        setToast({
+          type: 'success',
+          text: `Đã xóa & ẩn tài khoản "${user.full_name}". Dữ liệu lịch sử liên quan vẫn được bảo toàn nguyên vẹn.`,
+        });
       } catch (err: any) {
-        alert(err.message);
+        alert(err.message || 'Lỗi khi vô hiệu hóa người dùng.');
       }
     }
   };
+
+  const handleReactivate = async (user: Profile) => {
+    try {
+      await store.reactivateUser(user.id);
+      setUsers(store.getUsers());
+      setToast({
+        type: 'success',
+        text: `Đã khôi phục hoạt động cho tài khoản "${user.full_name}". Tài khoản có thể đăng nhập bình thường.`,
+      });
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi kích hoạt lại người dùng.');
+    }
+  };
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const isActive = u.active !== false;
+      if (userFilter === 'active') return isActive;
+      if (userFilter === 'inactive') return !isActive;
+      return true;
+    });
+  }, [users, userFilter]);
+
+  const activeCount = useMemo(() => users.filter((u) => u.active !== false).length, [users]);
+  const inactiveCount = useMemo(() => users.filter((u) => u.active === false).length, [users]);
 
   const rolesList: Array<{
     role: UserRole;
@@ -245,15 +293,85 @@ export const UsersAdminPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Toast Alert */}
+      {toast && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center justify-between text-xs shadow-xs animate-in fade-in ${
+            toast.type === 'success'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+              : 'bg-rose-50 text-rose-900 border-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{toast.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Users CRUD Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            Danh sách Tài khoản và Cán bộ chuyên trách ({users.length})
-          </h3>
-          <span className="text-[11px] text-slate-500">
-            Đang đăng nhập với vai: <strong className="text-blue-700 uppercase">{currentUser.role}</strong>
-          </span>
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Danh sách Tài khoản Người dùng ({filteredUsers.length})
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              (Đang đăng nhập: <strong className="text-blue-700 uppercase">{currentUser.role}</strong>)
+            </span>
+          </div>
+
+          {/* Filter Tabs: Đang hoạt động / Đã vô hiệu hóa & ẩn / Tất cả */}
+          <div className="flex items-center gap-1.5 bg-slate-200/70 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setUserFilter('active')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                userFilter === 'active'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Đang hoạt động ({activeCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUserFilter('inactive')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                userFilter === 'inactive'
+                  ? 'bg-white text-rose-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <EyeOff className="w-3.5 h-3.5 text-rose-500" />
+              <span>Đã xóa / Ẩn ({inactiveCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUserFilter('all')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                userFilter === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Tất cả ({users.length})
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -269,77 +387,111 @@ export const UsersAdminPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {users.map((u) => {
-                const assignedUnit = units.find((un) => un.id === u.unit_id);
-                const roleMeta = rolesList.find((r) => r.role === u.role);
-                const isSelf = u.id === currentUser.id;
-                const usernameDisplay = (u as any).username || (u.email ? u.email.split('@')[0] : u.id);
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-slate-400">
+                    <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs font-medium">Không có tài khoản người dùng nào phù hợp với bộ lọc.</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredUsers.map((u) => {
+                  const assignedUnit = units.find((un) => un.id === u.unit_id);
+                  const roleMeta = rolesList.find((r) => r.role === u.role);
+                  const isSelf = u.id === currentUser.id;
+                  const usernameDisplay = (u as any).username || (u.email ? u.email.split('@')[0] : u.id);
+                  const isActive = u.active !== false;
 
-                return (
-                  <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-3 font-medium text-slate-900">
-                      <div className="flex items-center gap-2">
-                        <span>{u.full_name}</span>
-                        {isSelf && (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
-                            Bạn
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3 text-slate-700 font-mono font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{usernameDisplay}</span>
-                      </div>
-                    </td>
-                    <td className="p-3 text-slate-600">
-                      {assignedUnit ? (
-                        <div className="flex items-center gap-1.5">
-                          <Building className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{assignedUnit.name}</span>
+                  return (
+                    <tr
+                      key={u.id}
+                      className={`hover:bg-slate-50 transition-colors ${
+                        !isActive ? 'bg-slate-50/60 opacity-80' : ''
+                      }`}
+                    >
+                      <td className="p-3 font-medium text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span className={!isActive ? 'line-through text-slate-500' : ''}>{u.full_name}</span>
+                          {isSelf && (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                              Bạn
+                            </span>
+                          )}
+                          {!isActive && (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">
+                              Đã xóa / Ẩn
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-slate-400">Toàn cơ quan</span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full border ${roleMeta?.badgeColor}`}>
-                        {roleMeta?.title.split('(')[0].trim() || u.role}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        u.active ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
-                      }`}>
-                        {u.active ? 'Hoạt động' : 'Khóa'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEdit(u)}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded"
-                          title="Sửa tài khoản"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        {!isSelf && (
+                      </td>
+                      <td className="p-3 text-slate-700 font-mono font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className={!isActive ? 'text-slate-400' : ''}>{usernameDisplay}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-slate-600">
+                        {assignedUnit ? (
+                          <div className="flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{assignedUnit.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Toàn cơ quan</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full border ${roleMeta?.badgeColor}`}>
+                          {roleMeta?.title.split('(')[0].trim() || u.role}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isActive ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-slate-500 bg-slate-100 border border-slate-200'
+                        }`}>
+                          {isActive ? 'Hoạt động' : 'Đã vô hiệu hóa'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleDelete(u)}
-                            className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded"
-                            title="Vô hiệu hóa tài khoản"
+                            onClick={() => handleOpenEdit(u)}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            title="Sửa thông tin tài khoản"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+
+                          {isActive && !isSelf && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(u)}
+                              className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors flex items-center gap-1"
+                              title="Xóa & Vô hiệu hóa tài khoản (Ẩn khỏi hệ thống)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Xóa</span>
+                            </button>
+                          )}
+
+                          {!isActive && (
+                            <button
+                              type="button"
+                              onClick={() => handleReactivate(u)}
+                              className="px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1"
+                              title="Khôi phục quyền truy cập cho tài khoản"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Khôi phục</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

@@ -22,39 +22,65 @@ import { isTestProcedureCode } from '../utils/excelProcedureHelper';
 
 export interface SystemMenuLabels {
   dashboard: string;
-  dossier_urge?: string;
-  reports: string;
-  archive: string;
-  new_report: string;
-  import: string;
   analysis_group: string;
   analysis_units: string;
   analysis_fields: string;
   analysis_compare: string;
+  dossier_urge?: string;
+  update_report?: string;
+  reports: string;
+  archive: string;
   procedures_control: string;
+  public_dashboard?: string;
   catalog_group: string;
   catalog_units: string;
-  catalog_fields: string;
   catalog_indicators: string;
   catalog_period_types: string;
   system_group: string;
-  system_users: string;
   system_config: string;
   system_audit: string;
-  system_supabase: string;
+  system_supabase?: string;
+  new_report?: string;
+  import?: string;
+  catalog_fields?: string;
+  system_users?: string;
 }
 
 export interface SystemPageTitles {
   dashboardTitle: string;
   dashboardSubtitle: string;
-  reportsListTitle: string;
-  reportsListSubtitle: string;
-  importTitle: string;
-  importSubtitle: string;
-  analysisTitle: string;
-  analysisSubtitle: string;
+  analysisUnitsTitle?: string;
+  analysisUnitsSubtitle?: string;
+  analysisFieldsTitle?: string;
+  analysisFieldsSubtitle?: string;
   compareTitle: string;
   compareSubtitle: string;
+  dossierUrgeTitle?: string;
+  dossierUrgeSubtitle?: string;
+  reportsListTitle: string;
+  reportsListSubtitle: string;
+  archiveTitle?: string;
+  archiveSubtitle?: string;
+  proceduresControlTitle?: string;
+  proceduresControlSubtitle?: string;
+  publicDashboardTitle?: string;
+  publicDashboardSubtitle?: string;
+  catalogUnitsTitle?: string;
+  catalogUnitsSubtitle?: string;
+  catalogIndicatorsTitle?: string;
+  catalogIndicatorsSubtitle?: string;
+  catalogPeriodTypesTitle?: string;
+  catalogPeriodTypesSubtitle?: string;
+  systemSettingsTitle?: string;
+  systemSettingsSubtitle?: string;
+  auditLogsTitle?: string;
+  auditLogsSubtitle?: string;
+  supabaseTestTitle?: string;
+  supabaseTestSubtitle?: string;
+  importTitle?: string;
+  importSubtitle?: string;
+  newReportTitle?: string;
+  newReportSubtitle?: string;
 }
 
 export interface RolePermissionRule {
@@ -415,6 +441,8 @@ export interface SystemConfig {
   sidebarDefaultCollapsed?: boolean;
   sidebarAutoHide?: boolean;
   headerTitle: string;
+  headerBgColor?: string;
+  headerBorderColor?: string;
   menuLabels: SystemMenuLabels;
   pageTitles: SystemPageTitles;
   rolePermissions: RolePermissionRule[];
@@ -453,6 +481,9 @@ export interface SystemConfig {
 
   // THỨ TỰ MENU TRÁI DO ADMIN TÙY BIẾN ÁP DỤNG TOÀN HỆ THỐNG
   sidebarMenuOrder?: string[];
+
+  // BẬT / TẮT (THÊM / BỚT) HIỂN THỊ CÁC MỤC MENU TRÊN THANH MENU TRÁI
+  menuVisibility?: Record<string, boolean>;
 
   // CẤU HÌNH LÀM TRÒN SỐ LIỆU TỶ LỆ (%) TOÀN HỆ THỐNG
   percentRoundingDecimals?: number;
@@ -522,6 +553,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   sidebarDefaultCollapsed: true,
   sidebarAutoHide: true,
   headerTitle: 'CƠ SỞ DỮ LIỆU THỐNG KÊ TTHC',
+  headerBgColor: '#ffffff',
+  headerBorderColor: '#e2e8f0',
   aiAnalysisExemplarTemplate: DEFAULT_AI_EXEMPLAR_TEMPLATE,
   loginSystemName: 'HỆ THỐNG TỔNG HỢP, ĐÁNH GIÁ TÌNH HÌNH TIẾP NHẬN, GIẢI QUYẾT THỦ TỤC HÀNH CHÍNH',
   loginSubTitle: 'Trung tâm Phục vụ hành chính công xã Chân Mây - Lăng Cô',
@@ -543,40 +576,91 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   percentRoundingDecimals: 2,
   percentRoundingMode: 'half_up',
   percentRoundingTrailingZeros: true,
+  menuVisibility: {
+    dashboard: true,
+    public_dashboard: true,
+    dossier_urge: true,
+    update_report: true,
+    reports: true,
+    new_report: true,
+    import: true,
+    archive: true,
+    analysis_group: true,
+    analysis_units: true,
+    analysis_fields: true,
+    analysis_compare: true,
+    procedures_control: true,
+    catalog_group: true,
+    catalog_units: true,
+    catalog_fields: true,
+    catalog_indicators: true,
+    catalog_period_types: true,
+    system_group: true,
+    system_config: true,
+    system_users: true,
+    system_audit: true,
+    system_supabase: true,
+  },
   menuLabels: {
     dashboard: 'Tổng quan',
-    dossier_urge: 'Đôn đốc hồ sơ',
-    reports: 'Kỳ báo cáo',
-    archive: 'Kho lưu trữ',
-    new_report: 'Tạo kỳ báo cáo mới',
-    import: 'Nhập dữ liệu Excel',
     analysis_group: 'Phân tích dữ liệu',
     analysis_units: 'Theo Đơn vị',
     analysis_fields: 'Theo Lĩnh vực',
     analysis_compare: 'So sánh nhiều kỳ',
+    dossier_urge: 'Đôn đốc hồ sơ',
+    update_report: 'Cập nhật báo cáo',
+    reports: 'Kỳ báo cáo',
+    new_report: 'Tạo kỳ báo cáo',
+    import: 'Nhập từ Excel',
+    archive: 'Kho lưu trữ',
     procedures_control: 'Kiểm soát TTHC',
+    public_dashboard: 'Màn hình TV 55"',
     catalog_group: 'Danh mục quản trị',
     catalog_units: 'Đơn vị giải quyết',
-    catalog_fields: 'Kiểm soát TTHC',
+    catalog_fields: 'Lĩnh vực TTHC',
     catalog_indicators: 'Chỉ tiêu và Công thức',
     catalog_period_types: 'Loại kỳ báo cáo',
-    system_group: 'Hệ thống và Kiểm soát',
-    system_users: 'Phân quyền người dùng',
-    system_config: 'Thiết lập Hệ thống & Giao diện',
-    system_audit: 'Nhật ký hệ thống (Audit)',
+    system_group: 'HỆ THỐNG & KIỂM SOÁT',
+    system_config: 'Thiết lập hệ thống',
+    system_users: 'Quản lý người dùng',
+    system_audit: 'Nhật ký hệ thống',
     system_supabase: 'Kiểm thử Supabase',
   },
   pageTitles: {
     dashboardTitle: 'Tổng quan Báo cáo Thống kê TTHC',
     dashboardSubtitle: 'Theo dõi chỉ tiêu tiếp nhận, giải quyết và tỷ lệ dịch vụ công trực tuyến',
-    reportsListTitle: 'Danh sách Kỳ Báo cáo Thống kê',
-    reportsListSubtitle: 'Quản lý tập trung các kỳ báo cáo tình hình giải quyết thủ tục hành chính',
-    importTitle: 'Nhập Dữ liệu Báo cáo Excel',
-    importSubtitle: 'Trích xuất và chuẩn hóa tự động số liệu từ biểu mẫu Excel báo cáo',
-    analysisTitle: 'Phân tích và Dự báo Số liệu',
-    analysisSubtitle: 'Đánh giá chi tiết hiệu quả giải quyết TTHC theo đơn vị và lĩnh vực',
+    analysisUnitsTitle: 'Phân tích Tình hình theo Đơn vị',
+    analysisUnitsSubtitle: 'Thống kê chi tiết tiến độ và tỷ lệ giải quyết hồ sơ theo từng phòng ban, đơn vị',
+    analysisFieldsTitle: 'Phân tích Tình hình theo Lĩnh vực',
+    analysisFieldsSubtitle: 'Đánh giá khối lượng và chất lượng giải quyết TTHC phân theo từng lĩnh vực',
     compareTitle: 'So sánh Biến động qua các Kỳ',
     compareSubtitle: 'Theo dõi xu hướng tăng giảm chỉ tiêu giữa các kỳ báo cáo',
+    dossierUrgeTitle: 'Đôn đốc và Cảnh báo Hồ sơ TTHC',
+    dossierUrgeSubtitle: 'Giám sát hồ sơ sắp đến hạn, quá hạn và gửi cảnh báo đôn đốc xử lý',
+    reportsListTitle: 'Danh sách Kỳ Báo cáo Thống kê',
+    reportsListSubtitle: 'Quản lý tập trung các kỳ báo cáo tình hình giải quyết thủ tục hành chính',
+    archiveTitle: 'Kho Lưu trữ Báo cáo TTHC',
+    archiveSubtitle: 'Tra cứu, sao lưu và tải xuống các báo cáo thống kê qua các giai đoạn',
+    proceduresControlTitle: 'Kiểm soát Thủ tục hành chính',
+    proceduresControlSubtitle: 'Quản lý danh mục thủ tục, thời hạn giải quyết và quy trình cung cấp dịch vụ công',
+    publicDashboardTitle: 'Hệ thống Thông tin Phục vụ Người dân & Doanh nghiệp (Kiosk / TV 55")',
+    publicDashboardSubtitle: 'Công khai, minh bạch tiến độ giải quyết thủ tục hành chính trên màn hình lớn',
+    catalogUnitsTitle: 'Quản lý Đơn vị giải quyết',
+    catalogUnitsSubtitle: 'Thiết lập danh mục các cơ quan, đơn vị, bộ phận tiếp nhận và xử lý hồ sơ',
+    catalogIndicatorsTitle: 'Chỉ tiêu và Công thức Tính toán',
+    catalogIndicatorsSubtitle: 'Cấu hình các chỉ tiêu thống kê, tỷ lệ theo Thông tư 01/2018 và Quyết định 766',
+    catalogPeriodTypesTitle: 'Danh mục Loại kỳ báo cáo',
+    catalogPeriodTypesSubtitle: 'Cấu hình chu kỳ báo cáo định kỳ (Tuần, Tháng, Quý, 6 Tháng, Năm, Đột xuất)',
+    systemSettingsTitle: 'Thiết lập Hệ thống & Giao diện',
+    systemSettingsSubtitle: 'Tùy biến thương hiệu, menu, giao diện và phân quyền người dùng',
+    auditLogsTitle: 'Nhật ký Hoạt động Hệ thống (Audit Logs)',
+    auditLogsSubtitle: 'Ghi nhận và tra cứu toàn bộ lịch sử thao tác của người dùng trong hệ thống',
+    supabaseTestTitle: 'Kiểm tra Kết nối Cơ sở dữ liệu Supabase',
+    supabaseTestSubtitle: 'Xác thực trạng thái đồng bộ bảng dữ liệu và kết nối thời gian thực',
+    importTitle: 'Nhập Dữ liệu Báo cáo Excel',
+    importSubtitle: 'Trích xuất và chuẩn hóa tự động số liệu từ biểu mẫu Excel báo cáo',
+    newReportTitle: 'Khởi tạo Kỳ Báo cáo Mới',
+    newReportSubtitle: 'Thiết lập thông tin chu kỳ, thời gian chốt số liệu và tạo mẫu biểu báo cáo',
   },
   publicDisplay: DEFAULT_PUBLIC_DISPLAY_CONFIG,
   rolePermissions: [
@@ -730,49 +814,6 @@ const GUEST_USER: Profile = {
   updated_at: '1970-01-01T00:00:00.000Z',
 };
 
-export const DEFAULT_PROFILES: Profile[] = [
-  {
-    id: 'user_admin_01',
-    full_name: 'Quản trị viên Hệ thống',
-    email: 'admin@cmlc.local',
-    role: 'admin',
-    unit_id: null,
-    active: true,
-    created_at: '2026-01-01T00:00:00.000Z',
-    updated_at: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user_ldhoan_02',
-    full_name: 'Lê Đình Hoàn',
-    email: 'ldhoan.cmlc@cmlc.local',
-    role: 'analyst',
-    unit_id: null,
-    active: true,
-    created_at: '2026-01-01T00:00:00.000Z',
-    updated_at: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user_dataentry_03',
-    full_name: 'Chuyên viên Tiếp nhận & Nhập liệu',
-    email: 'dataentry@cmlc.local',
-    role: 'data_entry',
-    unit_id: null,
-    active: true,
-    created_at: '2026-01-01T00:00:00.000Z',
-    updated_at: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user_viewer_04',
-    full_name: 'Lãnh đạo Cơ quan (Chế độ xem)',
-    email: 'lanhdao@cmlc.local',
-    role: 'viewer',
-    unit_id: null,
-    active: true,
-    created_at: '2026-01-01T00:00:00.000Z',
-    updated_at: '2026-01-01T00:00:00.000Z',
-  },
-];
-
 
 // Helper to generate UUID
 function generateUUID(): string {
@@ -909,6 +950,10 @@ export class StorageService {
                 ...DEFAULT_SYSTEM_CONFIG.menuLabels,
                 ...(parsed.menuLabels || {}),
               },
+              menuVisibility: {
+                ...DEFAULT_SYSTEM_CONFIG.menuVisibility,
+                ...(parsed.menuVisibility || {}),
+              },
               pageTitles: {
                 ...DEFAULT_SYSTEM_CONFIG.pageTitles,
                 ...(parsed.pageTitles || {}),
@@ -954,8 +999,28 @@ export class StorageService {
       }
     }
 
-    let initialUsers: Profile[] = DEFAULT_PROFILES;
-    let initialCurrentUser: Profile = DEFAULT_PROFILES[0];
+    // Clear legacy dummy cache if any exists
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedUser = localStorage.getItem('tthc_active_user');
+        if (cachedUser) {
+          const parsed = JSON.parse(cachedUser);
+          if (parsed && (parsed.id === 'user_admin_01' || parsed.id === 'user_ldhoan_02' || parsed.id === 'user_dataentry_03' || parsed.id === 'user_viewer_04')) {
+            localStorage.removeItem('tthc_active_user');
+          }
+        }
+        const cachedUsers = localStorage.getItem('tthc_users_cache');
+        if (cachedUsers) {
+          const parsed = JSON.parse(cachedUsers);
+          if (Array.isArray(parsed) && parsed.some((p: any) => p.id === 'user_admin_01' || p.id === 'user_ldhoan_02')) {
+            localStorage.removeItem('tthc_users_cache');
+          }
+        }
+      } catch (e) {}
+    }
+
+    let initialUsers: Profile[] = [];
+    let initialCurrentUser: Profile = GUEST_USER;
     if (typeof window !== 'undefined') {
       try {
         const cachedUsers = localStorage.getItem('tthc_users_cache');
@@ -971,17 +1036,13 @@ export class StorageService {
 
       try {
         const loggedOut = localStorage.getItem('tthc_logged_out');
-        if (loggedOut === 'true') {
-          initialCurrentUser = GUEST_USER;
-        } else {
+        if (loggedOut !== 'true') {
           const cachedUser = localStorage.getItem('tthc_active_user');
           if (cachedUser) {
             const parsed = JSON.parse(cachedUser);
-            if (parsed && parsed.id) {
+            if (parsed && parsed.id && parsed.id !== 'guest') {
               initialCurrentUser = parsed;
             }
-          } else {
-            localStorage.setItem('tthc_active_user', JSON.stringify(initialCurrentUser));
           }
         }
       } catch (e) {
@@ -1156,6 +1217,7 @@ export class StorageService {
             ...DEFAULT_SYSTEM_CONFIG,
             ...raw,
             menuLabels: { ...DEFAULT_SYSTEM_CONFIG.menuLabels, ...(raw.menuLabels || {}) },
+            menuVisibility: { ...DEFAULT_SYSTEM_CONFIG.menuVisibility, ...(raw.menuVisibility || {}) },
             pageTitles: { ...DEFAULT_SYSTEM_CONFIG.pageTitles, ...(raw.pageTitles || {}) },
             rolePermissions: Array.isArray(raw.rolePermissions) && raw.rolePermissions.length > 0
               ? raw.rolePermissions
@@ -1177,21 +1239,16 @@ export class StorageService {
       // 10. Fetch profiles (users) from Supabase
       try {
         const { data: profilesData, error: profilesError } = await supabase.from('profiles').select('*');
-        if (!profilesError && Array.isArray(profilesData) && profilesData.length > 0) {
+        if (!profilesError && Array.isArray(profilesData)) {
           this.inMemoryCache.users = deduplicateById(profilesData);
           if (typeof window !== 'undefined') {
             try {
               localStorage.setItem('tthc_users_cache', JSON.stringify(this.inMemoryCache.users));
             } catch (e) {}
           }
-        } else if (!this.inMemoryCache.users || this.inMemoryCache.users.length === 0) {
-          this.inMemoryCache.users = [...DEFAULT_PROFILES];
         }
       } catch (profErr) {
         console.warn('Note on fetching profiles from Supabase:', profErr);
-        if (!this.inMemoryCache.users || this.inMemoryCache.users.length === 0) {
-          this.inMemoryCache.users = [...DEFAULT_PROFILES];
-        }
       }
 
       this.lastSyncTime = new Date().toISOString();
@@ -1209,9 +1266,7 @@ export class StorageService {
       this.inMemoryCache.stats = [];
       this.inMemoryCache.indicators = [];
       this.inMemoryCache.reportIndicators = [];
-      if (!this.inMemoryCache.users || this.inMemoryCache.users.length === 0) {
-        this.inMemoryCache.users = [...DEFAULT_PROFILES];
-      }
+      this.inMemoryCache.users = [];
       this.inMemoryCache.analyses = [];
       this.inMemoryCache.snapshots = [];
       this.inMemoryCache.auditLogs = [];
@@ -1381,6 +1436,10 @@ export class StorageService {
     if (authSuccess) {
       const user = await this.loadAuthenticatedUser();
       if (user) {
+        if (user.active === false) {
+          await this.signOut();
+          throw new Error('Tài khoản này đã bị khóa / vô hiệu hóa hoặc ngừng hoạt động. Vui lòng liên hệ Quản trị viên hệ thống.');
+        }
         if (typeof window !== 'undefined') {
           try {
             localStorage.removeItem('tthc_logged_out');
@@ -1398,19 +1457,24 @@ export class StorageService {
       return uName === cleanUsername || (u.email && u.email.toLowerCase() === raw.toLowerCase());
     });
 
-    if (matchedProfile && (password === '12345678@' || password === 'admin' || password === '123456' || password === cleanUsername || !supabase)) {
-      this.inMemoryCache.currentUser = {
-        ...matchedProfile,
-        active: true,
-      };
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.removeItem('tthc_logged_out');
-          localStorage.setItem('tthc_active_user', JSON.stringify(this.inMemoryCache.currentUser));
-        } catch (e) {}
+    if (matchedProfile) {
+      if (matchedProfile.active === false) {
+        throw new Error('Tài khoản này đã bị khóa / vô hiệu hóa hoặc ngừng hoạt động. Vui lòng liên hệ Quản trị viên hệ thống.');
       }
-      this.notify();
-      return this.inMemoryCache.currentUser;
+      if (password === '12345678@' || password === 'admin' || password === '123456' || password === cleanUsername || !supabase) {
+        this.inMemoryCache.currentUser = {
+          ...matchedProfile,
+          active: true,
+        };
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('tthc_logged_out');
+            localStorage.setItem('tthc_active_user', JSON.stringify(this.inMemoryCache.currentUser));
+          } catch (e) {}
+        }
+        this.notify();
+        return this.inMemoryCache.currentUser;
+      }
     }
 
     throw new Error('Tài khoản hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.');
@@ -1464,30 +1528,14 @@ export class StorageService {
   }
 
   public getUsers(): Profile[] {
-    const list = this.inMemoryCache.users;
-    if (!list || list.length === 0) {
-      if (typeof window !== 'undefined') {
-        try {
-          const cached = localStorage.getItem('tthc_users_cache');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              this.inMemoryCache.users = parsed;
-              return deduplicateById(this.inMemoryCache.users);
-            }
-          }
-        } catch (e) {}
-      }
-      this.inMemoryCache.users = [...DEFAULT_PROFILES];
-    }
-    return deduplicateById(this.inMemoryCache.users);
+    return deduplicateById(this.inMemoryCache.users || []);
   }
 
   public async fetchUsers(): Promise<Profile[]> {
     if (supabase) {
       try {
         const { data, error } = await supabase.from('profiles').select('*');
-        if (!error && Array.isArray(data) && data.length > 0) {
+        if (!error && Array.isArray(data)) {
           this.inMemoryCache.users = deduplicateById(data);
           if (typeof window !== 'undefined') {
             try {
@@ -1584,8 +1632,6 @@ export class StorageService {
     password?: string;
   }): Promise<Profile> {
     this.assertRole(['admin'], 'quản lý hồ sơ người dùng');
-    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
-    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
 
     if (!user.id) {
       throw new Error('Không tìm thấy mã người dùng để cập nhật.');
@@ -1608,12 +1654,41 @@ export class StorageService {
       payload.email = emailToSave;
     }
 
-    const { data: saved, error } = await supabase.from('profiles').upsert(payload).select('*').single();
-    if (error) throw new Error(`Không thể lưu hồ sơ người dùng vào Supabase: ${error.message}`);
-    const result = saved as Profile;
+    if (isSupabaseConfigured && supabase && this.isSchemaReady) {
+      try {
+        const { data: saved, error } = await supabase.from('profiles').upsert(payload).select('*').single();
+        if (!error && saved) {
+          const result = saved as Profile;
+          this.inMemoryCache.users = [
+            ...this.inMemoryCache.users.filter((u) => u.id !== result.id),
+            result,
+          ];
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('tthc_users_cache', JSON.stringify(this.inMemoryCache.users));
+            } catch (e) {}
+          }
+          this.notify();
+          return result;
+        }
+      } catch (e) {
+        console.warn('Supabase saveUser warning:', e);
+      }
+    }
+
+    const localResult: Profile = {
+      id: user.id,
+      full_name: user.full_name.trim(),
+      email: emailToSave || `${user.id}@cmlc.local`,
+      role: user.role,
+      unit_id: user.unit_id || undefined,
+      active: user.active !== false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
     this.inMemoryCache.users = [
-      ...this.inMemoryCache.users.filter((u) => u.id !== result.id),
-      result,
+      ...this.inMemoryCache.users.filter((u) => u.id !== localResult.id),
+      localResult,
     ];
     if (typeof window !== 'undefined') {
       try {
@@ -1621,25 +1696,79 @@ export class StorageService {
       } catch (e) {}
     }
     this.notify();
-    return result;
+    return localResult;
   }
 
-  public async deleteUser(userId: string): Promise<void> {
-    this.assertRole(['admin'], 'xóa hồ sơ người dùng');
-    if (!supabase) throw new Error('Supabase chưa được cấu hình.');
-    if (!this.isSchemaReady && !(await this.syncWithSupabase())) throw new Error('Không thể kết nối CSDL Supabase.');
-    if (userId === this.getCurrentUser().id) throw new Error('Không thể xóa tài khoản đang đăng nhập.');
+  /**
+   * Xóa mềm / Vô hiệu hóa người dùng:
+   * Chuyển active = false và ẩn khỏi danh sách sử dụng để bảo toàn trọn vẹn dữ liệu
+   * lịch sử báo cáo, audit logs, nhật ký xử lý và không cho phép tài khoản đăng nhập nữa.
+   */
+  public async deactivateUser(userId: string): Promise<Profile> {
+    this.assertRole(['admin'], 'vô hiệu hóa / ẩn người dùng');
+    if (userId === this.getCurrentUser().id) {
+      throw new Error('Không thể vô hiệu hóa tài khoản quản trị đang đăng nhập.');
+    }
 
-    const { error } = await supabase.from('profiles').delete().eq('id', userId);
-    if (error) throw new Error(`Không thể xóa hồ sơ người dùng khỏi Supabase: ${error.message}`);
+    const existing = this.inMemoryCache.users.find((u) => u.id === userId);
+    if (!existing) throw new Error('Không tìm thấy tài khoản người dùng.');
 
-    this.inMemoryCache.users = this.inMemoryCache.users.filter((u) => u.id !== userId);
+    const updatedProfile: Profile = {
+      ...existing,
+      active: false,
+    };
+
+    if (isSupabaseConfigured && supabase && this.isSchemaReady) {
+      try {
+        await supabase.from('profiles').update({ active: false }).eq('id', userId);
+      } catch (e) {
+        console.warn('Supabase deactivateUser warning:', e);
+      }
+    }
+
+    this.inMemoryCache.users = this.inMemoryCache.users.map((u) => (u.id === userId ? updatedProfile : u));
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem('tthc_users_cache', JSON.stringify(this.inMemoryCache.users));
       } catch (e) {}
     }
     this.notify();
+    return updatedProfile;
+  }
+
+  /**
+   * Khôi phục / Kích hoạt lại người dùng đã vô hiệu hóa
+   */
+  public async reactivateUser(userId: string): Promise<Profile> {
+    this.assertRole(['admin'], 'kích hoạt lại người dùng');
+    const existing = this.inMemoryCache.users.find((u) => u.id === userId);
+    if (!existing) throw new Error('Không tìm thấy tài khoản người dùng.');
+
+    const updatedProfile: Profile = {
+      ...existing,
+      active: true,
+    };
+
+    if (isSupabaseConfigured && supabase && this.isSchemaReady) {
+      try {
+        await supabase.from('profiles').update({ active: true }).eq('id', userId);
+      } catch (e) {
+        console.warn('Supabase reactivateUser warning:', e);
+      }
+    }
+
+    this.inMemoryCache.users = this.inMemoryCache.users.map((u) => (u.id === userId ? updatedProfile : u));
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('tthc_users_cache', JSON.stringify(this.inMemoryCache.users));
+      } catch (e) {}
+    }
+    this.notify();
+    return updatedProfile;
+  }
+
+  public async deleteUser(userId: string): Promise<void> {
+    await this.deactivateUser(userId);
   }
 
   // --- Period Types (Loại kỳ báo cáo) CRUD ---

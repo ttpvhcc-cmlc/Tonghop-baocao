@@ -21,12 +21,16 @@ import {
 export const ArchivePage: React.FC = () => {
   const navigate = useNavigate();
   const [reports, setReports] = useState(store.getReports());
+  const [config, setConfig] = useState(store.getSystemConfig());
   const [search, setSearch] = useState('');
   const [yearFilter, setYearFilter] = useState('ALL');
   const [monthFilter, setMonthFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   useEffect(() => {
-    const refresh = () => setReports(store.getReports());
+    const refresh = () => {
+      setReports(store.getReports());
+      setConfig(store.getSystemConfig());
+    };
     void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải kho báo cáo từ Supabase:', error));
     return store.subscribe(refresh);
   }, []);
@@ -99,11 +103,11 @@ export const ArchivePage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Archive className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Kho Lưu Trữ Báo Cáo Lịch Sử & Hồ Sơ Đóng Băng
+              {config.pageTitles?.archiveTitle || 'Kho Lưu Trữ Báo Cáo Lịch Sử & Hồ Sơ Đóng Băng'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Tra cứu, kiểm tra bản chụp Snapshot của các kỳ báo cáo đã phê duyệt/khóa, tải tệp xuất lưu trữ và so sánh chéo giữa hai kỳ
+            {config.pageTitles?.archiveSubtitle || 'Tra cứu, kiểm tra bản chụp Snapshot của các kỳ báo cáo đã phê duyệt/khóa, tải tệp xuất lưu trữ và so sánh chéo giữa hai kỳ'}
           </p>
         </div>
 

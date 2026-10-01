@@ -105,17 +105,23 @@ export const Header: React.FC<HeaderProps> = ({
   const officerNameDisplay = getOfficerDisplayName(activeUser);
 
   return (
-    <header className="min-h-[64px] py-2 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs">
+    <header
+      className="min-h-[64px] py-2 border-b px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-xs transition-colors"
+      style={{
+        backgroundColor: config.headerBgColor || '#ffffff',
+        borderColor: config.headerBorderColor || '#e2e8f0',
+      }}
+    >
       {/* Left Customizable Branding */}
       <div className="flex items-center gap-3 min-w-0 flex-1 mr-4">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="p-2 -ml-1 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer border border-transparent hover:border-slate-200 shrink-0"
+          className="p-2 -ml-1 text-white hover:text-white hover:bg-white/20 active:bg-white/30 rounded-xl transition-all cursor-pointer border border-white/25 bg-white/15 shadow-2xs shrink-0 flex items-center justify-center"
           title={isSidebarCollapsed ? "Mở menu chức năng" : "Ẩn hoàn toàn menu"}
           aria-label="Toggle Menu"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="w-5 h-5 text-white" />
         </button>
 
         <div className="flex items-center gap-3 min-w-0">

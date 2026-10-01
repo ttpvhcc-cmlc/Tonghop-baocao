@@ -29,6 +29,7 @@ import {
 export const CompareAnalysisPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [reports, setReports] = useState(store.getReports());
+  const [config, setConfig] = useState(store.getSystemConfig());
 
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
@@ -43,6 +44,7 @@ export const CompareAnalysisPage: React.FC = () => {
   useEffect(() => {
     const refresh = () => {
       setReports(store.getReports());
+      setConfig(store.getSystemConfig());
       forceRefresh((v) => v + 1);
     };
     const unsubscribe = store.subscribe(refresh);
@@ -223,11 +225,11 @@ export const CompareAnalysisPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <GitCompare className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              So sánh biến động giữa các Kỳ Báo cáo
+              {config.pageTitles?.compareTitle || 'So sánh biến động giữa các Kỳ Báo cáo'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Theo dõi diễn biến theo mốc thời gian và so sánh trực quan tăng/giảm tuyệt đối giữa các kỳ
+            {config.pageTitles?.compareSubtitle || 'Theo dõi diễn biến theo mốc thời gian và so sánh trực quan tăng/giảm tuyệt đối giữa các kỳ'}
           </p>
         </div>
 

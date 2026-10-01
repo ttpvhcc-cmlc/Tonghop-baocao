@@ -45,12 +45,16 @@ export const ReportsListPage: React.FC = () => {
     notes: '',
   });
 
+  const [config, setConfig] = useState(store.getSystemConfig());
+
   useEffect(() => {
     setReports(store.getReports());
     setCurrentUser(store.getCurrentUser());
+    setConfig(store.getSystemConfig());
     const unsub = store.subscribe(() => {
       setReports(store.getReports());
       setCurrentUser(store.getCurrentUser());
+      setConfig(store.getSystemConfig());
     });
     return () => unsub();
   }, []);
@@ -203,9 +207,14 @@ export const ReportsListPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <FileText className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Quản lý các kỳ Báo cáo
+              {config.pageTitles?.reportsListTitle || 'Quản lý các kỳ Báo cáo'}
             </h2>
           </div>
+          {config.pageTitles?.reportsListSubtitle && (
+            <p className="text-xs text-slate-500 mt-1">
+              {config.pageTitles.reportsListSubtitle}
+            </p>
+          )}
         </div>
 
         <Link
@@ -213,7 +222,7 @@ export const ReportsListPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
         >
           <Plus className="w-4 h-4" />
-          <span>Tạo kỳ báo cáo mới</span>
+          <span>{config.menuLabels?.new_report || 'Tạo kỳ báo cáo mới'}</span>
         </Link>
       </div>
 

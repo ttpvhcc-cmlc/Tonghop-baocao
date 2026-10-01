@@ -105,6 +105,9 @@ export const SystemSettingsPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [permSearchKeyword, setPermSearchKeyword] = useState('');
   const [selectedPermCategory, setSelectedPermCategory] = useState<string>('all');
+  const [navSearchKeyword, setNavSearchKeyword] = useState('');
+  const [navFilterGroup, setNavFilterGroup] = useState<'all' | 'standalone' | 'reports' | 'analysis' | 'catalogs' | 'system'>('all');
+  const [navActiveSection, setNavActiveSection] = useState<'menus' | 'titles' | 'behavior'>('menus');
 
   // User edit state
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
@@ -1042,7 +1045,113 @@ export const SystemSettingsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 3. Logo Size Config */}
+                {/* 3. Header Background & Border Color Config */}
+                <div className="space-y-3 pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-800">
+                      Màu nền & Viền thanh Header (Thanh tiêu đề trên cùng)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfig({
+                          ...config,
+                          headerBgColor: '#ffffff',
+                          headerBorderColor: '#e2e8f0',
+                        })
+                      }
+                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 cursor-pointer"
+                    >
+                      Đặt lại mặc định (Trắng)
+                    </button>
+                  </div>
+
+                  {/* Preset Background Swatches */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { name: 'Trắng sáng', bg: '#ffffff', border: '#e2e8f0' },
+                      { name: 'Xám Slate', bg: '#f8fafc', border: '#e2e8f0' },
+                      { name: 'Xanh Navy tối', bg: '#0f172a', border: '#1e293b' },
+                      { name: 'Đỏ Đô', bg: '#7f1d1d', border: '#991b1b' },
+                      { name: 'Xanh Dương', bg: '#1e3a8a', border: '#1d4ed8' },
+                      { name: 'Xanh Emerald', bg: '#064e3b', border: '#065f46' },
+                      { name: 'Tím Hoàng gia', bg: '#3b0764', border: '#581c87' },
+                      { name: 'Đen Huyền', bg: '#020617', border: '#0f172a' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() =>
+                          setConfig({
+                            ...config,
+                            headerBgColor: preset.bg,
+                            headerBorderColor: preset.border,
+                          })
+                        }
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                          (config.headerBgColor || '#ffffff').toLowerCase() === preset.bg.toLowerCase()
+                            ? 'ring-2 ring-blue-500 border-blue-500 shadow-xs'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                        style={{ backgroundColor: preset.bg, color: preset.bg === '#ffffff' || preset.bg === '#f8fafc' ? '#1e293b' : '#ffffff' }}
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-full border border-black/20"
+                          style={{ backgroundColor: preset.bg }}
+                        />
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* Header Bg Color Input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Màu nền Header (Hex):
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={config.headerBgColor || '#ffffff'}
+                          onChange={(e) => setConfig({ ...config, headerBgColor: e.target.value })}
+                          className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={config.headerBgColor || '#ffffff'}
+                          onChange={(e) => setConfig({ ...config, headerBgColor: e.target.value })}
+                          placeholder="#ffffff"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Header Border Color Input */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Màu viền dưới Header (Border):
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={config.headerBorderColor || '#e2e8f0'}
+                          onChange={(e) => setConfig({ ...config, headerBorderColor: e.target.value })}
+                          className="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0.5 bg-white shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={config.headerBorderColor || '#e2e8f0'}
+                          onChange={(e) => setConfig({ ...config, headerBorderColor: e.target.value })}
+                          placeholder="#e2e8f0"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg border border-slate-300 bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Logo Size Config */}
                 <div className="space-y-2 pt-2 border-t border-slate-200">
                   <label className="block text-xs font-semibold text-slate-800">
                     Kích thước Khung Logo (Đường kính):
@@ -1174,9 +1283,31 @@ export const SystemSettingsPage: React.FC = () => {
             </h3>
 
             {/* Header Preview */}
-            <div className="p-3 bg-white text-slate-900 rounded-xl border border-slate-200 shadow-xs">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Xem trước Thanh Header Chính (Vùng khoanh đỏ):</p>
-              <div className="flex items-center gap-2.5 p-2 bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+            <div
+              className="p-3 rounded-xl border shadow-xs transition-colors"
+              style={{
+                backgroundColor: config.headerBgColor || '#ffffff',
+                borderColor: config.headerBorderColor || '#e2e8f0',
+              }}
+            >
+              <p
+                className="text-[10px] font-bold uppercase tracking-wider mb-2 opacity-75"
+                style={{
+                  color: config.headerBgColor && (config.headerBgColor.startsWith('#0') || config.headerBgColor.startsWith('#1') || config.headerBgColor.startsWith('#2') || config.headerBgColor.startsWith('#7') || config.headerBgColor.startsWith('#3')) ? '#94a3b8' : '#64748b',
+                }}
+              >
+                Xem trước Thanh Header Chính (Vùng khoanh đỏ):
+              </p>
+              <div
+                className="flex items-center gap-2.5 p-2 rounded-lg border overflow-hidden transition-colors"
+                style={{
+                  backgroundColor: config.headerBgColor || '#ffffff',
+                  borderColor: config.headerBorderColor || '#e2e8f0',
+                }}
+              >
+                <div className="w-6 h-6 rounded-lg bg-white/20 border border-white/30 flex items-center justify-center shrink-0">
+                  <Menu className="w-3.5 h-3.5 text-white" />
+                </div>
                 <div
                   className="rounded-lg bg-transparent flex items-center justify-center shrink-0 overflow-hidden"
                   style={{ width: `${config.logoSize || 36}px`, height: `${config.logoSize || 36}px` }}
@@ -2187,162 +2318,723 @@ export const SystemSettingsPage: React.FC = () => {
       {/* TAB 2: TÙY CHỈNH TÊN MENU & TIÊU ĐỀ GIAO DIỆN */}
       {activeTab === 'navigation' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Menu Labels */}
+          {/* Menu Labels with Visibility Toggles (Thêm / Bớt Menu) */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
-              <Menu className="w-5 h-5 text-blue-600" />
-              Đổi tên hiển thị các Menu trên Sidebar
-            </h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Menu className="w-5 h-5 text-blue-600" />
+                Tùy chỉnh Tên & Thêm / Bớt hiển thị Menu
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  const allOn: Record<string, boolean> = {};
+                  Object.keys(DEFAULT_SYSTEM_CONFIG.menuVisibility || {}).forEach((k) => (allOn[k] = true));
+                  setConfig({
+                    ...config,
+                    menuVisibility: { ...(config.menuVisibility || {}), ...allOn },
+                  });
+                }}
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+              >
+                + Bật tất cả Menu
+              </button>
+            </div>
 
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Tổng quan (Dashboard):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.dashboard}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, dashboard: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+            <div className="space-y-4 max-h-[640px] overflow-y-auto pr-2 text-xs">
+              {/* Nhóm 1: Menu độc lập */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 block">
+                  1. Menu độc lập
+                </span>
+
+                {/* Dashboard */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <LayoutDashboard className="w-3.5 h-3.5 text-blue-600" />
+                      Menu Tổng quan (Dashboard):
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {config.menuVisibility?.dashboard !== false ? 'Hiển thị' : 'Đã ẩn'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.dashboard !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, dashboard: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={config.menuLabels.dashboard}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, dashboard: e.target.value } })
+                    }
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                {/* Dossier Urge */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <BellRing className="w-3.5 h-3.5 text-amber-500" />
+                      Menu Đôn đốc hồ sơ:
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {config.menuVisibility?.dossier_urge !== false ? 'Hiển thị' : 'Đã ẩn'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.dossier_urge !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, dossier_urge: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={config.menuLabels.dossier_urge || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, dossier_urge: e.target.value } })
+                    }
+                    placeholder="Đôn đốc hồ sơ"
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                {/* Procedures Control */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <FolderKanban className="w-3.5 h-3.5 text-emerald-600" />
+                      Menu Kiểm soát TTHC:
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {config.menuVisibility?.procedures_control !== false ? 'Hiển thị' : 'Đã ẩn'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.procedures_control !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, procedures_control: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={config.menuLabels.procedures_control || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, procedures_control: e.target.value } })
+                    }
+                    placeholder="Kiểm soát TTHC"
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                {/* Public Display TV 55" */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Tv className="w-3.5 h-3.5 text-rose-500" />
+                      Menu Màn hình TV 55" (Kiosk):
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {config.menuVisibility?.public_dashboard !== false ? 'Hiển thị' : 'Đã ẩn'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.public_dashboard !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, public_dashboard: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={config.menuLabels.public_dashboard || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, public_dashboard: e.target.value } })
+                    }
+                    placeholder='Màn hình TV 55"'
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Kỳ Báo cáo (Reports List):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.reports}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, reports: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* Nhóm 2: Cập nhật báo cáo */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 block">
+                    2. Nhóm: Cập nhật báo cáo
+                  </span>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <span className="text-[10px] font-medium text-slate-500">
+                      {config.menuVisibility?.update_report !== false ? 'Hiện nhóm' : 'Ẩn nhóm'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.menuVisibility?.update_report !== false}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          menuVisibility: { ...config.menuVisibility, update_report: e.target.checked },
+                        })
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Cập nhật báo cáo:</label>
+                  <input
+                    type="text"
+                    value={config.menuLabels.update_report || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, update_report: e.target.value } })
+                    }
+                    placeholder="Cập nhật báo cáo"
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {/* Submenu Kỳ báo cáo */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Submenu Kỳ báo cáo:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.reports !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, reports: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.reports}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, reports: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Submenu Tạo kỳ báo cáo */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Submenu Tạo kỳ mới:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.new_report !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, new_report: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.new_report || 'Tạo kỳ báo cáo'}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, new_report: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Submenu Nhập từ Excel */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Submenu Nhập từ Excel:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.import !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, import: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.import || 'Nhập từ Excel'}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, import: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Submenu Kho lưu trữ */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Submenu Kho lưu trữ:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.archive !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, archive: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.archive}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, archive: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Kho lưu trữ (Archive):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.archive}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, archive: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* Nhóm 3: Phân tích dữ liệu */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 block">
+                    3. Nhóm: Phân tích dữ liệu
+                  </span>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <span className="text-[10px] font-medium text-slate-500">
+                      {config.menuVisibility?.analysis_group !== false ? 'Hiện nhóm' : 'Ẩn nhóm'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.menuVisibility?.analysis_group !== false}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          menuVisibility: { ...config.menuVisibility, analysis_group: e.target.checked },
+                        })
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Phân tích:</label>
+                  <input
+                    type="text"
+                    value={config.menuLabels.analysis_group}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_group: e.target.value } })
+                    }
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  {/* Submenu Theo Đơn vị */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Theo Đơn vị:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.analysis_units !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, analysis_units: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.analysis_units}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_units: e.target.value } })
+                      }
+                      className="w-full px-2 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Submenu Theo Lĩnh vực */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Theo Lĩnh vực:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.analysis_fields !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, analysis_fields: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.analysis_fields}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_fields: e.target.value } })
+                      }
+                      className="w-full px-2 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Submenu So sánh nhiều kỳ */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">So sánh nhiều kỳ:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.analysis_compare !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, analysis_compare: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.analysis_compare || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_compare: e.target.value } })
+                      }
+                      placeholder="So sánh nhiều kỳ"
+                      className="w-full px-2 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Tạo báo cáo mới:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.new_report}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, new_report: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* Nhóm 4: Danh mục quản trị */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
+                    4. Nhóm: Danh mục quản trị
+                  </span>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <span className="text-[10px] font-medium text-slate-500">
+                      {config.menuVisibility?.catalog_group !== false ? 'Hiện nhóm' : 'Ẩn nhóm'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.menuVisibility?.catalog_group !== false}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          menuVisibility: { ...config.menuVisibility, catalog_group: e.target.checked },
+                        })
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Danh mục Quản trị:</label>
+                  <input
+                    type="text"
+                    value={config.menuLabels.catalog_group || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_group: e.target.value } })
+                    }
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {/* Đơn vị giải quyết */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Đơn vị giải quyết:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.catalog_units !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, catalog_units: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.catalog_units || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_units: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Lĩnh vực TTHC */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Lĩnh vực TTHC:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.catalog_fields !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, catalog_fields: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.catalog_fields || 'Lĩnh vực TTHC'}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_fields: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Chỉ tiêu & Công thức */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Chỉ tiêu & Công thức:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.catalog_indicators !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, catalog_indicators: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.catalog_indicators || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_indicators: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+
+                  {/* Loại kỳ báo cáo */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Loại kỳ báo cáo:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.catalog_period_types !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, catalog_period_types: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.catalog_period_types || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_period_types: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Nhập dữ liệu Excel:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.import}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, import: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              {/* Nhóm 5: Hệ thống & Kiểm soát */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block">
+                    5. Nhóm: HỆ THỐNG & KIỂM SOÁT
+                  </span>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <span className="text-[10px] font-medium text-slate-500">
+                      {config.menuVisibility?.system_group !== false ? 'Hiện nhóm' : 'Ẩn nhóm'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.menuVisibility?.system_group !== false}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          menuVisibility: { ...config.menuVisibility, system_group: e.target.checked },
+                        })
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Phân tích (Group Title):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.analysis_group}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_group: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Hệ thống & Kiểm soát:</label>
+                  <input
+                    type="text"
+                    value={config.menuLabels.system_group || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, menuLabels: { ...config.menuLabels, system_group: e.target.value } })
+                    }
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Phân tích Đơn vị:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.analysis_units}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_units: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {/* Thiết lập hệ thống */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Thiết lập hệ thống:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.system_config !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, system_config: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.system_config || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, system_config: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Phân tích Lĩnh vực:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.analysis_fields}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, analysis_fields: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                  {/* Quản lý người dùng */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Quản lý người dùng:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.system_users !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, system_users: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.system_users || 'Quản lý người dùng'}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, system_users: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Kiểm soát TTHC (Trực thuộc menu chính):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.procedures_control || 'Kiểm soát TTHC'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, procedures_control: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                  {/* Nhật ký hệ thống */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Nhật ký hệ thống:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.system_audit !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, system_audit: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.system_audit || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, system_audit: e.target.value } })
+                      }
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tên Nhóm Danh mục Quản trị:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.catalog_group || 'Danh mục quản trị'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_group: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Quản lý Loại kỳ báo cáo:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.catalog_period_types || 'Loại kỳ báo cáo'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_period_types: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Quản lý Đơn vị:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.catalog_units || 'Cơ quan, đơn vị'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_units: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Submenu Chỉ tiêu và Công thức:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.catalog_indicators || 'Chỉ tiêu và Công thức'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, catalog_indicators: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Thiết lập Hệ thống & Giao diện:</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.system_config || 'Thiết lập Hệ thống & Giao diện'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, system_config: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu Nhật ký hệ thống (Audit):</label>
-                <input
-                  type="text"
-                  value={config.menuLabels.system_audit || 'Nhật ký hệ thống (Audit)'}
-                  onChange={(e) => setConfig({ ...config, menuLabels: { ...config.menuLabels, system_audit: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+                  {/* Kiểm thử Supabase */}
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700">Kiểm thử Supabase:</span>
+                      <input
+                        type="checkbox"
+                        checked={config.menuVisibility?.system_supabase !== false}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            menuVisibility: { ...config.menuVisibility, system_supabase: e.target.checked },
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.menuLabels.system_supabase || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, menuLabels: { ...config.menuLabels, system_supabase: e.target.value } })
+                      }
+                      placeholder="Kiểm thử Supabase"
+                      className="w-full px-2.5 py-1 text-xs rounded border border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2354,55 +3046,295 @@ export const SystemSettingsPage: React.FC = () => {
               Đổi Tiêu đề các Giao diện / Màn hình chính
             </h2>
 
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Màn hình Dashboard:</label>
-                <input
-                  type="text"
-                  value={config.pageTitles.dashboardTitle}
-                  onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dashboardTitle: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+            <div className="space-y-4 max-h-[640px] overflow-y-auto pr-2 text-xs">
+              {/* 1. Dashboard */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 block">
+                  Màn hình Tổng quan (Dashboard)
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Màn hình:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.dashboardTitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dashboardTitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.dashboardSubtitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dashboardSubtitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Màn hình Dashboard:</label>
-                <input
-                  type="text"
-                  value={config.pageTitles.dashboardSubtitle}
-                  onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dashboardSubtitle: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* 2. Phân tích dữ liệu */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 block">
+                  Màn hình Phân tích dữ liệu
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Phân tích theo Đơn vị:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.analysisUnitsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, analysisUnitsTitle: e.target.value } })}
+                    placeholder="Phân tích Tình hình theo Đơn vị"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Phân tích Đơn vị:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.analysisUnitsSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, analysisUnitsSubtitle: e.target.value } })}
+                    placeholder="Thống kê chi tiết tiến độ và tỷ lệ giải quyết hồ sơ theo từng phòng ban, đơn vị"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Phân tích theo Lĩnh vực:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.analysisFieldsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, analysisFieldsTitle: e.target.value } })}
+                    placeholder="Phân tích Tình hình theo Lĩnh vực"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Phân tích Lĩnh vực:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.analysisFieldsSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, analysisFieldsSubtitle: e.target.value } })}
+                    placeholder="Đánh giá khối lượng và chất lượng giải quyết TTHC phân theo từng lĩnh vực"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề So sánh nhiều kỳ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.compareTitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, compareTitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ So sánh nhiều kỳ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.compareSubtitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, compareSubtitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Danh sách Kỳ báo cáo:</label>
-                <input
-                  type="text"
-                  value={config.pageTitles.reportsListTitle}
-                  onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, reportsListTitle: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* 3. Đôn đốc hồ sơ */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
+                  Màn hình Đôn đốc hồ sơ
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Đôn đốc hồ sơ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.dossierUrgeTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dossierUrgeTitle: e.target.value } })}
+                    placeholder="Đôn đốc và Cảnh báo Hồ sơ TTHC"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Đôn đốc hồ sơ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.dossierUrgeSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, dossierUrgeSubtitle: e.target.value } })}
+                    placeholder="Giám sát hồ sơ sắp đến hạn, quá hạn và gửi cảnh báo đôn đốc xử lý"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Màn hình Nhập Excel:</label>
-                <input
-                  type="text"
-                  value={config.pageTitles.importTitle}
-                  onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, importTitle: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* 4. Cập nhật báo cáo & Kho lưu trữ */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 block">
+                  Màn hình Cập nhật báo cáo & Kho lưu trữ
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Danh sách Kỳ báo cáo:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.reportsListTitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, reportsListTitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Danh sách Kỳ báo cáo:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.reportsListSubtitle}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, reportsListSubtitle: e.target.value } })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Kho lưu trữ Báo cáo:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.archiveTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, archiveTitle: e.target.value } })}
+                    placeholder="Kho Lưu trữ Báo cáo TTHC"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Kho lưu trữ:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.archiveSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, archiveSubtitle: e.target.value } })}
+                    placeholder="Tra cứu, sao lưu và tải xuống các báo cáo thống kê qua các giai đoạn"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Màn hình So sánh Biến động:</label>
-                <input
-                  type="text"
-                  value={config.pageTitles.compareTitle}
-                  onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, compareTitle: e.target.value } })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                />
+              {/* 5. Kiểm soát TTHC */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 block">
+                  Màn hình Kiểm soát TTHC
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Kiểm soát TTHC:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.proceduresControlTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, proceduresControlTitle: e.target.value } })}
+                    placeholder="Kiểm soát Thủ tục hành chính"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Kiểm soát TTHC:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.proceduresControlSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, proceduresControlSubtitle: e.target.value } })}
+                    placeholder="Quản lý danh mục thủ tục, thời hạn giải quyết và quy trình cung cấp dịch vụ công"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* 6. Kiosk TV 55" */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700 block">
+                  Màn hình TV 55" (Kiosk công khai)
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Màn hình Kiosk TV 55":</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.publicDashboardTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, publicDashboardTitle: e.target.value } })}
+                    placeholder="Hệ thống Thông tin Phục vụ Người dân & Doanh nghiệp (Kiosk / TV 55&quot;)"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mô tả phụ Màn hình Kiosk TV 55":</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.publicDashboardSubtitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, publicDashboardSubtitle: e.target.value } })}
+                    placeholder="Công khai, minh bạch tiến độ giải quyết thủ tục hành chính trên màn hình lớn"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* 7. Danh mục quản trị */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 block">
+                  Màn hình Danh mục quản trị
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Quản lý Đơn vị giải quyết:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.catalogUnitsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, catalogUnitsTitle: e.target.value } })}
+                    placeholder="Quản lý Đơn vị giải quyết"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Chỉ tiêu và Công thức:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.catalogIndicatorsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, catalogIndicatorsTitle: e.target.value } })}
+                    placeholder="Chỉ tiêu và Công thức Tính toán"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Loại kỳ báo cáo:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.catalogPeriodTypesTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, catalogPeriodTypesTitle: e.target.value } })}
+                    placeholder="Danh mục Loại kỳ báo cáo"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* 8. Hệ thống & Kiểm soát */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block">
+                  Màn hình Hệ thống & Kiểm soát
+                </span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Thiết lập hệ thống:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.systemSettingsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, systemSettingsTitle: e.target.value } })}
+                    placeholder="Thiết lập Hệ thống & Giao diện"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Nhật ký hệ thống (Audit):</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.auditLogsTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, auditLogsTitle: e.target.value } })}
+                    placeholder="Nhật ký Hoạt động Hệ thống (Audit Logs)"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tiêu đề Kiểm thử Supabase:</label>
+                  <input
+                    type="text"
+                    value={config.pageTitles.supabaseTestTitle || ''}
+                    onChange={(e) => setConfig({ ...config, pageTitles: { ...config.pageTitles, supabaseTestTitle: e.target.value } })}
+                    placeholder="Kiểm tra Kết nối Cơ sở dữ liệu Supabase"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
               </div>
             </div>
           </div>

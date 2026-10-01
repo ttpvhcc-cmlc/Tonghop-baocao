@@ -22,6 +22,9 @@ import {
   BellRing,
   GripVertical,
   Check,
+  FilePlus,
+  UploadCloud,
+  Users,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -32,11 +35,11 @@ interface SidebarProps {
 
 const DEFAULT_MENU_ORDER = [
   'dashboard',
-  'public_dashboard',
+  'analysis_group',
   'dossier_urge',
   'update_report',
-  'analysis_group',
   'procedures_control',
+  'public_dashboard',
   'catalog_group',
   'system_group',
 ];
@@ -82,6 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
   const canViewPublicDashboard = store.hasPermission('view_public_dashboard', activeUser);
   const canViewDossierUrge = store.hasPermission('view_dossier_urge', activeUser);
   const canViewReports = store.hasPermission('view_reports', activeUser);
+  const canCreateReports = store.hasPermission('create_reports', activeUser);
+  const canImportExcel = store.hasPermission('import_excel', activeUser);
   const canViewArchive = store.hasPermission('view_archive', activeUser);
   const canViewAnalysisUnits = store.hasPermission('view_analysis_units', activeUser);
   const canViewAnalysisFields = store.hasPermission('view_analysis_fields', activeUser);
@@ -96,11 +101,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
   const canViewAuditLogs = store.hasPermission('view_audit_logs', activeUser);
   const canManageDatabaseTest = store.hasPermission('manage_database_test', activeUser) || canManageSystemConfig;
 
-  const showAnalysisGroup = canViewAnalysisUnits || canViewAnalysisFields || canViewAnalysisCompare;
-  const showCatalogGroup = canManageCatalogs || canManageUnitsCatalog || canManageIndicatorsCatalog || canManagePeriodTypesCatalog;
-  const showProceduresControl = canManageProceduresControl || canManageCatalogs;
+  // Helper to check if a menu item is enabled in SystemConfig.menuVisibility
+  const isItemVisible = (key: string): boolean => {
+    if (config.menuVisibility && config.menuVisibility[key] === false) {
+      return false;
+    }
+    return true;
+  };
+
+  const showAnalysisGroup =
+    isItemVisible('analysis_group') &&
+    ((canViewAnalysisUnits && isItemVisible('analysis_units')) ||
+      (canViewAnalysisFields && isItemVisible('analysis_fields')) ||
+      (canViewAnalysisCompare && isItemVisible('analysis_compare')));
+
+  const showCatalogGroup =
+    isItemVisible('catalog_group') &&
+    ((canManageUnitsCatalog && isItemVisible('catalog_units')) ||
+      ((canManageProceduresControl || canManageCatalogs) && isItemVisible('catalog_fields')) ||
+      (canManageIndicatorsCatalog && isItemVisible('catalog_indicators')) ||
+      (canManagePeriodTypesCatalog && isItemVisible('catalog_period_types')));
+
+  const showProceduresControl = isItemVisible('procedures_control') && (canManageProceduresControl || canManageCatalogs);
   const showSystemConfig = canManageSystemConfig || canManageUsers;
-  const showSystemGroup = showSystemConfig || canViewAuditLogs || canManageDatabaseTest;
+  const showSystemGroup =
+    isItemVisible('system_group') &&
+    ((showSystemConfig && isItemVisible('system_config')) ||
+      (canManageUsers && isItemVisible('system_users')) ||
+      (canViewAuditLogs && isItemVisible('system_audit')) ||
+      (canManageDatabaseTest && isItemVisible('system_supabase')));
+
+  const showUpdateReportGroup =
+    isItemVisible('update_report') &&
+    ((canViewReports && isItemVisible('reports')) ||
+      (canCreateReports && isItemVisible('new_report')) ||
+      (canImportExcel && isItemVisible('import')) ||
+      ((canViewArchive || canViewReports) && isItemVisible('archive')));
 
   const isUpdateReportActive =
     location.pathname.startsWith('/reports') ||
@@ -227,7 +263,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
   const renderMenuItem = (itemKey: string) => {
     switch (itemKey) {
       case 'dashboard':
-        if (!canViewDashboard) return null;
+        if (!canViewDashboard || !isItemVisible('dashboard')) return null;
         return (
           <NavLink to="/dashboard" className={navClass} id="nav-dashboard" title={menu.dashboard}>
             <LayoutDashboard className="w-4 h-4 shrink-0" />
@@ -236,23 +272,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
         );
 
       case 'public_dashboard':
-        if (!canViewPublicDashboard) return null;
+        if (!canViewPublicDashboard || !isItemVisible('public_dashboard')) return null;
         return (
           <NavLink
             to="/public-dashboard"
             className={navClass}
             id="nav-tv"
-            title="Màn hình TV 55 inch (Kiosk công khai)"
+            title={menu.public_dashboard || 'Màn hình TV 55" (Kiosk công khai)'}
             target="_blank"
             rel="noopener noreferrer"
           >
             <Tv className="w-4 h-4 text-rose-400 shrink-0" />
-            <span className="flex-1 truncate">Màn hình TV 55"</span>
+            <span className="flex-1 truncate">{menu.public_dashboard || 'Màn hình TV 55"'}</span>
           </NavLink>
         );
 
       case 'dossier_urge':
-        if (!canViewDossierUrge) return null;
+        if (!canViewDossierUrge || !isItemVisible('dossier_urge')) return null;
         return (
           <NavLink
             to="/dossier-urge"
@@ -266,7 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
         );
 
       case 'update_report':
-        if (!canViewReports && !canViewArchive) return null;
+        if (!showUpdateReportGroup) return null;
         return (
           <div className="pt-0.5">
             <button
@@ -278,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
             >
               <div className="flex items-center gap-3 truncate">
                 <FileText className="w-4 h-4 text-blue-400 shrink-0" />
-                <span className="truncate">Cập nhật báo cáo</span>
+                <span className="truncate">{menu.update_report || 'Cập nhật báo cáo'}</span>
               </div>
               <ChevronDown
                 className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
@@ -289,16 +325,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
 
             {updateReportOpen && (
               <div className="mt-1 space-y-0.5">
-                {canViewReports && (
-                  <NavLink to="/reports" className={subNavClass} title="Kỳ báo cáo">
+                {canViewReports && isItemVisible('reports') && (
+                  <NavLink to="/reports" className={subNavClass} title={menu.reports || 'Kỳ báo cáo'}>
                     <CalendarRange className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-                    <span>Kỳ báo cáo</span>
+                    <span>{menu.reports || 'Kỳ báo cáo'}</span>
                   </NavLink>
                 )}
-                {(canViewArchive || canViewReports) && (
-                  <NavLink to="/archive" className={subNavClass} title="Kho lưu trữ">
+                {canCreateReports && isItemVisible('new_report') && (
+                  <NavLink to="/reports/new" className={subNavClass} title={menu.new_report || 'Tạo kỳ báo cáo'}>
+                    <FilePlus className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                    <span>{menu.new_report || 'Tạo kỳ báo cáo'}</span>
+                  </NavLink>
+                )}
+                {canImportExcel && isItemVisible('import') && (
+                  <NavLink to="/import" className={subNavClass} title={menu.import || 'Nhập từ Excel'}>
+                    <UploadCloud className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+                    <span>{menu.import || 'Nhập từ Excel'}</span>
+                  </NavLink>
+                )}
+                {(canViewArchive || canViewReports) && isItemVisible('archive') && (
+                  <NavLink to="/archive" className={subNavClass} title={menu.archive || 'Kho lưu trữ'}>
                     <Archive className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                    <span>Kho lưu trữ</span>
+                    <span>{menu.archive || 'Kho lưu trữ'}</span>
                   </NavLink>
                 )}
               </div>
@@ -330,19 +378,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
 
             {analysisOpen && (
               <div className="mt-1 space-y-0.5">
-                {canViewAnalysisUnits && (
+                {canViewAnalysisUnits && isItemVisible('analysis_units') && (
                   <NavLink to="/analysis/units" className={subNavClass} title={menu.analysis_units}>
                     <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-400" />
                     <span>{menu.analysis_units}</span>
                   </NavLink>
                 )}
-                {canViewAnalysisFields && (
+                {canViewAnalysisFields && isItemVisible('analysis_fields') && (
                   <NavLink to="/analysis/fields" className={subNavClass} title={menu.analysis_fields}>
                     <FolderKanban className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
                     <span>{menu.analysis_fields}</span>
                   </NavLink>
                 )}
-                {canViewAnalysisCompare && (
+                {canViewAnalysisCompare && isItemVisible('analysis_compare') && (
                   <NavLink to="/analysis/compare" className={subNavClass} title={menu.analysis_compare}>
                     <GitCompare className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
                     <span>{menu.analysis_compare}</span>
@@ -393,19 +441,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
 
             {catalogOpen && (
               <div className="mt-1 space-y-0.5">
-                {canManageUnitsCatalog && (
+                {canManageUnitsCatalog && isItemVisible('catalog_units') && (
                   <NavLink to="/admin/units" className={subNavClass} title={menu.catalog_units || 'Đơn vị giải quyết'}>
                     <Building2 className="w-3.5 h-3.5 shrink-0 text-amber-400" />
                     <span>{menu.catalog_units || 'Đơn vị giải quyết'}</span>
                   </NavLink>
                 )}
-                {canManageIndicatorsCatalog && (
+                {(canManageProceduresControl || canManageCatalogs) && isItemVisible('catalog_fields') && (
+                  <NavLink to="/admin/fields" className={subNavClass} title={menu.catalog_fields || 'Lĩnh vực TTHC'}>
+                    <FolderKanban className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                    <span>{menu.catalog_fields || 'Lĩnh vực TTHC'}</span>
+                  </NavLink>
+                )}
+                {canManageIndicatorsCatalog && isItemVisible('catalog_indicators') && (
                   <NavLink to="/admin/indicators" className={subNavClass} title={menu.catalog_indicators || 'Chỉ tiêu và Công thức'}>
                     <SlidersHorizontal className="w-3.5 h-3.5 shrink-0 text-teal-400" />
                     <span>{menu.catalog_indicators || 'Chỉ tiêu và Công thức'}</span>
                   </NavLink>
                 )}
-                {canManagePeriodTypesCatalog && (
+                {canManagePeriodTypesCatalog && isItemVisible('catalog_period_types') && (
                   <NavLink to="/admin/period-types" className={subNavClass} title={menu.catalog_period_types || 'Loại kỳ báo cáo'}>
                     <CalendarRange className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
                     <span>{menu.catalog_period_types || 'Loại kỳ báo cáo'}</span>
@@ -424,15 +478,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
               {menu.system_group || 'Hệ thống và Kiểm soát'}
             </div>
             {/* Cấu hình hệ thống */}
-            {showSystemConfig && (
+            {showSystemConfig && isItemVisible('system_config') && (
               <NavLink to="/admin/settings" className={navClass} id="nav-settings" title={menu.system_config || 'Thiết lập Hệ thống & Giao diện'}>
                 <Settings className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="flex-1 truncate">{menu.system_config || 'Thiết lập Hệ thống & Giao diện'}</span>
               </NavLink>
             )}
 
+            {/* Quản lý người dùng */}
+            {canManageUsers && isItemVisible('system_users') && (
+              <NavLink to="/admin/users" className={navClass} id="nav-users" title={menu.system_users || 'Quản lý người dùng'}>
+                <Users className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="flex-1 truncate">{menu.system_users || 'Quản lý người dùng'}</span>
+              </NavLink>
+            )}
+
             {/* Nhật ký hệ thống */}
-            {canViewAuditLogs && (
+            {canViewAuditLogs && isItemVisible('system_audit') && (
               <NavLink to="/admin/audit-logs" className={navClass} id="nav-audit" title={menu.system_audit || 'Nhật ký hệ thống (Audit)'}>
                 <History className="w-4 h-4 shrink-0 text-indigo-400" />
                 <span className="flex-1 truncate">{menu.system_audit || 'Nhật ký hệ thống (Audit)'}</span>
@@ -440,7 +502,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser: propCurrentUser, 
             )}
 
             {/* Supabase Integration & Verification */}
-            {canManageDatabaseTest && (
+            {canManageDatabaseTest && isItemVisible('system_supabase') && (
               <NavLink to="/admin/supabase" className={navClass} id="nav-supabase" title={menu.system_supabase || 'Kiểm thử Supabase'}>
                 <Database className="w-4 h-4 text-emerald-400 shrink-0" />
                 <div className="flex items-center justify-between flex-1 truncate">

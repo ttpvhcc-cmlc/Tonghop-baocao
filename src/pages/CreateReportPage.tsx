@@ -128,11 +128,14 @@ export const CreateReportPage: React.FC = () => {
     return activeList.length > 0 ? activeList : list;
   });
 
+  const [config, setConfig] = useState(store.getSystemConfig());
+
   useEffect(() => {
     const refresh = () => {
       const list = store.getPeriodTypes();
       const activeList = list.filter((pt) => pt.active !== false);
       setPeriodTypes(activeList.length > 0 ? activeList : list);
+      setConfig(store.getSystemConfig());
     };
     return store.subscribe(refresh);
   }, []);
@@ -306,8 +309,13 @@ export const CreateReportPage: React.FC = () => {
               <span className="text-blue-600 font-semibold">Tạo mới</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Khởi tạo kỳ Báo cáo mới
+              {config.pageTitles?.newReportTitle || 'Khởi tạo kỳ Báo cáo mới'}
             </h1>
+            {config.pageTitles?.newReportSubtitle && (
+              <p className="text-xs text-slate-500 mt-1">
+                {config.pageTitles.newReportSubtitle}
+              </p>
+            )}
           </div>
         </div>
 

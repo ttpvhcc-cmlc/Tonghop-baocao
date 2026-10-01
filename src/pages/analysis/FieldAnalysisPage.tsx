@@ -32,6 +32,7 @@ export const FieldAnalysisPage: React.FC = () => {
   const [reports, setReports] = useState(store.getReports());
   const [units, setUnits] = useState(store.getUnits());
   const [allFields, setAllFields] = useState(store.getFields());
+  const [config, setConfig] = useState(store.getSystemConfig());
   const [selectedReportId, setSelectedReportId] = useState<string>(reports[0]?.id || '');
   const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
   const [search, setSearch] = useState('');
@@ -59,6 +60,7 @@ export const FieldAnalysisPage: React.FC = () => {
       setReports(nextReports);
       setUnits(store.getUnits());
       setAllFields(store.getFields());
+      setConfig(store.getSystemConfig());
       setSelectedReportId((current) => current || nextReports[0]?.id || '');
     };
     void store.fetchReports().then(refresh).catch((error) => console.warn('Không thể tải báo cáo từ Supabase:', error));
@@ -272,11 +274,11 @@ export const FieldAnalysisPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <FolderKanban className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Phân tích chi tiết theo Lĩnh vực TTHC
+              {config.pageTitles?.analysisFieldsTitle || 'Phân tích chi tiết theo Lĩnh vực TTHC'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Tổng hợp dữ liệu báo cáo theo từng Lĩnh vực TTHC ({filteredSectors.length} lĩnh vực), theo dõi cơ cấu tiếp nhận, tiến độ giải quyết và tỷ lệ đúng hạn
+            {config.pageTitles?.analysisFieldsSubtitle || `Tổng hợp dữ liệu báo cáo theo từng Lĩnh vực TTHC (${filteredSectors.length} lĩnh vực), theo dõi cơ cấu tiếp nhận, tiến độ giải quyết và tỷ lệ đúng hạn`}
           </p>
         </div>
 
