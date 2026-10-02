@@ -20,12 +20,13 @@ import {
 import { DossierUrgeRecord, UrgeFilterCriteria, UrgeChannel, UrgeStatus } from '../../types/dossierUrge';
 import * as XLSX from 'xlsx';
 import { store } from '../../services/store';
+import { normalizeUnitName } from '../../services/dossierUrgeStore';
 
 interface UrgeTableProps {
   urges: DossierUrgeRecord[];
   onViewDetail: (record: DossierUrgeRecord) => void;
   onPrint: (record: DossierUrgeRecord) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<boolean | void> | void;
   onEdit?: (record: DossierUrgeRecord) => void;
   criteria: Partial<UrgeFilterCriteria>;
   onCriteriaChange: (next: Partial<UrgeFilterCriteria>) => void;
@@ -44,6 +45,7 @@ export const UrgeTable: React.FC<UrgeTableProps> = ({
   const isAdmin = currentUser?.role === 'admin' || currentUser?.id === 'admin' || store.hasPermission('admin' as any, currentUser);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
@@ -56,7 +58,7 @@ export const UrgeTable: React.FC<UrgeTableProps> = ({
   const paginatedUrges = urges.slice(startIndex, startIndex + pageSize);
 
   // Lấy danh sách unique units và processors để filter
-  const unitOptions = Array.from(new Set(urges.map((u) => u.assigned_unit).filter(Boolean)));
+  const unitOptions = Array.from(new Set(urges.map((u) => normalizeUnitName(u.assigned_unit)).filter(Boolean)));
   const processorOptions = Array.from(new Set(urges.map((u) => u.processor_name).filter(Boolean)));
 
   const formatUrgeDate = (receptionTime?: string, createdAt?: string) => {
@@ -383,8 +385,8 @@ export const UrgeTable: React.FC<UrgeTableProps> = ({
 
                     {/* Đơn vị chủ trì & Người thụ lý */}
                     <td className="py-3 px-3">
-                      <div className="font-medium text-slate-900 dark:text-white truncate max-w-[170px]" title={record.assigned_unit}>
-                        {record.assigned_unit}
+                      <div className="font-medium text-slate-900 dark:text-white truncate max-w-[170px]" title={normalizeUnitName(record.assigned_unit)}>
+                        {normalizeUnitName(record.assigned_unit)}
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                         <User className="w-3 h-3" />
@@ -467,18 +469,27 @@ export const UrgeTable: React.FC<UrgeTableProps> = ({
                               <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/80 p-1 rounded-lg border border-red-200 dark:border-red-900/60 animate-in fade-in duration-100">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    onDelete(record.id);
-                                    setDeletingId(null);
+                                  disabled={isDeleting}
+                                  onClick={async () => {
+                                    try {
+                                      setIsDeleting(true);
+                                      await onDelete(record.id);
+                                    } catch (err: any) {
+                                      alert(err?.message || 'Lỗi khi xóa phiếu đôn đốc');
+                                    } finally {
+                                      setIsDeleting(false);
+                                      setDeletingId(null);
+                                    }
                                   }}
-                                  className="px-2 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md cursor-pointer transition-all"
+                                  className="px-2 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md cursor-pointer transition-all disabled:opacity-50"
                                 >
-                                  Xóa
+                                  {isDeleting ? 'Đang xóa...' : 'Xác nhận xóa'}
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={isDeleting}
                                   onClick={() => setDeletingId(null)}
-                                  className="px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-md cursor-pointer transition-all"
+                                  className="px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-md cursor-pointer transition-all disabled:opacity-50"
                                 >
                                   Hủy
                                 </button>

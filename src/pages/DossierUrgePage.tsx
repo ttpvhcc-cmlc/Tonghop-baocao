@@ -47,6 +47,7 @@ export const DossierUrgePage: React.FC = () => {
   };
 
   useEffect(() => {
+    void dossierUrgeStore.syncWithSupabase();
     reloadData();
     return dossierUrgeStore.subscribe(reloadData);
   }, [criteria]);
@@ -160,7 +161,10 @@ export const DossierUrgePage: React.FC = () => {
           urges={urges}
           onViewDetail={(r) => setDetailRecord(r)}
           onPrint={(r) => setPrintRecord(r)}
-          onDelete={(id) => dossierUrgeStore.deleteUrge(id)}
+          onDelete={async (id) => {
+            await dossierUrgeStore.deleteUrge(id);
+            reloadData();
+          }}
           onEdit={handleEditRecord}
           criteria={criteria}
           onCriteriaChange={(next) => setCriteria((prev) => ({ ...prev, ...next }))}

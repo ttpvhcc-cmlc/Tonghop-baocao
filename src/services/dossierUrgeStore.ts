@@ -30,6 +30,62 @@ export const getSortTimestamp = (r: DossierUrgeRecord): number => {
   return new Date(r.created_at).getTime();
 };
 
+/**
+ * Chuẩn hóa tên đơn vị chủ trì theo đúng danh mục Đơn vị giải quyết chính thức.
+ * Tránh việc cùng một đơn vị nhưng bị tách làm hai dòng (như 'Kinh tế' và 'Phòng Kinh tế').
+ */
+export const normalizeUnitName = (rawUnit?: string): string => {
+  if (!rawUnit) return 'Chưa phân loại đơn vị';
+  const trimmed = rawUnit.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Biến thể của Phòng Kinh tế
+  if (
+    lower === 'kinh tế' ||
+    lower === 'kinh te' ||
+    lower === 'phòng kinh tế' ||
+    lower === 'phong kinh te' ||
+    lower === 'pkt' ||
+    lower.includes('kinh tế') ||
+    lower.includes('kinh te')
+  ) {
+    return 'Phòng Kinh tế';
+  }
+
+  // Biến thể của Phòng Văn hóa - Xã hội
+  if (
+    lower === 'văn hóa - xã hội' ||
+    lower === 'van hoa - xa hoi' ||
+    lower === 'phòng văn hóa - xã hội' ||
+    lower === 'phong van hoa - xa hoi' ||
+    lower === 'phòng vhxh' ||
+    lower === 'phong vhxh' ||
+    lower === 'vhxh' ||
+    lower === 'pvhxh' ||
+    lower === 'văn hóa' ||
+    lower === 'van hoa' ||
+    lower.includes('văn hóa') ||
+    lower.includes('van hoa') ||
+    lower.includes('xã hội') ||
+    lower.includes('xa hoi')
+  ) {
+    return 'Phòng Văn hóa - Xã hội';
+  }
+
+  // Biến thể của Văn phòng
+  if (
+    lower === 'văn phòng' ||
+    lower === 'van phong' ||
+    lower === 'vp' ||
+    lower.includes('văn phòng') ||
+    lower.includes('van phong')
+  ) {
+    return 'Văn phòng';
+  }
+
+  return trimmed;
+};
+
 const STORAGE_KEY = 'tthc_dossier_urges_v1';
 
 export const INITIAL_SAMPLE_URGES: DossierUrgeRecord[] = [];
@@ -39,6 +95,7 @@ type UrgeListener = () => void;
 class DossierUrgeStore {
   private records: DossierUrgeRecord[] = [];
   private listeners: Set<UrgeListener> = new Set();
+  private deletedIdentifiers: Set<string> = new Set();
 
   public isSupabaseConnected: boolean = false;
   public isSyncing: boolean = false;
@@ -47,8 +104,15 @@ class DossierUrgeStore {
   private hasDossierUrgesTable: boolean = false;
 
   constructor() {
-    this.loadFromStorage();
+    // Không sử dụng localStorage - xóa bỏ triệt để cache cũ trên trình duyệt để tránh khôi phục nhầm bản ghi đã xóa
     if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {
+        // Ignored
+      }
+
+      // Tải trực tiếp dữ liệu từ CSDL Supabase
       setTimeout(() => {
         void this.syncWithSupabase();
         this.setupRealtimeSubscription();
@@ -61,48 +125,6 @@ class DossierUrgeStore {
       window.addEventListener('online', () => {
         void this.syncWithSupabase();
       });
-    }
-  }
-
-  private loadFromStorage() {
-    if (typeof window === 'undefined') {
-      this.records = [];
-      return;
-    }
-
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const userOnly = parsed
-            .filter((r: any) => r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id))
-            .map((r: any) => {
-              const { original_content, proposal, ...rest } = r;
-              return rest;
-            });
-          this.records = this.migrateTicketCodes(userOnly);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to parse dossier urges from storage:', e);
-    }
-
-    this.records = [];
-  }
-
-  private saveToStorage(shouldPush: boolean = true) {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.records));
-      } catch (e) {
-        console.warn('Failed to persist dossier urges:', e);
-      }
-    }
-    this.notify();
-    if (shouldPush) {
-      void this.pushToSupabase();
     }
   }
 
@@ -122,7 +144,8 @@ class DossierUrgeStore {
   }
 
   /**
-   * Đồng bộ dữ liệu Đôn đốc hồ sơ với Supabase (hỗ trợ cả bảng dossier_urges và bảng system_config)
+   * Tải và đồng bộ trực tiếp từ Database (Supabase) - Không lưu/đọc qua localStorage
+   * Áp dụng cơ chế Danh sách đen (Tombstones Blacklist) ngăn chặn triệt để bản ghi đã xóa hồi sinh.
    */
   public async syncWithSupabase(): Promise<boolean> {
     if (!isSupabaseConfigured || !supabase) {
@@ -134,19 +157,50 @@ class DossierUrgeStore {
     this.notify();
 
     try {
-      // 1. Thử truy vấn bảng riêng dossier_urges
+      // 0. Nạp danh sách các phiếu đã bị xóa vĩnh viễn (Tombstones Blacklist) từ Supabase
+      try {
+        const { data: delRow } = await supabase
+          .from('system_config')
+          .select('*')
+          .eq('id', 'dossier_urges_deleted')
+          .maybeSingle();
+
+        if (delRow && Array.isArray(delRow.config)) {
+          delRow.config.forEach((item: string) => {
+            if (item) this.deletedIdentifiers.add(item);
+          });
+        }
+      } catch (delErr) {
+        console.warn('Lỗi đọc danh mục phiếu đã xóa:', delErr);
+      }
+
+      const isDeletedRecord = (r: any): boolean => {
+        if (!r) return true;
+        if (r.id && this.deletedIdentifiers.has(r.id)) return true;
+        if (r.ticket_code && this.deletedIdentifiers.has(r.ticket_code)) return true;
+        return false;
+      };
+
+      // 1. Thử truy vấn bảng riêng dossier_urges nếu có
       const { data: tableData, error: tableError } = await supabase
         .from('dossier_urges')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!tableError) {
+      if (!tableError && tableData) {
         this.hasDossierUrgesTable = true;
         this.isSupabaseConnected = true;
         this.syncError = null;
-        await this.mergeAndSyncRecords(tableData || [], 'table');
+        const cleanList = (tableData || [])
+          .filter((r: any) => r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id))
+          .filter((r: any) => !isDeletedRecord(r))
+          .map((r: any) => ({
+            ...r,
+            assigned_unit: normalizeUnitName(r.assigned_unit),
+          }));
+        this.records = this.migrateTicketCodes(cleanList);
       } else {
-        // 2. Nếu bảng riêng chưa có, fallback sang bảng system_config (id = 'dossier_urges')
+        // 2. Fallback sang bảng lưu cấu hình hệ thống system_config (dòng id = 'dossier_urges')
         this.hasDossierUrgesTable = false;
         const { data: cfgRow, error: cfgError } = await supabase
           .from('system_config')
@@ -158,7 +212,23 @@ class DossierUrgeStore {
           this.isSupabaseConnected = true;
           this.syncError = null;
           const remoteList: DossierUrgeRecord[] = (cfgRow && Array.isArray(cfgRow.config)) ? cfgRow.config : [];
-          await this.mergeAndSyncRecords(remoteList, 'config');
+          const cleanList = remoteList
+            .filter((r: any) => r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id))
+            .filter((r: any) => !isDeletedRecord(r))
+            .map((r: any) => ({
+              ...r,
+              assigned_unit: normalizeUnitName(r.assigned_unit),
+            }));
+          this.records = this.migrateTicketCodes(cleanList);
+
+          // Nếu phát hiện trong CSDL vẫn còn bản ghi đã bị xóa, tự động làm sạch dứt điểm
+          if (remoteList.length > cleanList.length) {
+            void supabase.from('system_config').upsert({
+              id: 'dossier_urges',
+              config: cleanList,
+              updated_at: new Date().toISOString(),
+            });
+          }
         } else {
           this.syncError = cfgError.message;
           this.isSupabaseConnected = false;
@@ -168,7 +238,7 @@ class DossierUrgeStore {
       this.lastSyncTime = new Date().toISOString();
       return true;
     } catch (err: any) {
-      console.warn('Lỗi đồng bộ hồ sơ đôn đốc với Supabase:', err);
+      console.warn('Lỗi tải hồ sơ đôn đốc từ Supabase:', err);
       this.syncError = err.message || 'Lỗi kết nối CSDL Supabase';
       this.isSupabaseConnected = false;
       return false;
@@ -179,78 +249,41 @@ class DossierUrgeStore {
   }
 
   /**
-   * Gộp thông minh giữa bản ghi cục bộ (localStorage) và máy chủ (Supabase)
-   */
-  private async mergeAndSyncRecords(remoteList: DossierUrgeRecord[], target: 'table' | 'config'): Promise<void> {
-    const map = new Map<string, DossierUrgeRecord>();
-
-    // Đưa bản ghi từ Supabase vào map (Lọc bỏ triệt để các bản ghi mẫu seed)
-    remoteList.forEach((r) => {
-      if (r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id)) {
-        map.set(r.id, r);
-      }
-    });
-
-    // Kiểm tra xem localStorage có bản ghi mới nào chưa được đẩy lên Supabase không
-    let hasLocalNew = false;
-    this.records.forEach((localR) => {
-      if (localR && localR.id && !localR.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(localR.id) && !map.has(localR.id)) {
-        map.set(localR.id, localR);
-        hasLocalNew = true;
-      }
-    });
-
-    const merged = Array.from(map.values());
-    this.records = this.migrateTicketCodes(merged);
-    this.saveToStorage(false); // Lưu vào localStorage không gọi lại pushToSupabase
-
-    // Nếu có dữ liệu mới từ local chưa có trên Supabase, đẩy lên ngay
-    if (hasLocalNew && supabase && isSupabaseConfigured) {
-      try {
-        if (target === 'table') {
-          await supabase.from('dossier_urges').upsert(this.records);
-        } else {
-          await supabase.from('system_config').upsert({
-            id: 'dossier_urges',
-            config: this.records,
-            updated_at: new Date().toISOString(),
-          });
-        }
-      } catch (pushErr) {
-        console.warn('Lỗi đẩy dữ liệu gộp lên Supabase:', pushErr);
-      }
-    }
-  }
-
-  /**
-   * Đẩy danh sách bản ghi lên Supabase
+   * Đẩy danh sách bản ghi trực tiếp lên Supabase (CSDL trung tâm)
    */
   public async pushToSupabase(): Promise<void> {
     if (!isSupabaseConfigured || !supabase) return;
 
     try {
       if (this.hasDossierUrgesTable) {
-        const { error } = await supabase.from('dossier_urges').upsert(this.records);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('system_config').upsert({
-          id: 'dossier_urges',
-          config: this.records,
-          updated_at: new Date().toISOString(),
-        });
-        if (error) throw error;
+        try {
+          await supabase.from('dossier_urges').upsert(this.records);
+        } catch (e) {
+          console.warn('dossier_urges table upsert:', e);
+        }
       }
+
+      // Luôn ghi trực tiếp vào system_config đảm bảo tính toàn vẹn
+      const { error } = await supabase.from('system_config').upsert({
+        id: 'dossier_urges',
+        config: this.records,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
       this.lastSyncTime = new Date().toISOString();
       this.isSupabaseConnected = true;
       this.syncError = null;
     } catch (err: any) {
-      console.warn('Lỗi ghi đôn đốc lên Supabase:', err);
+      console.error('Lỗi ghi đôn đốc lên Supabase:', err);
       this.syncError = err.message;
+      throw err;
     }
   }
 
   /**
-   * Thiết lập lắng nghe Realtime thay đổi từ các máy tính khác
+   * Thiết lập lắng nghe Realtime thay đổi từ các phiên làm việc khác
    */
   private setupRealtimeSubscription() {
     if (typeof window === 'undefined' || !isSupabaseConfigured || !supabase) return;
@@ -263,10 +296,35 @@ class DossierUrgeStore {
           { event: '*', schema: 'public', table: 'system_config', filter: 'id=eq.dossier_urges' },
           (payload: any) => {
             if (payload?.new && Array.isArray(payload.new.config)) {
-              const cleaned = payload.new.config.filter((r: any) => r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id));
+              const isDeletedRecord = (r: any): boolean => {
+                if (!r) return true;
+                if (r.id && this.deletedIdentifiers.has(r.id)) return true;
+                if (r.ticket_code && this.deletedIdentifiers.has(r.ticket_code)) return true;
+                return false;
+              };
+
+              const cleaned = payload.new.config
+                .filter((r: any) => r && r.id && !r.id.startsWith('urge_seed_') && !/^urge_00[1-9]/.test(r.id))
+                .filter((r: any) => !isDeletedRecord(r))
+                .map((r: any) => ({
+                  ...r,
+                  assigned_unit: normalizeUnitName(r.assigned_unit),
+                }));
               this.records = this.migrateTicketCodes(cleaned);
-              this.saveToStorage(false);
               this.lastSyncTime = new Date().toISOString();
+              this.notify();
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'system_config', filter: 'id=eq.dossier_urges_deleted' },
+          (payload: any) => {
+            if (payload?.new && Array.isArray(payload.new.config)) {
+              payload.new.config.forEach((item: string) => {
+                if (item) this.deletedIdentifiers.add(item);
+              });
+              this.records = this.records.filter((r) => !this.deletedIdentifiers.has(r.id) && (!r.ticket_code || !this.deletedIdentifiers.has(r.ticket_code)));
               this.notify();
             }
           }
@@ -323,7 +381,8 @@ class DossierUrgeStore {
 
     // 3. Đơn vị chủ trì
     if (criteria.assignedUnit && criteria.assignedUnit !== 'all') {
-      list = list.filter((r) => r.assigned_unit === criteria.assignedUnit);
+      const targetUnit = normalizeUnitName(criteria.assignedUnit);
+      list = list.filter((r) => normalizeUnitName(r.assigned_unit) === targetUnit);
     }
 
     // 4. Người thụ lý
@@ -484,6 +543,7 @@ class DossierUrgeStore {
       ...cleanedData,
       id: `urge_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       ticket_code: data.ticket_code || this.generateTicketCode(data.reception_time),
+      assigned_unit: normalizeUnitName(data.assigned_unit),
       urge_count: urgeNumber,
       status: data.status || 'pending',
       urgency: data.urgency || (urgeNumber >= 2 ? 'express' : 'normal'),
@@ -491,7 +551,8 @@ class DossierUrgeStore {
     };
 
     this.records.unshift(newRecord);
-    this.saveToStorage(true);
+    this.notify();
+    void this.pushToSupabase();
     return newRecord;
   }
 
@@ -506,38 +567,113 @@ class DossierUrgeStore {
       updates.original_content = sanitizePrivacyContent(updates.original_content).cleanText;
     }
 
+    if (updates.assigned_unit) {
+      updates.assigned_unit = normalizeUnitName(updates.assigned_unit);
+    }
+
     const updated = {
       ...this.records[index],
       ...updates,
     };
 
     this.records[index] = updated;
-    this.saveToStorage(true);
+    this.notify();
+    void this.pushToSupabase();
     return updated;
   }
 
   /**
-   * Xóa một bản ghi đôn đốc và xóa khỏi Supabase
+   * Xóa dứt điểm một bản ghi đôn đốc khỏi CSDL Supabase và bộ nhớ (Không dùng localStorage).
+   * Ghi nhận vĩnh viễn vào Danh mục đen (Tombstone Blacklist) để chặn đứng mọi khả năng hồi sinh.
    */
-  public deleteUrge(id: string): boolean {
+  public async deleteUrge(idOrCode: string): Promise<boolean> {
+    const target = this.records.find((r) => r.id === idOrCode || r.ticket_code === idOrCode);
+    const targetId = target ? target.id : idOrCode;
+    const targetCode = target ? target.ticket_code : idOrCode;
+
+    // 1. Thêm vào danh sách đen trong bộ nhớ
+    this.deletedIdentifiers.add(targetId);
+    if (targetCode) this.deletedIdentifiers.add(targetCode);
+    this.deletedIdentifiers.add(idOrCode);
+
+    // 2. Lọc bỏ khỏi mảng hiện tại
     const initialLen = this.records.length;
-    this.records = this.records.filter((r) => r.id !== id);
-    if (this.records.length !== initialLen) {
-      this.saveToStorage(true);
-      if (this.hasDossierUrgesTable && supabase && isSupabaseConfigured) {
-        void supabase.from('dossier_urges').delete().eq('id', id);
-      }
+    this.records = this.records.filter((r) => r.id !== targetId && r.ticket_code !== targetCode && r.id !== idOrCode && r.ticket_code !== idOrCode);
+
+    this.notify();
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {}
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
       return true;
     }
-    return false;
+
+    try {
+      // 3. Đọc và cập nhật Danh sách đen (Tombstones Blacklist) vĩnh viễn trên Supabase
+      const { data: delRow } = await supabase
+        .from('system_config')
+        .select('*')
+        .eq('id', 'dossier_urges_deleted')
+        .maybeSingle();
+
+      const currentDel: string[] = (delRow && Array.isArray(delRow.config)) ? delRow.config : [];
+      const updatedSet = new Set(currentDel);
+      updatedSet.add(targetId);
+      if (targetCode) updatedSet.add(targetCode);
+      updatedSet.add(idOrCode);
+      const updatedDelArray = Array.from(updatedSet);
+
+      await supabase.from('system_config').upsert({
+        id: 'dossier_urges_deleted',
+        config: updatedDelArray,
+        updated_at: new Date().toISOString(),
+      });
+
+      // 4. Nếu có bảng riêng dossier_urges, xóa trực tiếp dòng đó
+      if (this.hasDossierUrgesTable) {
+        try {
+          await supabase.from('dossier_urges').delete().or(`id.eq.${targetId},ticket_code.eq.${targetCode}`);
+        } catch (e) {
+          console.warn('dossier_urges table delete warning:', e);
+        }
+      }
+
+      // 5. Cập nhật mảng đã loại bỏ bản ghi bị xóa vào CSDL Supabase (system_config)
+      const { error } = await supabase.from('system_config').upsert({
+        id: 'dossier_urges',
+        config: this.records,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.error('Lỗi khi cập nhật CSDL Supabase sau khi xóa:', error);
+        this.syncError = error.message;
+        throw new Error(`Lỗi cập nhật CSDL: ${error.message}`);
+      }
+
+      this.lastSyncTime = new Date().toISOString();
+      this.isSupabaseConnected = true;
+      this.syncError = null;
+      this.notify();
+      return true;
+    } catch (err: any) {
+      console.error('Lỗi nghiêm trọng khi xóa bản ghi đôn đốc trên Supabase:', err);
+      this.syncError = err.message || 'Lỗi kết nối CSDL Supabase';
+      throw err;
+    }
   }
 
   /**
    * Đặt lại dữ liệu mẫu ban đầu
    */
-  public resetSampleData() {
+  public async resetSampleData() {
     this.records = [...INITIAL_SAMPLE_URGES];
-    this.saveToStorage(true);
+    this.notify();
+    await this.pushToSupabase();
   }
 
   // ==========================================
@@ -552,7 +688,7 @@ class DossierUrgeStore {
     const map = new Map<string, { total: number; dossierSet: Set<string>; multipleSet: Set<string>; responded: number; pending: number }>();
 
     data.forEach((r) => {
-      const u = r.assigned_unit || 'Chưa phân loại đơn vị';
+      const u = normalizeUnitName(r.assigned_unit);
       if (!map.has(u)) {
         map.set(u, { total: 0, dossierSet: new Set(), multipleSet: new Set(), responded: 0, pending: 0 });
       }
@@ -591,12 +727,13 @@ class DossierUrgeStore {
 
     data.forEach((r) => {
       const p = r.processor_name || 'Chưa xác định cán bộ';
+      const u = normalizeUnitName(r.assigned_unit);
       if (!map.has(p)) {
-        map.set(p, { unit: r.assigned_unit || '', total: 0, dossierSet: new Set(), multipleSet: new Set(), pending: 0, responded: 0 });
+        map.set(p, { unit: u, total: 0, dossierSet: new Set(), multipleSet: new Set(), pending: 0, responded: 0 });
       }
       const entry = map.get(p)!;
       entry.total += 1;
-      if (r.assigned_unit && !entry.unit) entry.unit = r.assigned_unit;
+      if (u && (!entry.unit || entry.unit !== u)) entry.unit = u;
       entry.dossierSet.add(r.dossier_code);
       if (r.urge_count >= 2) {
         entry.multipleSet.add(r.dossier_code);

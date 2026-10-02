@@ -23,7 +23,7 @@ import {
   PlusCircle,
 } from 'lucide-react';
 import { UrgeChannel, ExtractedUrgeInfo } from '../../types/dossierUrge';
-import { dossierUrgeStore } from '../../services/dossierUrgeStore';
+import { dossierUrgeStore, normalizeUnitName } from '../../services/dossierUrgeStore';
 import { extractDossierInfoRuleBased } from '../../utils/dossierExtractor';
 import { detectSensitiveIds, removeSensitiveIds } from '../../utils/privacySanitizer';
 import { store } from '../../services/store';
@@ -313,13 +313,14 @@ export const UrgeEntryForm: React.FC<UrgeEntryFormProps> = ({ onSuccess, onCance
       }
 
       // TRƯỜNG HỢP KHÔNG NHẬN DIỆN ĐƯỢC CHÍNH XÁC -> ĐỂ TRỐNG THEO YÊU CẦU (KHÔNG GÁN SAI ĐƠN VỊ)
-      setAssignedUnit(resolvedUnit || '');
+      const canonicalUnit = resolvedUnit ? normalizeUnitName(resolvedUnit) : '';
+      setAssignedUnit(canonicalUnit);
 
       // Bổ sung Thời gian tiếp nhận (định dạng dd/mm/yy hh:mm tại thời điểm bấm Bóc tách thông tin)
       setReceptionTime(formatReceptionTime(new Date()));
 
       // Bổ sung nội dung Đề nghị mặc định theo đơn vị chủ trì
-      setProposal(getDefaultProposal(resolvedUnit || ''));
+      setProposal(getDefaultProposal(canonicalUnit));
 
       setHasExtracted(true);
     } catch (err) {
@@ -358,8 +359,9 @@ export const UrgeEntryForm: React.FC<UrgeEntryFormProps> = ({ onSuccess, onCance
 
   // Thay đổi đơn vị chủ trì -> Cập nhật gợi ý Đề nghị
   const handleAssignedUnitChange = (unitName: string) => {
-    setAssignedUnit(unitName);
-    setProposal(getDefaultProposal(unitName));
+    const canonical = unitName ? normalizeUnitName(unitName) : '';
+    setAssignedUnit(canonical);
+    setProposal(getDefaultProposal(canonical));
   };
 
   // Lưu bản ghi đôn đốc (Save / Update)

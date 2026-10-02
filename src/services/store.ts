@@ -803,6 +803,12 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   ],
 };
 
+export const DEFAULT_UNITS: Unit[] = [
+  { id: 'a0000000-0000-0000-0000-000000000001', code: 'VP', name: 'Văn phòng', display_order: 1, active: true },
+  { id: 'a0000000-0000-0000-0000-000000000002', code: 'PKT', name: 'Phòng Kinh tế', display_order: 2, active: true },
+  { id: 'a0000000-0000-0000-0000-000000000003', code: 'PVHXH', name: 'Phòng Văn hóa - Xã hội', display_order: 3, active: true },
+];
+
 const GUEST_USER: Profile = {
   id: 'guest',
   email: undefined,
@@ -1878,7 +1884,10 @@ export class StorageService {
 
   // --- Units CRUD (Direct Supabase) ---
   public getUnits(): Unit[] {
-    return deduplicateById(this.inMemoryCache.units).sort((a, b) => a.display_order - b.display_order);
+    const list = this.inMemoryCache.units && this.inMemoryCache.units.length > 0
+      ? this.inMemoryCache.units
+      : DEFAULT_UNITS;
+    return deduplicateById(list).sort((a, b) => a.display_order - b.display_order);
   }
 
   public async fetchUnits(): Promise<Unit[]> {
